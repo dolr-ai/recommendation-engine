@@ -15,7 +15,7 @@ DATA_ROOT = pathlib.Path(os.getenv("DATA_ROOT"))
 # %%
 
 df_user_interaction = pd.read_parquet(
-    DATA_ROOT / "user_interaction" / "user_interaction_2025-04-01_2025-04-30.parquet"
+    DATA_ROOT / "user_interaction" / "user_interaction_2025-02-01_2025-04-30.parquet"
 )
 # %%
 df_user_interaction
@@ -68,3 +68,13 @@ save_path = DATA_ROOT / "emb_analysis" / "user_item_emb.parquet"
 save_path.parent.mkdir(parents=True, exist_ok=True)
 df_req_usr_item_emb.to_parquet(save_path)
 # %%
+
+print("number of unique users", df_req_usr_item_emb["user_id"].nunique())
+print("number of unique videos", df_req_usr_item_emb["video_id"].nunique())
+# %%
+
+save_path = DATA_ROOT / "emb_analysis" / "user_item_emb.parquet"
+df_user_item_emb = pd.read_parquet(save_path)
+df_user_item_emb.head()
+# %%
+df_user_interaction["video_id"].value_counts()

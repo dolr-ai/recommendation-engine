@@ -47,7 +47,7 @@ schemas = gcp.bigquery.get_table_schemas(
 0
 
 # %%
-start_date = datetime(2025, 4, 1)
+start_date = datetime(2025, 2, 1)
 end_date = datetime(2025, 4, 30)
 user_interaction_path = (
     DATA_ROOT
@@ -120,16 +120,23 @@ async def fetch_all_video_data(video_ids, batch_size, gcp_utils, output_dir):
 
 # Get unique video IDs
 unique_video_ids = df_user_interaction["video_id"].unique().tolist()
+print("unique video ids", df_user_interaction["video_id"].nunique())
+print("unique user ids", df_user_interaction["user_id"].nunique())
 print(f"running fetch video index on {len(unique_video_ids)} videos")
-# # Run the async function with parameters
-df_video_index = asyncio.run(
-    fetch_all_video_data(
+
+
+async def main():
+    # # Run the async function with parameters
+    _ = await fetch_all_video_data(
         video_ids=unique_video_ids,
         batch_size=100,
         gcp_utils=gcp,
         output_dir=DATA_ROOT / "video_index",
     )
-)
+
+
+asyncio.run(main())
+
 # %%
 # df_video_index
 # df_video_index["uri"].value_counts()
