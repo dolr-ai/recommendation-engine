@@ -2,11 +2,12 @@ name: Move DAGs to GCS
 
 on:
   push:
-    branches: [dev]
+    branches:
+      - dev
     paths:
       - "src/dags/dataproc/dag_dataproc_v1.py"
       - "src/dataproc_cluster_init/clone_repo.sh"
-  workflow_dispatch:
+  workflow_dispatch: # Enable manual trigger
 
 jobs:
   move-dags:
