@@ -28,6 +28,7 @@ defusedxml==0.7.1
 exceptiongroup==1.2.2
 executing==2.2.0
 fastjsonschema==2.21.1
+ffmpeg==1.4
 ffmpeg-python==0.2.0
 fonttools==4.57.0
 fqdn==1.5.1
@@ -129,7 +130,6 @@ pytz==2025.2
 pyx==0.16
 pyyaml==6.0.2
 pyzmq==26.4.0
--e file:///Users/sagar/work/yral/recommendation-engine
 referencing==0.36.2
 requests==2.32.3
 rfc3339-validator==0.1.4
@@ -169,4 +169,3 @@ webcolors==24.11.1
 webencodings==0.5.1
 websocket-client==1.8.0
 widgetsnbextension==4.0.14
-yarl==1.20.0

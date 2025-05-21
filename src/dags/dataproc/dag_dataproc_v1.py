@@ -28,7 +28,9 @@ default_args = {
     "start_date": datetime(2025, 5, 19),
 }
 
-os.environ.get("GCP_CREDENTIALS")
+# Get environment variables
+GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
+SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
 
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"
@@ -36,7 +38,7 @@ REGION = "us-central1"
 CLUSTER_NAME = (
     "staging-cluster-{{ ds_nodash }}"  # Using date to make cluster name unique
 )
-
+STAGING_BUCKET = "dataproc-staging-us-central1-749244211103-slddumfk"
 # GitHub repo to clone
 GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 
@@ -69,7 +71,7 @@ CLUSTER_CONFIG = {
     },
     "gce_cluster_config": {
         "internal_ip_only": False,  # Use internal IP addresses only
-        "service_account": os.environ.get("SERVICE_ACCOUNT"),
+        "service_account": SERVICE_ACCOUNT,
         "service_account_scopes": ["https://www.googleapis.com/auth/cloud-platform"],
         "zone_uri": f"{REGION}-a",  # Specify the zone
     },
@@ -77,6 +79,10 @@ CLUSTER_CONFIG = {
         {
             "executable_file": "gs://stage-yral-ds-dataproc-bucket/scripts/clone_repo.sh",
             "execution_timeout": {"seconds": 120},  # 2 minutes timeout
+            "metadata": {
+                "GCP_CREDENTIALS": GCP_CREDENTIALS,
+                "SERVICE_ACCOUNT": SERVICE_ACCOUNT,
+            },
         }
     ],
 }
@@ -116,6 +122,7 @@ with DAG(
         cluster_name=CLUSTER_NAME,
         cluster_config=CLUSTER_CONFIG,
         num_retries_if_resource_is_not_ready=3,
+        staging_bucket=STAGING_BUCKET,
     )
 
     # Submit the PySpark job to the cluster

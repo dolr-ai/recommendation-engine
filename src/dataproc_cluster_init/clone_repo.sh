@@ -9,9 +9,37 @@ set -x
 
 echo "Starting repository cloning and setup process..."
 
+# Retrieve metadata values and set as environment variables
+echo "Retrieving environment variables from metadata..."
+GCP_CREDENTIALS=$(curl -f -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/GCP_CREDENTIALS")
+SERVICE_ACCOUNT=$(curl -f -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/SERVICE_ACCOUNT")
+
+# Export as environment variables
+export GCP_CREDENTIALS
+export SERVICE_ACCOUNT
+
+# Verify environment variables were set
+echo "Verifying environment variables..."
+if [ -z "$GCP_CREDENTIALS" ]; then
+    echo "Warning: GCP_CREDENTIALS not set properly"
+fi
+
+if [ -z "$SERVICE_ACCOUNT" ]; then
+    echo "Warning: SERVICE_ACCOUNT not set properly"
+fi
+
+# Write credentials to a file if needed
+if [ ! -z "$GCP_CREDENTIALS" ]; then
+    echo "Writing GCP credentials to file..."
+    CREDENTIALS_FILE="${INSTALL_DIR}/credentials.json"
+    echo "$GCP_CREDENTIALS" >"$CREDENTIALS_FILE"
+    export GCP_CREDENTIALS_PATH="$CREDENTIALS_FILE"
+    echo "Credentials file created at: $CREDENTIALS_FILE"
+fi
+
 # Clone the repository
 echo "Cloning repository ${REPO_URL}..."
-git clone ${REPO_URL} ${INSTALL_DIR}
+git clone -b dev ${REPO_URL} ${INSTALL_DIR}
 
 # Check if clone was successful
 if [ $? -ne 0 ]; then
