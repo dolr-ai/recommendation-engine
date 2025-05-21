@@ -19,13 +19,11 @@ print("Arguments received:", sys.argv)
 
 DATA_ROOT = pathlib.Path("./data").absolute()
 
-if os.environ.get("GCP_CREDENTIALS") is None:
-    GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials.json"
-    with open(GCP_CREDENTIALS_PATH, "r") as f:
-        _ = json.load(f)
-        gcp_credentials_str = json.dumps(_)
-else:
-    gcp_credentials_str = os.environ.get("GCP_CREDENTIALS")
+
+GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials.json"
+with open(GCP_CREDENTIALS_PATH, "r") as f:
+    _ = json.load(f)
+    gcp_credentials_str = json.dumps(_)
 
 # Initialize GCP utils
 gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
