@@ -1,0 +1,40 @@
+name: Move DAGs to GCS
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "src/dags/dataproc/dag_dataproc_v1.py"
+      - "src/dataproc_cluster_init/clone_repo.sh"
+  workflow_dispatch:
+
+jobs:
+  move-dags:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Move DAG file to Cloud Composer
+        run: |
+          gcloud composer environments storage dags import \
+            --environment data-pipeline-orchestrator \
+            --location us-central1 \
+            --source src/dags/dataproc/dag_dataproc_v1.py
+      - name: Move Init script to GCS
+        run: |
+          gcloud storage cp src/dataproc_cluster_init/clone_repo.sh \
+            stage-yral-ds-dataproc-bucket/scripts/clone_repo.sh

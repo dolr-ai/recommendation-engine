@@ -660,6 +660,7 @@ class GCPDataService:
         end_date: Optional[datetime] = None,
         user_ids: Optional[List[str]] = None,
         video_ids: Optional[List[str]] = None,
+        table_name: str = "hot-or-not-feed-intelligence.yral_ds.userVideoRelation",
         limit: Optional[int] = None,
     ) -> pd.DataFrame:
         """
@@ -670,12 +671,13 @@ class GCPDataService:
             end_date: End date (inclusive), None for no upper bound
             user_ids: List of user IDs, None for all users
             video_ids: List of video IDs, None for all videos
+            table_name: Name of the table to query default is "hot-or-not-feed-intelligence.yral_ds.userVideoRelation"
             limit: Maximum number of rows to return
 
         Returns:
             DataFrame with user interaction data
         """
-        table_name = "hot-or-not-feed-intelligence.yral_ds.userVideoRelation"
+
         date_column = "last_watched_timestamp"
 
         # Build query
@@ -721,6 +723,7 @@ class GCPDataService:
         min_duplication_score: Optional[float] = None,
         exact_duplicate_only: bool = False,
         video_ids: Optional[List[str]] = None,
+        table_name: str = "hot-or-not-feed-intelligence.yral_ds.duplicate_videos",
         limit: Optional[int] = None,
     ) -> pd.DataFrame:
         """
@@ -730,12 +733,12 @@ class GCPDataService:
             min_duplication_score: Minimum duplication score (0-1), None for no minimum
             exact_duplicate_only: If True, only include exact duplicates
             video_ids: List of video IDs, None for all videos
+            table_name: Name of the table to query default is "hot-or-not-feed-intelligence.yral_ds.duplicate_videos"
             limit: Maximum number of rows to return
 
         Returns:
             DataFrame with duplicate videos data
         """
-        table_name = "hot-or-not-feed-intelligence.yral_ds.duplicate_videos"
 
         # Build query
         query = f"SELECT * FROM `{table_name}`"
@@ -783,6 +786,7 @@ class GCPDataService:
             "nsfw_ec",
             "nsfw_gore",
         ],
+        table_name: str = "hot-or-not-feed-intelligence.yral_ds.video_index",
         video_ids: Optional[List[str]] = None,
         canister_ids: Optional[List[str]] = None,
         post_ids: Optional[List[str]] = None,
@@ -794,6 +798,7 @@ class GCPDataService:
 
         Args:
             columns: List of columns to return, None for all columns
+            table_name: Name of the table to query default is "hot-or-not-feed-intelligence.yral_ds.video_index"
             video_ids: List of video IDs, None for all videos
             canister_ids: List of canister IDs, None for all canisters
             post_ids: List of post IDs, None for all posts
@@ -803,8 +808,6 @@ class GCPDataService:
         Returns:
             DataFrame with video index data
         """
-
-        table_name = "hot-or-not-feed-intelligence.yral_ds.video_index"
 
         if columns:
             columns_str = ", ".join(columns)
