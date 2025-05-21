@@ -38,7 +38,6 @@ REGION = "us-central1"
 CLUSTER_NAME = (
     "staging-cluster-{{ ds_nodash }}"  # Using date to make cluster name unique
 )
-STAGING_BUCKET = "dataproc-staging-us-central1-749244211103-slddumfk"
 # GitHub repo to clone
 GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 
@@ -122,7 +121,6 @@ with DAG(
         cluster_name=CLUSTER_NAME,
         cluster_config=CLUSTER_CONFIG,
         num_retries_if_resource_is_not_ready=3,
-        staging_bucket=STAGING_BUCKET,
     )
 
     # Submit the PySpark job to the cluster
