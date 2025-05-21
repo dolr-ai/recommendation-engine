@@ -73,15 +73,15 @@ CLUSTER_CONFIG = {
         "service_account": SERVICE_ACCOUNT,
         "service_account_scopes": ["https://www.googleapis.com/auth/cloud-platform"],
         "zone_uri": f"{REGION}-a",  # Specify the zone
+        "metadata": {
+            "GCP_CREDENTIALS": GCP_CREDENTIALS,
+            "SERVICE_ACCOUNT": SERVICE_ACCOUNT,
+        },
     },
     "initialization_actions": [
         {
             "executable_file": "gs://stage-yral-ds-dataproc-bucket/scripts/clone_repo.sh",
             "execution_timeout": {"seconds": 120},  # 2 minutes timeout
-            "metadata": {
-                "GCP_CREDENTIALS": GCP_CREDENTIALS,
-                "SERVICE_ACCOUNT": SERVICE_ACCOUNT,
-            },
         }
     ],
 }
