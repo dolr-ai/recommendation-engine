@@ -68,7 +68,7 @@ CLUSTER_CONFIG = {
         "enable_http_port_access": True  # This enables component gateway
     },
     "gce_cluster_config": {
-        "internal_ip_only": True,  # Use internal IP addresses only
+        "internal_ip_only": False,  # Use internal IP addresses only
         "service_account": os.environ.get("SERVICE_ACCOUNT"),
         "service_account_scopes": ["https://www.googleapis.com/auth/cloud-platform"],
         "zone_uri": f"{REGION}-a",  # Specify the zone
