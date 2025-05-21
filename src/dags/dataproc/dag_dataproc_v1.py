@@ -128,15 +128,16 @@ with DAG(
 
     # Delete the cluster manually (even though it has auto-delete)
     # This ensures the cluster is deleted even if job completes before idle timeout
-    delete_cluster = DataprocDeleteClusterOperator(
-        task_id="delete_cluster",
-        project_id=PROJECT_ID,
-        region=REGION,
-        cluster_name=CLUSTER_NAME,
-        trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
-    )
+    # delete_cluster = DataprocDeleteClusterOperator(
+    #     task_id="delete_cluster",
+    #     project_id=PROJECT_ID,
+    #     region=REGION,
+    #     cluster_name=CLUSTER_NAME,
+    #     trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
+    # )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> create_cluster >> submit_job >> delete_cluster >> end
+    start >> create_cluster >> submit_job >> end
+    # delete_cluster >> end
