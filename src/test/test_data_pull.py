@@ -5,6 +5,7 @@ import pandas as pd
 import asyncio
 import numpy as np
 import argparse
+import sys
 from datetime import datetime
 import pathlib
 from tqdm import tqdm
@@ -13,21 +14,33 @@ from utils.common_utils import path_exists
 # utils
 from utils.gcp_utils import GCPUtils
 
-# Parse command-line arguments
-parser = argparse.ArgumentParser(description="Process GCP credentials.")
-parser.add_argument("--gcp_credentials", type=str, help="GCP credentials JSON")
-parser.add_argument("--service_account", type=str, help="Service account")
-args, unknown = parser.parse_known_args()
+print("Arguments received:", sys.argv)
 
+# Special parsing for arguments since Dataproc might pass them in unusual formats
+credentials = None
+service_account = None
+
+for i, arg in enumerate(sys.argv):
+    # Handle args in format --arg=value
+    if arg.startswith("--gcp_credentials="):
+        credentials = arg.split("=", 1)[1]
+    elif arg.startswith("--service_account="):
+        service_account = arg.split("=", 1)[1]
+    # Handle args in format --arg value (check next arg)
+    elif arg == "--gcp_credentials" and i + 1 < len(sys.argv):
+        credentials = sys.argv[i + 1]
+    elif arg == "--service_account" and i + 1 < len(sys.argv):
+        service_account = sys.argv[i + 1]
+
+if not credentials:
+    raise ValueError("GCP credentials not found in arguments")
+
+print(f"Found credentials: {credentials[:20]}...")  # Print just beginning to verify
 
 DATA_ROOT = pathlib.Path("./data").absolute()
 
-# Use credentials from command line args
-gcp_credentials_str = args.gcp_credentials
-
 # Initialize GCP utils
-gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
-del gcp_credentials_str
+gcp = GCPUtils(gcp_credentials=credentials)
 print(f"DATA_ROOT: {DATA_ROOT}")
 
 # %%

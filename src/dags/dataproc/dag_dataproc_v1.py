@@ -98,10 +98,8 @@ PYSPARK_JOB = {
         # "main_python_file_uri": "gs://stage-yral-ds-dataproc-bucket/scripts/test_cluster.py",
         # Add arguments if needed
         "args": [
-            "--gcp_credentials",
-            GCP_CREDENTIALS,
-            "--service_account",
-            SERVICE_ACCOUNT,
+            f"--gcp_credentials={GCP_CREDENTIALS}",
+            f"--service_account={SERVICE_ACCOUNT}",
         ],
     },
 }
