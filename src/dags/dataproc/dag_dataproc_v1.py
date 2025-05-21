@@ -97,7 +97,12 @@ PYSPARK_JOB = {
         # If you want to use a GCS script instead, keep the original gs:// URI
         # "main_python_file_uri": "gs://stage-yral-ds-dataproc-bucket/scripts/test_cluster.py",
         # Add arguments if needed
-        # "args": ["gs://your-bucket/input-data/", "gs://your-bucket/output-data/"],
+        "args": [
+            "--gcp_credentials",
+            GCP_CREDENTIALS,
+            "--service_account",
+            SERVICE_ACCOUNT,
+        ],
     },
 }
 

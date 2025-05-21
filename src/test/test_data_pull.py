@@ -4,8 +4,8 @@ import json
 import pandas as pd
 import asyncio
 import numpy as np
+import argparse
 from datetime import datetime
-from dotenv import load_dotenv
 import pathlib
 from tqdm import tqdm
 from utils.common_utils import path_exists
@@ -13,34 +13,22 @@ from utils.common_utils import path_exists
 # utils
 from utils.gcp_utils import GCPUtils
 
-# setup configs
-print(load_dotenv(".env"))
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description="Process GCP credentials.")
+parser.add_argument("--gcp_credentials", type=str, help="GCP credentials JSON")
+parser.add_argument("--service_account", type=str, help="Service account")
+args, unknown = parser.parse_known_args()
+
 
 DATA_ROOT = pathlib.Path("./data").absolute()
 
-# Try to get credentials from environment variable first
-gcp_credentials_str = os.getenv("GCP_CREDENTIALS")
-
-# If not found in environment, try to read from credentials file
-if not gcp_credentials_str:
-    # Check for credentials file created by initialization script
-    credentials_file = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "credentials.json"
-    )
-    if os.path.exists(credentials_file):
-        print(f"Reading credentials from file: {credentials_file}")
-        with open(credentials_file, "r") as f:
-            gcp_credentials_str = f.read()
+# Use credentials from command line args
+gcp_credentials_str = args.gcp_credentials
 
 # Initialize GCP utils
-if gcp_credentials_str:
-    gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
-    del gcp_credentials_str
-    print(f"DATA_ROOT: {DATA_ROOT}")
-else:
-    raise ValueError(
-        "GCP credentials not found in environment variable or credentials file"
-    )
+gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
+del gcp_credentials_str
+print(f"DATA_ROOT: {DATA_ROOT}")
 
 # %%
 start_date = datetime(2025, 2, 1)
