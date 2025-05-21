@@ -28,15 +28,6 @@ if [ -z "$SERVICE_ACCOUNT" ]; then
     echo "Warning: SERVICE_ACCOUNT not set properly"
 fi
 
-# Write credentials to a file if needed
-if [ ! -z "$GCP_CREDENTIALS" ]; then
-    echo "Writing GCP credentials to file..."
-    CREDENTIALS_FILE="${INSTALL_DIR}/credentials.json"
-    echo "$GCP_CREDENTIALS" >"$CREDENTIALS_FILE"
-    export GCP_CREDENTIALS_PATH="$CREDENTIALS_FILE"
-    echo "Credentials file created at: $CREDENTIALS_FILE"
-fi
-
 # Clone the repository
 echo "Cloning repository ${REPO_URL}..."
 git clone -b dev ${REPO_URL} ${INSTALL_DIR}
@@ -49,6 +40,31 @@ fi
 
 # Change to the repository directory
 cd ${INSTALL_DIR}
+
+# Write credentials to a file
+if [ ! -z "$GCP_CREDENTIALS" ]; then
+    echo "Writing GCP credentials to file..."
+    CREDENTIALS_FILE="${INSTALL_DIR}/credentials.json"
+    echo "$GCP_CREDENTIALS" >"$CREDENTIALS_FILE"
+    export GCP_CREDENTIALS_PATH="$CREDENTIALS_FILE"
+    echo "Credentials file created at: $CREDENTIALS_FILE"
+
+    # Make credentials available system-wide
+    echo "Making credentials available system-wide..."
+    echo "export GCP_CREDENTIALS='$GCP_CREDENTIALS'" >>/etc/profile
+    echo "export GCP_CREDENTIALS_PATH='$CREDENTIALS_FILE'" >>/etc/profile
+
+    # Also add to .bashrc for all users
+    echo "export GCP_CREDENTIALS='$GCP_CREDENTIALS'" >>/etc/bash.bashrc
+    echo "export GCP_CREDENTIALS_PATH='$CREDENTIALS_FILE'" >>/etc/bash.bashrc
+
+    # Make credentials available to Spark jobs
+    echo "Setting Spark defaults for credentials..."
+    echo "spark.executorEnv.GCP_CREDENTIALS=$GCP_CREDENTIALS" >>/etc/spark/conf/spark-defaults.conf
+    echo "spark.executorEnv.GCP_CREDENTIALS_PATH=$CREDENTIALS_FILE" >>/etc/spark/conf/spark-defaults.conf
+    echo "spark.yarn.appMasterEnv.GCP_CREDENTIALS=$GCP_CREDENTIALS" >>/etc/spark/conf/spark-defaults.conf
+    echo "spark.yarn.appMasterEnv.GCP_CREDENTIALS_PATH=$CREDENTIALS_FILE" >>/etc/spark/conf/spark-defaults.conf
+fi
 
 # Install dependencies
 echo "Installing dependencies from requirements.txt..."

@@ -18,11 +18,29 @@ print(load_dotenv(".env"))
 
 DATA_ROOT = pathlib.Path("./data").absolute()
 
+# Try to get credentials from environment variable first
 gcp_credentials_str = os.getenv("GCP_CREDENTIALS")
-gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
 
-del gcp_credentials_str
-print(f"DATA_ROOT: {DATA_ROOT}")
+# If not found in environment, try to read from credentials file
+if not gcp_credentials_str:
+    # Check for credentials file created by initialization script
+    credentials_file = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "credentials.json"
+    )
+    if os.path.exists(credentials_file):
+        print(f"Reading credentials from file: {credentials_file}")
+        with open(credentials_file, "r") as f:
+            gcp_credentials_str = f.read()
+
+# Initialize GCP utils
+if gcp_credentials_str:
+    gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
+    del gcp_credentials_str
+    print(f"DATA_ROOT: {DATA_ROOT}")
+else:
+    raise ValueError(
+        "GCP credentials not found in environment variable or credentials file"
+    )
 
 # %%
 start_date = datetime(2025, 2, 1)
