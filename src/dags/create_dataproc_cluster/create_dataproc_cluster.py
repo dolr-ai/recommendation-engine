@@ -14,6 +14,8 @@ from airflow.providers.google.cloud.operators.dataproc import (
     DataprocDeleteClusterOperator,
 )
 from airflow.operators.dummy import DummyOperator
+from airflow.operators.python import PythonOperator
+from airflow.models import Variable
 from airflow.utils.trigger_rule import TriggerRule
 
 # Default arguments for the DAG
@@ -26,8 +28,10 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
 }
+
 # Cluster variables
-CLUSTER_NAME = "staging-cluster-{{ ds_nodash }}"
+CLUSTER_NAME_TEMPLATE = "staging-cluster-{ds_nodash}"
+CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # todo: change this later after dev testing
 CLUSTER_IDLE_DELETE_TTL = 7200  # 30 minutes
 CLUSTER_AUTO_DELETE_TTL = 7200  # 1 hour
@@ -88,6 +92,16 @@ CLUSTER_CONFIG = {
     ],
 }
 
+
+# Function to set the cluster name variable
+def set_cluster_name(**context):
+    """Set the cluster name as an Airflow Variable so other DAGs can use it."""
+    ds_nodash = context["ds_nodash"]
+    cluster_name = CLUSTER_NAME_TEMPLATE.format(ds_nodash=ds_nodash)
+    Variable.set(CLUSTER_NAME_VARIABLE, cluster_name)
+    return cluster_name
+
+
 # Create the DAG
 with DAG(
     dag_id="create_dataproc_cluster",
@@ -100,12 +114,19 @@ with DAG(
 
     start = DummyOperator(task_id="start", dag=dag)
 
+    # Set the cluster name variable for other DAGs to use
+    set_cluster_variable = PythonOperator(
+        task_id="task-set_cluster_variable",
+        python_callable=set_cluster_name,
+        provide_context=True,
+    )
+
     # Create a Dataproc cluster
     create_cluster = DataprocCreateClusterOperator(
         task_id="task-create_dataproc_cluster",
         project_id=PROJECT_ID,
         region=REGION,
-        cluster_name=CLUSTER_NAME,
+        cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
         cluster_config=CLUSTER_CONFIG,
         num_retries_if_resource_is_not_ready=3,
     )
@@ -116,12 +137,12 @@ with DAG(
         task_id="task-delete_dataproc_cluster",
         project_id=PROJECT_ID,
         region=REGION,
-        cluster_name=CLUSTER_NAME,
+        cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
         trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> create_cluster >> end
-    delete_cluster >> end
+    start >> set_cluster_variable >> create_cluster >> end
+    # delete_cluster >> end

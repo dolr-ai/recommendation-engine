@@ -12,8 +12,10 @@ from airflow.providers.google.cloud.operators.dataproc import (
     DataprocSubmitJobOperator,
 )
 from airflow.operators.dummy import DummyOperator
+from airflow.operators.python import PythonOperator
 from airflow.sensors.external_task import ExternalTaskSensor
 from airflow.utils.trigger_rule import TriggerRule
+from airflow.models import Variable
 
 # Default arguments for the DAG
 default_args = {
@@ -33,34 +35,46 @@ SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"
 REGION = "us-central1"
-# Use the same cluster name as in create_dataproc_cluster.py
-CLUSTER_NAME = "staging-cluster-{{ ds_nodash }}"
 
-# Define the PySpark job for fetching data from BigQuery
-PYSPARK_JOB = {
-    "reference": {"project_id": PROJECT_ID},
-    "placement": {"cluster_name": CLUSTER_NAME},
-    "pyspark_job": {
-        "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/data/pull_data.py",
-        "args": [
-            "--start-date",
-            "{{ macros.ds_add(ds, -90) }}",  # VARIABLE: Start date is 90 days before execution date
-            "--end-date",
-            "{{ ds }}",  # VARIABLE: End date is the execution date
-            "--user-data-batch-days",
-            "1",  # VARIABLE: Fetch data for each day separately in batches of 1 day
-            "--video-batch-size",
-            "200",  # VARIABLE: Process 200 videos at a time in one batch
-        ],
-    },
-}
+# Cluster name variable - same as in create_dataproc_cluster.py
+CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
+
+
+# Function to get cluster name from Variable and create the PySpark job config
+def create_pyspark_job(**context):
+    """Get the cluster name from Variable and create the PySpark job configuration."""
+    # Get the cluster name from the Variable
+    cluster_name = Variable.get(CLUSTER_NAME_VARIABLE)
+
+    # Define the PySpark job for fetching data from BigQuery
+    pyspark_job = {
+        "reference": {"project_id": PROJECT_ID},
+        "placement": {"cluster_name": cluster_name},
+        "pyspark_job": {
+            "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/data/pull_data.py",
+            "args": [
+                "--start-date",
+                context["templates_dict"]["start_date"],
+                "--end-date",
+                context["templates_dict"]["end_date"],
+                "--user-data-batch-days",
+                "1",  # VARIABLE: Fetch data for each day separately in batches of 1 day
+                "--video-batch-size",
+                "200",  # VARIABLE: Process 200 videos at a time in one batch
+            ],
+        },
+    }
+
+    # Return the job configuration for use by the DataprocSubmitJobOperator
+    return pyspark_job
+
 
 # Create the DAG
 with DAG(
     dag_id="fetch_data_from_bq",
     default_args=default_args,
     description="BigQuery Data Fetch Job",
-    schedule_interval="0 0 * * 1",  # Run at midnight every Monday
+    schedule_interval="0 0 * * 1",  # Run at midnight every Monday - same as cluster creation
     catchup=False,
     tags=["bigquery", "dataproc", "etl"],
 ) as dag:
@@ -68,24 +82,40 @@ with DAG(
     start = DummyOperator(task_id="start", dag=dag)
 
     # Wait for the cluster creation DAG to complete
+    # This ensures the cluster is created and the Variable is set
     wait_for_cluster = ExternalTaskSensor(
         task_id="wait_for_cluster",
         external_dag_id="create_dataproc_cluster",
-        external_task_id="task-create_dataproc_cluster",
+        external_task_id="task-set_cluster_variable",  # Wait for the Variable to be set
+        execution_delta=None,  # Run on the same day
         timeout=3600,  # 1 hour timeout
         mode="reschedule",  # Reschedule the task if the sensor times out
         poke_interval=60,  # Check every minute
+        allow_trigger_missed_runs=True,  # Allow triggering on missed runs
+    )
+
+    # Create the PySpark job configuration
+    create_job_config = PythonOperator(
+        task_id="task-create_job_config",
+        python_callable=create_pyspark_job,
+        templates_dict={
+            "start_date": "{{ macros.ds_add(ds, -90) }}",  # VARIABLE: Start date
+            "end_date": "{{ ds }}",  # VARIABLE: End date
+        },
+        provide_context=True,
     )
 
     # Submit the PySpark job to fetch data from BigQuery
     fetch_bq_data = DataprocSubmitJobOperator(
-        task_id="fetch_bq_data",
+        task_id="task-fetch_data_from_bq",
         project_id=PROJECT_ID,
         region=REGION,
-        job=PYSPARK_JOB,
+        job="{{ task_instance.xcom_pull(task_ids='create_job_config') }}",
+        asynchronous=False,  # Wait for the job to complete
+        retries=3,  # Retry if the job fails
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> wait_for_cluster >> fetch_bq_data >> end
+    start >> wait_for_cluster >> create_job_config >> fetch_bq_data >> end
