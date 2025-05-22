@@ -84,7 +84,7 @@ with DAG(
     # Wait for the cluster creation DAG to complete
     # This ensures the cluster is created and the Variable is set
     wait_for_cluster = ExternalTaskSensor(
-        task_id="wait_for_cluster",
+        task_id="task-wait_for_cluster",
         external_dag_id="create_dataproc_cluster",
         external_task_id="task-set_cluster_variable",  # Wait for the Variable to be set
         execution_delta=None,  # Run on the same day
