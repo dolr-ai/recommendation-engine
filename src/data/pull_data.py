@@ -16,7 +16,7 @@ logger = get_logger()
 # utils
 from utils.gcp_utils import GCPUtils
 
-DATA_ROOT = pathlib.Path("./data").absolute()
+DATA_ROOT = pathlib.Path("/home/dataproc/recommendation-engine/data_root")
 
 GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials.json"
 with open(GCP_CREDENTIALS_PATH, "r") as f:
