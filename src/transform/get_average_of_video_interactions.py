@@ -52,12 +52,12 @@ position_weight_udf = F.udf(calculate_position_weight, FloatType())
 def main():
     # Load input data
     user_interaction_path = (
-        DATA_ROOT / "user_interaction" / "user_interaction_all.parquet"
+        f"file://{DATA_ROOT}/user_interaction/user_interaction_all.parquet"
     )
-    video_index_path = DATA_ROOT / "video_index" / "video_index_all.parquet"
+    video_index_path = f"file://{DATA_ROOT}/video_index/video_index_all.parquet"
 
-    user_interaction_df = spark.read.parquet(str(user_interaction_path))
-    video_index_df = spark.read.parquet(str(video_index_path))
+    user_interaction_df = spark.read.parquet(user_interaction_path)
+    video_index_df = spark.read.parquet(video_index_path)
 
     # Join user interactions with video embeddings
     joined_df = user_interaction_df.join(
@@ -166,8 +166,8 @@ def main():
     )
 
     # Write results
-    output_path = DATA_ROOT / "emb_analysis" / "video_interaction_average.parquet"
-    result_df.write.mode("overwrite").parquet(str(output_path))
+    output_path = f"file://{DATA_ROOT}/emb_analysis/video_interaction_average.parquet"
+    result_df.write.mode("overwrite").parquet(output_path)
 
     print(f"Successfully wrote video interaction averages to {output_path}")
 
