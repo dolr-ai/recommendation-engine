@@ -13,7 +13,6 @@ from airflow.providers.google.cloud.operators.dataproc import (
 )
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
-from airflow.sensors.external_task import ExternalTaskSensor
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.models import Variable
 
@@ -81,16 +80,22 @@ with DAG(
 
     start = DummyOperator(task_id="start", dag=dag)
 
-    # Wait for the cluster creation DAG to complete
-    # This ensures the cluster is created and the Variable is set
-    wait_for_cluster = ExternalTaskSensor(
+    # Check if the Variable exists instead of waiting for the DAG
+    def check_cluster_variable(**kwargs):
+        try:
+            cluster_name = Variable.get(CLUSTER_NAME_VARIABLE)
+            print(f"Found cluster: {cluster_name}")
+            return True
+        except Exception as e:
+            print(f"Cluster variable not found: {str(e)}")
+            return False
+
+    # Replace the ExternalTaskSensor with a PythonOperator that checks for the Variable
+    wait_for_cluster = PythonOperator(
         task_id="task-wait_for_cluster",
-        external_dag_id="create_dataproc_cluster",
-        external_task_id="task-set_cluster_variable",  # Wait for the Variable to be set
-        execution_delta=None,  # Run on the same day
-        timeout=3600,  # 1 hour timeout
-        mode="reschedule",  # Reschedule the task if the sensor times out
-        poke_interval=60,  # Check every minute
+        python_callable=check_cluster_variable,
+        retries=5,
+        retry_delay=timedelta(minutes=1),
     )
 
     # Create the PySpark job configuration
@@ -109,7 +114,7 @@ with DAG(
         task_id="task-fetch_data_from_bq",
         project_id=PROJECT_ID,
         region=REGION,
-        job="{{ task_instance.xcom_pull(task_ids='create_job_config') }}",
+        job="{{ task_instance.xcom_pull(task_ids='task-create_job_config') }}",
         asynchronous=False,  # Wait for the job to complete
         retries=3,  # Retry if the job fails
     )
