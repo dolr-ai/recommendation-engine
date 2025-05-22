@@ -94,7 +94,6 @@ notebook==7.4.0
 notebook-shim==0.2.4
 numba==0.61.2
 numpy==1.26.4
-opencv-python==4.11.0.86
 overrides==7.7.0
 packaging==24.2
 pandas==2.2.3

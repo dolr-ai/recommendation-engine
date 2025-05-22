@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import pathlib
+from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
@@ -116,10 +117,9 @@ def prepare_video_embeddings():
     )
     df_video_index.select("uri", "video_id").show(5, truncate=False)
 
-    # Group by video_id and get first embedding
-    # (In case there are duplicate entries for the same video)
+    # Group by video_id and get average embedding
     df_video_embeddings = df_video_index.groupBy("video_id").agg(
-        F.first("embedding").alias("embedding")
+        F.avg(F.col("embedding")).alias("embedding")
     )
 
     # Convert array embeddings to vectors for ML processing
@@ -227,24 +227,30 @@ def cluster_videos(
     # Calculate cluster sizes for summary
     cluster_counts = df_video_clusters.groupBy("cluster").count().collect()
     cluster_sizes = [
-        {"cluster": row["cluster"], "video_count": row["count"]}
+        {"cluster": int(row["cluster"]), "video_count": int(row["count"])}
         for row in cluster_counts
     ]
 
-    # Create summary dictionary
+    # Create summary dictionary with current timestamp
+    current_timestamp = datetime.now().isoformat()
+
+    # Convert silhouette scores and inertia values to regular Python types for JSON serialization
+    silhouette_dict = {
+        int(k): float(score) for k, score in zip(k_values, silhouette_scores)
+    }
+    inertia_dict = {
+        int(k): float(inertia) for k, inertia in zip(k_values, inertia_values)
+    }
+
     summary = {
-        "total_videos": df_video_embeddings.count(),
-        "optimal_clusters_silhouette": optimal_k_silhouette,
-        "optimal_clusters_elbow": optimal_k_elbow,
-        "optimal_clusters_used": optimal_k,
-        "silhouette_scores": {
-            k: score for k, score in zip(k_values, silhouette_scores)
-        },
-        "inertia_values": {
-            k: float(inertia) for k, inertia in zip(k_values, inertia_values)
-        },
+        "total_videos": int(df_video_embeddings.count()),
+        "optimal_clusters_silhouette": int(optimal_k_silhouette),
+        "optimal_clusters_elbow": int(optimal_k_elbow) if optimal_k_elbow else None,
+        "optimal_clusters_used": int(optimal_k),
+        "silhouette_scores": silhouette_dict,
+        "inertia_values": inertia_dict,
         "cluster_sizes": cluster_sizes,
-        "timestamp": F.current_timestamp().cast("string").first(),
+        "timestamp": current_timestamp,
     }
 
     # Save summary

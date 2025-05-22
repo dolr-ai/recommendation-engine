@@ -60,7 +60,7 @@ fi
 
 # Install dependencies
 echo "Installing dependencies from requirements.txt..."
-pip install -r requirements.txt
+pip install -r requirements.txt --force-reinstall --no-deps
 
 # Check if pip install was successful
 if [ $? -ne 0 ]; then
