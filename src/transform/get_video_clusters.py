@@ -29,9 +29,10 @@ from kneed import KneeLocator
 spark = SparkSession.builder.appName("Video Clustering").getOrCreate()
 
 # Define constants
-MIN_K_VIDEO = 2
-MAX_K_VIDEO = 12
-DEFAULT_OPTIMAL_K_VIDEO = 8
+MIN_K_VIDEO = 3
+# todo: increase this to 15 later
+MAX_K_VIDEO = 10
+DEFAULT_OPTIMAL_K_CLUSTERS = 8
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 
 
@@ -163,7 +164,7 @@ def cluster_videos(
     df_video_embeddings,
     min_k=MIN_K_VIDEO,
     max_k=MAX_K_VIDEO,
-    default_k=DEFAULT_OPTIMAL_K_VIDEO,
+    default_k=DEFAULT_OPTIMAL_K_CLUSTERS,
 ):
     """
     Perform KMeans clustering on video embeddings
@@ -199,7 +200,7 @@ def cluster_videos(
     # Evaluate different k values
     for k in k_values:
         print(f"Evaluating k={k}")
-        kmeans = KMeans(k=k, seed=42, featuresCol="scaled_embedding")
+        kmeans = KMeans(k=k, featuresCol="scaled_embedding")
         model = kmeans.fit(df_scaled)
         predictions = model.transform(df_scaled)
 
@@ -328,7 +329,7 @@ def main():
         df_video_embeddings,
         min_k=MIN_K_VIDEO,
         max_k=MAX_K_VIDEO,
-        default_k=DEFAULT_OPTIMAL_K_VIDEO,
+        default_k=DEFAULT_OPTIMAL_K_CLUSTERS,
     )
 
     # Write results to HDFS
