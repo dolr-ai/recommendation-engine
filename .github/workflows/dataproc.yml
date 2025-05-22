@@ -45,11 +45,15 @@ jobs:
           echo "Files to be uploaded:"
           ls -la /tmp/dags
 
-          # Upload all DAGs at once to preserve file structure
-          gcloud composer environments storage dags upload \
-            --environment test-composer-for-dataproc \
-            --location us-central1 \
-            --source /tmp/dags
+          # Copy each file individually to the dags folder
+          for file in /tmp/dags/*.py; do
+            filename=$(basename "$file")
+            echo "Copying $filename to Cloud Composer"
+            gcloud composer environments storage dags import \
+              --environment test-composer-for-dataproc \
+              --location us-central1 \
+              --source "$file"
+          done
 
       - name: Move Init script to GCS
         run: |
