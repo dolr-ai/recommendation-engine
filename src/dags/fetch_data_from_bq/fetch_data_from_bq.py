@@ -39,6 +39,8 @@ REGION = "us-central1"
 
 # Cluster name variable - same as in create_dataproc_cluster.py
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
+# Status variable to track DAG execution status
+FETCH_DATA_STATUS_VARIABLE = "fetch_data_from_bq_completed"
 
 
 # Function to validate cluster exists and is ready
@@ -57,6 +59,20 @@ def validate_cluster_ready(**kwargs):
         raise AirflowException(f"Cluster not ready: {str(e)}")
 
 
+# Function to initialize status variable
+def initialize_status_variable(**context):
+    """Initialize the status variable to False at the start of DAG execution."""
+    Variable.set(FETCH_DATA_STATUS_VARIABLE, "False")
+    return "Status initialized to False"
+
+
+# Function to set status variable to True upon successful completion
+def set_success_status(**context):
+    """Set the status variable to True upon successful completion."""
+    Variable.set(FETCH_DATA_STATUS_VARIABLE, "True")
+    return "Status set to True"
+
+
 # Create the DAG
 with DAG(
     dag_id="fetch_data_from_bq",
@@ -68,6 +84,12 @@ with DAG(
 ) as dag:
 
     start = DummyOperator(task_id="start", dag=dag)
+
+    # Initialize status variable
+    init_status = PythonOperator(
+        task_id="task-init_status",
+        python_callable=initialize_status_variable,
+    )
 
     # Validate cluster is ready
     validate_cluster = PythonOperator(
@@ -104,7 +126,14 @@ with DAG(
         retries=3,  # Retry if the job fails
     )
 
+    # Set status to True upon successful completion
+    set_status = PythonOperator(
+        task_id="task-set_success_status",
+        python_callable=set_success_status,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+    )
+
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> validate_cluster >> fetch_bq_data >> end
+    start >> init_status >> validate_cluster >> fetch_bq_data >> set_status >> end

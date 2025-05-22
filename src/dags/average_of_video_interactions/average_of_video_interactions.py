@@ -17,7 +17,6 @@ from airflow.operators.python import PythonOperator
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.models import Variable
 from airflow.exceptions import AirflowException
-from airflow.sensors.external_task import ExternalTaskSensor
 from airflow.utils.dates import days_ago
 
 # Default arguments for the DAG
@@ -41,6 +40,8 @@ REGION = "us-central1"
 
 # Cluster name variable - same as in other DAGs
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
+# Status variable from fetch_data_from_bq DAG
+FETCH_DATA_STATUS_VARIABLE = "fetch_data_from_bq_completed"
 
 
 # Function to validate cluster exists and is ready
@@ -59,6 +60,24 @@ def validate_cluster_ready(**kwargs):
         raise AirflowException(f"Cluster not ready: {str(e)}")
 
 
+# Function to check if data fetch is completed
+def check_data_fetch_completed(**kwargs):
+    """Check if fetch_data_from_bq has completed successfully."""
+    try:
+        status = Variable.get(FETCH_DATA_STATUS_VARIABLE)
+        print(f"Data fetch status: {status}")
+
+        if status.lower() != "true":
+            raise AirflowException(
+                "Data fetch has not completed successfully. Cannot proceed."
+            )
+
+        return True
+    except Exception as e:
+        print(f"Error checking data fetch status: {str(e)}")
+        raise AirflowException(f"Data fetch check failed: {str(e)}")
+
+
 # Create the DAG
 with DAG(
     dag_id="average_of_video_interactions",
@@ -71,22 +90,12 @@ with DAG(
 
     start = DummyOperator(task_id="start", dag=dag)
 
-    # Wait for fetch_data_from_bq DAG to complete
-    wait_for_data_fetch = ExternalTaskSensor(
-        task_id="task-wait_for_data_fetch",
-        external_dag_id="fetch_data_from_bq",
-        external_task_id="end",  # Wait for the end task of the upstream DAG
-        mode="poke",
-        timeout=3600,  # 1 hour timeout
-        poke_interval=30,  # Check every 30 seconds
-        allowed_states=["success"],
-        failed_states=[
-            "failed",
-            "upstream_failed",
-            "skipped",
-        ],
-        check_existence=True,  # Ensure the task instance exists
-        dag=dag,
+    # Check if fetch_data_from_bq has completed
+    check_data_fetch = PythonOperator(
+        task_id="task-check_data_fetch",
+        python_callable=check_data_fetch_completed,
+        retries=12,  # Retry for up to 1 hour (12 * 5 minutes)
+        retry_delay=timedelta(minutes=5),
     )
 
     # Validate cluster is ready
@@ -122,4 +131,4 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> wait_for_data_fetch >> validate_cluster >> calculate_video_avg >> end
+    start >> check_data_fetch >> validate_cluster >> calculate_video_avg >> end

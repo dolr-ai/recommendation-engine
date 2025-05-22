@@ -16,6 +16,12 @@ logger = get_logger()
 DATA_ROOT = pathlib.Path("/home/dataproc/recommendation-engine/data_root")
 GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials.json"
 
+if path_exists(
+    DATA_ROOT / "user_interaction" / "user_interaction_all.parquet"
+) and path_exists(DATA_ROOT / "video_index" / "video_index_all.parquet"):
+    logger.info("User interaction and video index data already exists. Exiting.")
+    sys.exit(0)
+
 with open(GCP_CREDENTIALS_PATH, "r") as f:
     _ = json.load(f)
     gcp_credentials_str = json.dumps(_)
@@ -164,11 +170,7 @@ async def fetch_user_interaction_data(start_date, end_date, batch_days=7):
 
     # todo: when data increases stop concatenating all files in memory
     # Save combined file as well
-    combined_path = (
-        DATA_ROOT
-        / "user_interaction"
-        / f"user_interaction_all_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}.parquet"
-    )
+    combined_path = DATA_ROOT / "user_interaction" / "user_interaction_all.parquet"
     all_user_data.to_parquet(combined_path)
     logger.info(f"Saved combined user interaction data to {combined_path}")
 
