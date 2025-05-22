@@ -39,33 +39,10 @@ REGION = "us-central1"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 
 
-# Function to get cluster name from Variable and create the PySpark job config
-def create_pyspark_job(**context):
-    """Get the cluster name from Variable and create the PySpark job configuration."""
-    # Get the cluster name from the Variable
-    cluster_name = Variable.get(CLUSTER_NAME_VARIABLE)
-
-    # Define the PySpark job for fetching data from BigQuery
-    pyspark_job = {
-        "reference": {"project_id": PROJECT_ID},
-        "placement": {"cluster_name": cluster_name},
-        "pyspark_job": {
-            "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/data/pull_data.py",
-            "args": [
-                "--start-date",
-                context["templates_dict"]["start_date"],
-                "--end-date",
-                context["templates_dict"]["end_date"],
-                "--user-data-batch-days",
-                "1",  # VARIABLE: Fetch data for each day separately in batches of 1 day
-                "--video-batch-size",
-                "200",  # VARIABLE: Process 200 videos at a time in one batch
-            ],
-        },
-    }
-
-    # Return the job configuration for use by the DataprocSubmitJobOperator
-    return pyspark_job
+# Function to get cluster name from Variable
+def get_cluster_name():
+    """Get the cluster name from Variable."""
+    return Variable.get(CLUSTER_NAME_VARIABLE)
 
 
 # Create the DAG
@@ -98,23 +75,24 @@ with DAG(
         retry_delay=timedelta(minutes=1),
     )
 
-    # Create the PySpark job configuration
-    create_job_config = PythonOperator(
-        task_id="task-create_job_config",
-        python_callable=create_pyspark_job,
-        templates_dict={
-            "start_date": "{{ macros.ds_add(ds, -90) }}",  # VARIABLE: Start date
-            "end_date": "{{ ds }}",  # VARIABLE: End date
-        },
-        provide_context=True,
-    )
-
     # Submit the PySpark job to fetch data from BigQuery
     fetch_bq_data = DataprocSubmitJobOperator(
         task_id="task-fetch_data_from_bq",
         project_id=PROJECT_ID,
         region=REGION,
-        job="{{ task_instance.xcom_pull(task_ids='task-create_job_config') }}",
+        cluster_name="{{ var.value.active_dataproc_cluster_name }}",
+        job_name="fetch_data_from_bq_{{ ds_nodash }}",
+        main_python_file_uri="file:///home/dataproc/recommendation-engine/src/data/pull_data.py",
+        arguments=[
+            "--start-date",
+            "{{ macros.ds_add(ds, -90) }}",
+            "--end-date",
+            "{{ ds }}",
+            "--user-data-batch-days",
+            "1",
+            "--video-batch-size",
+            "200",
+        ],
         asynchronous=False,  # Wait for the job to complete
         retries=3,  # Retry if the job fails
     )
@@ -122,4 +100,4 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> wait_for_cluster >> create_job_config >> fetch_bq_data >> end
+    start >> wait_for_cluster >> fetch_bq_data >> end
