@@ -1,4 +1,5 @@
 import os
+import subprocess
 import json
 import pandas as pd
 import asyncio
@@ -15,6 +16,7 @@ logger = get_logger()
 
 DATA_ROOT = pathlib.Path("/home/dataproc/recommendation-engine/data_root")
 GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials.json"
+
 
 if path_exists(
     DATA_ROOT / "user_interaction" / "user_interaction_all.parquet"
@@ -282,5 +284,35 @@ async def main():
     logger.info(f"Video data: {len(video_data)} rows")
 
 
+def check_and_copy_data_root():
+    """Check if data_root exists in GCS and copy it locally"""
+
+    source_bucket = "stage-yral-ds-dataproc-bucket"
+    source_prefix = "data_dump/data_root"
+    target_path = "/home/dataproc/recommendation-engine/data_root"
+
+    # Check if directory exists
+    cmd_check = f"gsutil ls gs://{source_bucket}/{source_prefix}/ | head -n 1"
+    result_check = subprocess.run(cmd_check, shell=True, capture_output=True, text=True)
+
+    if result_check.returncode == 0 and result_check.stdout.strip():
+        logger.info(
+            f"Found data in gs://{source_bucket}/{source_prefix}/, copying to {target_path}"
+        )
+
+        # Create target directory if needed
+        os.makedirs(target_path, exist_ok=True)
+
+        # Copy the directory contents
+        cmd_copy = (
+            f"gsutil -m cp -r gs://{source_bucket}/{source_prefix}/* {target_path}/"
+        )
+        subprocess.run(cmd_copy, shell=True, check=True)
+        logger.info(f"Successfully copied data to {target_path}")
+    else:
+        logger.info(f"No data found in gs://{source_bucket}/{source_prefix}/")
+
+
 if __name__ == "__main__":
+    check_and_copy_data_root()
     asyncio.run(main())
