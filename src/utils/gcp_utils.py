@@ -277,7 +277,7 @@ class GCPBigQueryService:
 
             # Convert to DataFrame if requested
             if to_dataframe:
-                result = result.to_dataframe()
+                result = result.to_dataframe(create_bqstorage_client=False)
 
             return result
         except Exception as e:

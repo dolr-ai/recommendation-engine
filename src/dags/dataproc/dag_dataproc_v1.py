@@ -62,8 +62,8 @@ CLUSTER_CONFIG = {
         },
     },
     "lifecycle_config": {
-        "idle_delete_ttl": {"seconds": 3600},  # 30 minutes (1800 seconds)
-        "auto_delete_ttl": {"seconds": 7200},  # 2 hours (7200 seconds)
+        "idle_delete_ttl": {"seconds": 1800},  # 30 minutes (1800 seconds)
+        "auto_delete_ttl": {"seconds": 3600},  # 1 hour (3600 seconds)
     },
     "endpoint_config": {
         "enable_http_port_access": True  # This enables component gateway
@@ -127,12 +127,12 @@ with DAG(
     )
 
     # Submit the PySpark job to the cluster
-    # submit_job = DataprocSubmitJobOperator(
-    #     task_id="submit_pyspark_job",
-    #     project_id=PROJECT_ID,
-    #     region=REGION,
-    #     job=PYSPARK_JOB,
-    # )
+    submit_job = DataprocSubmitJobOperator(
+        task_id="submit_pyspark_job",
+        project_id=PROJECT_ID,
+        region=REGION,
+        job=PYSPARK_JOB,
+    )
 
     # Delete the cluster manually (even though it has auto-delete)
     # This ensures the cluster is deleted even if job completes before idle timeout
