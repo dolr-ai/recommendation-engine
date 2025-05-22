@@ -113,7 +113,7 @@ with DAG(
     # Delete the cluster manually (even though it has auto-delete)
     # This ensures the cluster is deleted after a specified period
     delete_cluster = DataprocDeleteClusterOperator(
-        task_id="task-delete_dataprocs_cluster",
+        task_id="task-delete_dataproc_cluster",
         project_id=PROJECT_ID,
         region=REGION,
         cluster_name=CLUSTER_NAME,

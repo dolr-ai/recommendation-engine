@@ -26,21 +26,30 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
-      - name: Find and Move all DAG files to Cloud Composer
+      - name: Move DAG files to Cloud Composer
         run: |
+          # Create a temporary directory to flatten the DAG structure
+          mkdir -p /tmp/dags
+
           # Find all Python files in the src/dags directory and its subdirectories
           find src/dags -type f -name "*.py" | while read -r dag_file; do
             # Extract the filename without the path
             filename=$(basename "$dag_file")
-            echo "Copying $dag_file to dags/$filename"
+            echo "Processing $dag_file"
 
-            # Import the DAG file to Cloud Composer
-            gcloud composer environments storage dags import \
-              --environment test-composer-for-dataproc \
-              --location us-central1 \
-              --source "$dag_file" \
-              --destination "dags/$filename"
+            # Copy to temporary directory
+            cp "$dag_file" "/tmp/dags/$filename"
           done
+
+          # List all files in the temporary directory
+          echo "Files to be uploaded:"
+          ls -la /tmp/dags
+
+          # Upload all DAGs at once to preserve file structure
+          gcloud composer environments storage dags upload \
+            --environment test-composer-for-dataproc \
+            --location us-central1 \
+            --source /tmp/dags
 
       - name: Move Init script to GCS
         run: |
