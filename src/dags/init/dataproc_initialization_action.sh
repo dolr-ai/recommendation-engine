@@ -46,29 +46,16 @@ if [ ! -z "$GCP_CREDENTIALS" ]; then
     echo "Writing GCP credentials to file..."
     CREDENTIALS_FILE="${INSTALL_DIR}/credentials.json"
     echo "$GCP_CREDENTIALS" >"$CREDENTIALS_FILE"
-    export GCP_CREDENTIALS_PATH="$CREDENTIALS_FILE"
-    echo "Credentials file created at: $CREDENTIALS_FILE"
 
-    # Make credentials available system-wide
-    echo "Making credentials available system-wide..."
-    echo "export GCP_CREDENTIALS='$GCP_CREDENTIALS'" >>/etc/profile
-    echo "export GCP_CREDENTIALS_PATH='$CREDENTIALS_FILE'" >>/etc/profile
-
-    # Also add to .bashrc for all users
-    echo "export GCP_CREDENTIALS='$GCP_CREDENTIALS'" >>/etc/bash.bashrc
-    echo "export GCP_CREDENTIALS_PATH='$CREDENTIALS_FILE'" >>/etc/bash.bashrc
-
-    # Make credentials available to Spark jobs and Jupyter
-    echo "Setting Spark defaults for credentials..."
-    echo "spark.executorEnv.GCP_CREDENTIALS=$GCP_CREDENTIALS" >>/etc/spark/conf/spark-defaults.conf
-    echo "spark.executorEnv.GCP_CREDENTIALS_PATH=$CREDENTIALS_FILE" >>/etc/spark/conf/spark-defaults.conf
-    echo "spark.yarn.appMasterEnv.GCP_CREDENTIALS=$GCP_CREDENTIALS" >>/etc/spark/conf/spark-defaults.conf
-    echo "spark.yarn.appMasterEnv.GCP_CREDENTIALS_PATH=$CREDENTIALS_FILE" >>/etc/spark/conf/spark-defaults.conf
+    # Set path to credentials file in environment
+    echo "Setting credential file path in environment..."
+    echo "export GCP_CREDENTIALS_PATH=\"$CREDENTIALS_FILE\"" >>/etc/profile
+    echo "export GCP_CREDENTIALS_PATH=\"$CREDENTIALS_FILE\"" >>/etc/bash.bashrc
 
     # Make credentials available to Jupyter
     echo "Setting Jupyter environment variables..."
-    echo "export GCP_CREDENTIALS='$GCP_CREDENTIALS'" >>/home/jupyter/.bashrc
-    echo "export GCP_CREDENTIALS_PATH='$GCP_CREDENTIALS_FILE'" >>/home/jupyter/.bashrc
+    echo "export GCP_CREDENTIALS_PATH=\"$CREDENTIALS_FILE\"" >>/home/jupyter/.bashrc
+
 fi
 
 # Install dependencies
