@@ -147,6 +147,5 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> create_cluster >> end
-    # submit_job >> end
+    start >> create_cluster >> submit_job >> end
     # delete_cluster >> end
