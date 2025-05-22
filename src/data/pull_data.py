@@ -309,8 +309,7 @@ def check_and_copy_data_root():
         )
         subprocess.run(cmd_copy, shell=True, check=True)
         logger.info(f"Successfully copied data to {target_path}")
-    else:
-        logger.info(f"No data found in gs://{source_bucket}/{source_prefix}/")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

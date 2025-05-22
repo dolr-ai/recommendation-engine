@@ -41,14 +41,6 @@ def vector_to_array(vector):
 vector_to_array_udf = F.udf(vector_to_array, ArrayType(FloatType()))
 
 
-def calculate_position_weight(position, decay_factor=10):
-    """Calculate weight based on position in user's watch history"""
-    return float(np.exp(-position / decay_factor))
-
-
-position_weight_udf = F.udf(calculate_position_weight, FloatType())
-
-
 def main():
     # First, copy files to HDFS
     import subprocess
@@ -88,6 +80,8 @@ def main():
     video_index_df = spark.read.parquet(video_index_path)
 
     # Join user interactions with video embeddings
+    # Rename post_id to video_id for the join
+    video_index_df = video_index_df.withColumnRenamed("post_id", "video_id")
     joined_df = user_interaction_df.join(
         video_index_df.select("video_id", "embedding"), on="video_id", how="inner"
     )
@@ -131,34 +125,12 @@ def main():
     # Filter for videos watched at least 25%
     filtered_df = filtered_df.filter(F.col("mean_percentage_watched_pct") > 25)
 
-    # Add position weights (like in Experiment 3)
-    filtered_df = filtered_df.withColumn("position", F.col("row_number") - 1)
-    filtered_df = filtered_df.withColumn(
-        "position_weight", position_weight_udf(F.col("position"))
-    )
-
-    # Calculate combined weight
-    filtered_df = filtered_df.withColumn(
-        "combined_weight",
-        F.sqrt(F.col("position_weight") * F.col("mean_percentage_watched")),
-    )
-
     # Convert arrays to vectors for processing
     filtered_df = filtered_df.withColumn(
         "embedding_vector", array_to_vector_udf(F.col("embedding"))
     )
 
-    # Scale embeddings by weights
-    filtered_df = filtered_df.withColumn(
-        "weighted_embedding_vector",
-        F.expr("TRANSFORM(embedding, x -> x * combined_weight)"),
-    )
-
-    # Aggregate embeddings per user
-    aggregated_df = filtered_df.groupBy("user_id").agg(
-        F.collect_list("weighted_embedding_vector").alias("embedding_arrays")
-    )
-
+    # Aggregate embeddings per user - simple mean (Experiment 1)
     # Define UDF to average arrays
     def average_arrays(arrays):
         if not arrays:
@@ -168,7 +140,11 @@ def main():
     average_arrays_udf = F.udf(average_arrays, ArrayType(FloatType()))
 
     # Calculate average embedding
-    user_avg_df = aggregated_df.withColumn(
+    user_avg_df = filtered_df.groupBy("user_id").agg(
+        F.collect_list("embedding").alias("embedding_arrays")
+    )
+
+    user_avg_df = user_avg_df.withColumn(
         "embedding", average_arrays_udf(F.col("embedding_arrays"))
     ).select("user_id", "embedding")
 
