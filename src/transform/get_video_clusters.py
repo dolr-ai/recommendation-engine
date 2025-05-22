@@ -30,7 +30,7 @@ spark = SparkSession.builder.appName("Video Clustering").getOrCreate()
 
 # Define constants
 MIN_K_VIDEO = 2
-MAX_K_VIDEO = 20
+MAX_K_VIDEO = 12
 DEFAULT_OPTIMAL_K_VIDEO = 8
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 
@@ -54,6 +54,34 @@ def vector_to_array(vector):
 
 
 vector_to_array_udf = F.udf(vector_to_array, ArrayType(FloatType()))
+
+
+def average_arrays(arrays):
+    """Average multiple arrays element-wise"""
+    if not arrays or len(arrays) == 0:
+        return None
+
+    # Filter out None values
+    valid_arrays = [arr for arr in arrays if arr is not None]
+    if not valid_arrays:
+        return None
+
+    # Ensure all arrays have the same length
+    length = len(valid_arrays[0])
+    if not all(len(arr) == length for arr in valid_arrays):
+        return None
+
+    # Calculate the average for each position
+    result = [0.0] * length
+    for arr in valid_arrays:
+        for i, val in enumerate(arr):
+            result[i] += val
+
+    return [val / len(valid_arrays) for val in result]
+
+
+# Register UDF for averaging arrays
+average_arrays_udf = F.udf(average_arrays, ArrayType(FloatType()))
 
 
 def extract_video_id_from_uri(uri):
@@ -117,9 +145,9 @@ def prepare_video_embeddings():
     )
     df_video_index.select("uri", "video_id").show(5, truncate=False)
 
-    # Group by video_id and get average embedding
+    # Group by video_id and average the embeddings using collect_list and our custom UDF
     df_video_embeddings = df_video_index.groupBy("video_id").agg(
-        F.avg(F.col("embedding")).alias("embedding")
+        average_arrays_udf(F.collect_list("embedding")).alias("embedding")
     )
 
     # Convert array embeddings to vectors for ML processing

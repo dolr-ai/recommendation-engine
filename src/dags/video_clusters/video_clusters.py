@@ -138,7 +138,7 @@ with DAG(
             },
         },
         asynchronous=False,  # Wait for the job to complete
-        retries=3,  # Retry if the job fails
+        retries=0,  # Retry if the job fails
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
