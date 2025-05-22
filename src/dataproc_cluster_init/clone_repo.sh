@@ -58,12 +58,17 @@ if [ ! -z "$GCP_CREDENTIALS" ]; then
     echo "export GCP_CREDENTIALS='$GCP_CREDENTIALS'" >>/etc/bash.bashrc
     echo "export GCP_CREDENTIALS_PATH='$CREDENTIALS_FILE'" >>/etc/bash.bashrc
 
-    # Make credentials available to Spark jobs
+    # Make credentials available to Spark jobs and Jupyter
     echo "Setting Spark defaults for credentials..."
     echo "spark.executorEnv.GCP_CREDENTIALS=$GCP_CREDENTIALS" >>/etc/spark/conf/spark-defaults.conf
     echo "spark.executorEnv.GCP_CREDENTIALS_PATH=$CREDENTIALS_FILE" >>/etc/spark/conf/spark-defaults.conf
     echo "spark.yarn.appMasterEnv.GCP_CREDENTIALS=$GCP_CREDENTIALS" >>/etc/spark/conf/spark-defaults.conf
     echo "spark.yarn.appMasterEnv.GCP_CREDENTIALS_PATH=$CREDENTIALS_FILE" >>/etc/spark/conf/spark-defaults.conf
+
+    # Make credentials available to Jupyter
+    echo "Setting Jupyter environment variables..."
+    echo "export GCP_CREDENTIALS='$GCP_CREDENTIALS'" >>/home/jupyter/.bashrc
+    echo "export GCP_CREDENTIALS_PATH='$GCP_CREDENTIALS_FILE'" >>/home/jupyter/.bashrc
 fi
 
 # Install dependencies

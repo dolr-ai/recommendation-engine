@@ -69,7 +69,7 @@ CLUSTER_CONFIG = {
         "enable_http_port_access": True  # This enables component gateway
     },
     "gce_cluster_config": {
-        "internal_ip_only": False,  # Use internal IP addresses only
+        "internal_ip_only": False,
         "service_account": SERVICE_ACCOUNT,
         "service_account_scopes": ["https://www.googleapis.com/auth/cloud-platform"],
         "zone_uri": f"{REGION}-a",  # Specify the zone
@@ -127,12 +127,12 @@ with DAG(
     )
 
     # Submit the PySpark job to the cluster
-    submit_job = DataprocSubmitJobOperator(
-        task_id="submit_pyspark_job",
-        project_id=PROJECT_ID,
-        region=REGION,
-        job=PYSPARK_JOB,
-    )
+    # submit_job = DataprocSubmitJobOperator(
+    #     task_id="submit_pyspark_job",
+    #     project_id=PROJECT_ID,
+    #     region=REGION,
+    #     job=PYSPARK_JOB,
+    # )
 
     # Delete the cluster manually (even though it has auto-delete)
     # This ensures the cluster is deleted even if job completes before idle timeout
@@ -147,5 +147,6 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> create_cluster >> submit_job >> end
+    start >> create_cluster >> end
+    # submit_job >> end
     # delete_cluster >> end
