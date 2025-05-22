@@ -1,9 +1,9 @@
 """
-Weekly Dataproc Job DAG
+Dataproc Cluster Creation DAG
 
 This DAG creates a Dataproc cluster with specific configurations, waits for it to be ready,
-runs a PySpark job on it, and then deletes the cluster. The cluster is configured
-with enhanced optimizer, Jupyter, and idle/max-age timeouts.
+and sets it up for use with enhanced optimizer, Jupyter, and idle/max-age timeouts.
+It's designed to create a general-purpose cluster that can be used by other DAGs.
 """
 
 import os
@@ -12,7 +12,6 @@ from airflow import DAG
 from airflow.providers.google.cloud.operators.dataproc import (
     DataprocCreateClusterOperator,
     DataprocDeleteClusterOperator,
-    DataprocSubmitJobOperator,
 )
 from airflow.operators.dummy import DummyOperator
 from airflow.utils.trigger_rule import TriggerRule
@@ -27,6 +26,11 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
 }
+# Cluster variables
+CLUSTER_NAME = "staging-cluster-{{ ds_nodash }}"
+# todo: change this later after dev testing
+CLUSTER_IDLE_DELETE_TTL = 7200  # 30 minutes
+CLUSTER_AUTO_DELETE_TTL = 7200  # 1 hour
 
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
@@ -35,9 +39,7 @@ SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"
 REGION = "us-central1"
-CLUSTER_NAME = (
-    "staging-cluster-{{ ds_nodash }}"  # Using date to make cluster name unique
-)
+
 # GitHub repo to clone
 GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 
@@ -62,8 +64,8 @@ CLUSTER_CONFIG = {
         },
     },
     "lifecycle_config": {
-        "idle_delete_ttl": {"seconds": 1800},  # 30 minutes (1800 seconds)
-        "auto_delete_ttl": {"seconds": 3600},  # 1 hour (3600 seconds)
+        "idle_delete_ttl": {"seconds": CLUSTER_IDLE_DELETE_TTL},
+        "auto_delete_ttl": {"seconds": CLUSTER_AUTO_DELETE_TTL},
     },
     "endpoint_config": {
         "enable_http_port_access": True  # This enables component gateway
@@ -80,45 +82,27 @@ CLUSTER_CONFIG = {
     },
     "initialization_actions": [
         {
-            "executable_file": "gs://stage-yral-ds-dataproc-bucket/scripts/clone_repo.sh",
+            "executable_file": "gs://stage-yral-ds-dataproc-bucket/scripts/dataproc_initialization_action.sh",
             "execution_timeout": {"seconds": 120},  # 2 minutes timeout
         }
     ],
 }
 
-# Define your PySpark job
-PYSPARK_JOB = {
-    "reference": {"project_id": PROJECT_ID},
-    "placement": {"cluster_name": CLUSTER_NAME},
-    "pyspark_job": {
-        "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/test/test_data_pull.py",
-        # Update this path to point to the specific script you want to run from the cloned repo
-        #
-        # If you want to use a GCS script instead, keep the original gs:// URI
-        # "main_python_file_uri": "gs://stage-yral-ds-dataproc-bucket/scripts/test_cluster.py",
-        # Add arguments if needed
-        "args": [
-            f"--gcp_credentials={GCP_CREDENTIALS}",
-            f"--service_account={SERVICE_ACCOUNT}",
-        ],
-    },
-}
-
 # Create the DAG
 with DAG(
-    "bq_dataproc_job",
+    dag_id="create_dataproc_cluster",
     default_args=default_args,
-    description="Weekly Dataproc ETL Job",
+    description="Create Dataproc Cluster",
     schedule_interval="0 0 * * 1",  # Run at midnight every Monday
     catchup=False,
-    tags=["dataproc", "etl"],
+    tags=["dataproc", "cluster"],
 ) as dag:
 
     start = DummyOperator(task_id="start", dag=dag)
 
     # Create a Dataproc cluster
     create_cluster = DataprocCreateClusterOperator(
-        task_id="create_cluster",
+        task_id="task-create_dataproc_cluster",
         project_id=PROJECT_ID,
         region=REGION,
         cluster_name=CLUSTER_NAME,
@@ -126,26 +110,18 @@ with DAG(
         num_retries_if_resource_is_not_ready=3,
     )
 
-    # Submit the PySpark job to the cluster
-    submit_job = DataprocSubmitJobOperator(
-        task_id="submit_pyspark_job",
+    # Delete the cluster manually (even though it has auto-delete)
+    # This ensures the cluster is deleted after a specified period
+    delete_cluster = DataprocDeleteClusterOperator(
+        task_id="task-delete_dataprocs_cluster",
         project_id=PROJECT_ID,
         region=REGION,
-        job=PYSPARK_JOB,
+        cluster_name=CLUSTER_NAME,
+        trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
     )
-
-    # Delete the cluster manually (even though it has auto-delete)
-    # This ensures the cluster is deleted even if job completes before idle timeout
-    # delete_cluster = DataprocDeleteClusterOperator(
-    #     task_id="delete_cluster",
-    #     project_id=PROJECT_ID,
-    #     region=REGION,
-    #     cluster_name=CLUSTER_NAME,
-    #     trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
-    # )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> create_cluster >> submit_job >> end
-    # delete_cluster >> end
+    start >> create_cluster >> end
+    delete_cluster >> end
