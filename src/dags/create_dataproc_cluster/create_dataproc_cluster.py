@@ -133,13 +133,13 @@ with DAG(
 
     # Delete the cluster manually (even though it has auto-delete)
     # This ensures the cluster is deleted after a specified period
-    delete_cluster = DataprocDeleteClusterOperator(
-        task_id="task-delete_dataproc_cluster",
-        project_id=PROJECT_ID,
-        region=REGION,
-        cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
-        trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
-    )
+    # delete_cluster = DataprocDeleteClusterOperator(
+    #     task_id="task-delete_dataproc_cluster",
+    #     project_id=PROJECT_ID,
+    #     region=REGION,
+    #     cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
+    #     trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
+    # )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
