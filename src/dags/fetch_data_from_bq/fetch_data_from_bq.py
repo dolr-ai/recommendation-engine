@@ -91,7 +91,6 @@ with DAG(
         timeout=3600,  # 1 hour timeout
         mode="reschedule",  # Reschedule the task if the sensor times out
         poke_interval=60,  # Check every minute
-        allow_trigger_missed_runs=True,  # Allow triggering on missed runs
     )
 
     # Create the PySpark job configuration
