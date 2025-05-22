@@ -1,8 +1,8 @@
 """
-Video Interaction Average Calculation DAG
+Video Clustering DAG
 
-This DAG uses an existing Dataproc cluster to run a PySpark job that calculates the average
-of video interactions. It depends on the fetch_data_from_bq DAG to have already fetched the data.
+This DAG uses an existing Dataproc cluster to run a PySpark job that performs K-means clustering
+on video embeddings. It depends on the fetch_data_from_bq DAG to have already fetched the data.
 """
 
 import os
@@ -78,12 +78,12 @@ def check_data_fetch_completed(**kwargs):
 
 # Create the DAG
 with DAG(
-    dag_id="average_of_video_interactions",
+    dag_id="video_clusters",
     default_args=default_args,
-    description="Video Interaction Average Calculation Job",
-    schedule_interval="0 1 * * 1",  # Run at 1 AM every Monday (1 hour after fetch_data_from_bq)
+    description="Video Clustering Job",
+    schedule_interval="0 2 * * 1",  # Run at 2 AM every Monday (1 hour after video interaction avg)
     catchup=False,
-    tags=["video", "dataproc", "etl", "recommendations"],
+    tags=["video", "dataproc", "clustering", "recommendations"],
 ) as dag:
 
     start = DummyOperator(task_id="start", dag=dag)
@@ -104,9 +104,9 @@ with DAG(
         retry_delay=timedelta(minutes=1),
     )
 
-    # Submit the PySpark job to calculate video interaction averages
-    calculate_video_avg = DataprocSubmitJobOperator(
-        task_id="task-calculate_video_interaction_avg",
+    # Submit the PySpark job to perform video clustering
+    cluster_videos = DataprocSubmitJobOperator(
+        task_id="task-cluster_videos",
         project_id=PROJECT_ID,
         region=REGION,
         job={
@@ -114,19 +114,22 @@ with DAG(
                 "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
             },
             "pyspark_job": {
-                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_average_of_video_interactions.py",
+                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_video_clusters.py",
                 "properties": {
-                    # Reduced memory settings to fit within 6.5GB per node
-                    "spark.driver.memory": "2g",  # Reduced from 4g
-                    "spark.executor.memory": "2g",  # Reduced from 4g
-                    "spark.executor.cores": "1",  # Reduced from 2
-                    "spark.executor.instances": "2",  # Use both workers
+                    # Memory settings optimized for clustering workload
+                    "spark.driver.memory": "2g",
+                    "spark.executor.memory": "2g",
+                    "spark.executor.cores": "2",
+                    "spark.executor.instances": "2",
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",
-                    "spark.driver.maxResultSize": "1g",
+                    "spark.driver.maxResultSize": "2g",
                     # Memory fraction settings for better memory management
                     "spark.executor.memoryFraction": "0.8",
                     "spark.executor.memoryStorageFraction": "0.3",
+                    # Additional settings for K-means clustering
+                    "spark.kryoserializer.buffer.max": "128m",
+                    "spark.sql.shuffle.partitions": "20",
                 },
             },
         },
@@ -137,4 +140,4 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> check_data_fetch >> validate_cluster >> calculate_video_avg >> end
+    start >> check_data_fetch >> validate_cluster >> cluster_videos >> end
