@@ -23,7 +23,7 @@ spark = SparkSession.builder.appName("Video Interaction Average").getOrCreate()
 # Define constants
 WATCHED_MIN_VIDEOS = 2
 WATCHED_MAX_VIDEOS = 100
-DATA_ROOT = pathlib.Path("/home/dataproc/recommendation-engine/data_root")
+DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 
 
 # UDFs for embedding operations
@@ -50,11 +50,39 @@ position_weight_udf = F.udf(calculate_position_weight, FloatType())
 
 
 def main():
-    # Load input data
-    user_interaction_path = (
-        f"file://{DATA_ROOT}/user_interaction/user_interaction_all.parquet"
+    # First, copy files to HDFS
+    import subprocess
+
+    # Create directories, overwriting if they exist
+    subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/user_interaction"])
+    subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/video_index"])
+    subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/emb_analysis"])
+
+    # Copy input files to HDFS
+    subprocess.call(
+        [
+            "hdfs",
+            "dfs",
+            "-put",
+            "-f",
+            f"{DATA_ROOT}/user_interaction/user_interaction_all.parquet",
+            "/tmp/user_interaction/user_interaction_all.parquet",
+        ]
     )
-    video_index_path = f"file://{DATA_ROOT}/video_index/video_index_all.parquet"
+    subprocess.call(
+        [
+            "hdfs",
+            "dfs",
+            "-put",
+            "-f",
+            f"{DATA_ROOT}/video_index/video_index_all.parquet",
+            "/tmp/video_index/video_index_all.parquet",
+        ]
+    )
+
+    # Load input data from HDFS
+    user_interaction_path = "/tmp/user_interaction/user_interaction_all.parquet"
+    video_index_path = "/tmp/video_index/video_index_all.parquet"
 
     user_interaction_df = spark.read.parquet(user_interaction_path)
     video_index_df = spark.read.parquet(video_index_path)
@@ -165,11 +193,19 @@ def main():
         "user_id", F.col("normalized_embedding").alias("embedding")
     )
 
-    # Write results
-    output_path = f"file://{DATA_ROOT}/emb_analysis/video_interaction_average.parquet"
+    # Write results to HDFS
+    output_path = "/tmp/emb_analysis/video_interaction_average.parquet"
     result_df.write.mode("overwrite").parquet(output_path)
 
+    # Copy results back to local filesystem
+    subprocess.call(
+        ["hdfs", "dfs", "-get", "-f", output_path, f"{DATA_ROOT}/emb_analysis/"]
+    )
+
     print(f"Successfully wrote video interaction averages to {output_path}")
+    print(
+        f"And copied back to {DATA_ROOT}/emb_analysis/video_interaction_average.parquet"
+    )
 
 
 if __name__ == "__main__":
