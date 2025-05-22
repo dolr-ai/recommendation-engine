@@ -251,7 +251,7 @@ def cluster_videos(
     # Select only the columns we need
     df_video_clusters = final_predictions.select(
         "video_id", F.col("prediction").alias("cluster")
-    )
+    ).join(df_video_embeddings.select("video_id", "embedding"), "video_id", "inner")
 
     # Calculate cluster sizes for summary
     cluster_counts = df_video_clusters.groupBy("cluster").count().collect()
