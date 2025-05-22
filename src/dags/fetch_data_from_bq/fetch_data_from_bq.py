@@ -16,6 +16,7 @@ from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.models import Variable
+from airflow.exceptions import AirflowException
 
 # Default arguments for the DAG
 default_args = {
@@ -40,10 +41,20 @@ REGION = "us-central1"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 
 
-# Function to get cluster name from Variable
-def get_cluster_name():
-    """Get the cluster name from Variable."""
-    return Variable.get(CLUSTER_NAME_VARIABLE)
+# Function to validate cluster exists and is ready
+def validate_cluster_ready(**kwargs):
+    """Validate that the cluster exists and is accessible."""
+    try:
+        cluster_name = Variable.get(CLUSTER_NAME_VARIABLE)
+        print(f"Found cluster variable: {cluster_name}")
+
+        # Additional validation could be added here to check cluster status
+        # via Google Cloud API if needed
+
+        return cluster_name
+    except Exception as e:
+        print(f"Cluster variable not found or invalid: {str(e)}")
+        raise AirflowException(f"Cluster not ready: {str(e)}")
 
 
 # Create the DAG
@@ -58,20 +69,10 @@ with DAG(
 
     start = DummyOperator(task_id="start", dag=dag)
 
-    # Check if the Variable exists instead of waiting for the DAG
-    def check_cluster_variable(**kwargs):
-        try:
-            cluster_name = Variable.get(CLUSTER_NAME_VARIABLE)
-            print(f"Found cluster: {cluster_name}")
-            return True
-        except Exception as e:
-            print(f"Cluster variable not found: {str(e)}")
-            return False
-
-    # Replace the ExternalTaskSensor with a PythonOperator that checks for the Variable
-    wait_for_cluster = PythonOperator(
-        task_id="task-wait_for_cluster",
-        python_callable=check_cluster_variable,
+    # Validate cluster is ready
+    validate_cluster = PythonOperator(
+        task_id="task-validate_cluster",
+        python_callable=validate_cluster_ready,
         retries=5,
         retry_delay=timedelta(minutes=1),
     )
@@ -82,7 +83,6 @@ with DAG(
         project_id=PROJECT_ID,
         region=REGION,
         job={
-            "job_id": f"fetch_data_from_bq_{str(uuid.uuid4())[:8]}",
             "placement": {
                 "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
             },
@@ -107,4 +107,4 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> wait_for_cluster >> fetch_bq_data >> end
+    start >> validate_cluster >> fetch_bq_data >> end
