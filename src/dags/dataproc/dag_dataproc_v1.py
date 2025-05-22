@@ -62,8 +62,8 @@ CLUSTER_CONFIG = {
         },
     },
     "lifecycle_config": {
-        "idle_delete_ttl": {"seconds": 1800},  # 30 minutes (1800 seconds)
-        "auto_delete_ttl": {"seconds": 3600},  # 1 hour (3600 seconds)
+        "idle_delete_ttl": {"seconds": 3600},  # 30 minutes (1800 seconds)
+        "auto_delete_ttl": {"seconds": 7200},  # 2 hours (7200 seconds)
     },
     "endpoint_config": {
         "enable_http_port_access": True  # This enables component gateway
