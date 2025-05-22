@@ -6,6 +6,7 @@ It depends on the create_dataproc_cluster DAG to have already created the cluste
 """
 
 import os
+import uuid
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.google.cloud.operators.dataproc import (
@@ -75,31 +76,30 @@ with DAG(
         retry_delay=timedelta(minutes=1),
     )
 
-    # Define the PySpark job
-    PYSPARK_JOB = {
-        "reference": {"project_id": PROJECT_ID},
-        "placement": {"cluster_name": "{{ var.value.active_dataproc_cluster_name }}"},
-        "pyspark_job": {
-            "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/data/pull_data.py",
-            "args": [
-                "--start-date",
-                "{{ macros.ds_add(ds, -90) }}",
-                "--end-date",
-                "{{ ds }}",
-                "--user-data-batch-days",
-                "1",
-                "--video-batch-size",
-                "200",
-            ],
-        },
-    }
-
     # Submit the PySpark job to fetch data from BigQuery
     fetch_bq_data = DataprocSubmitJobOperator(
         task_id="task-fetch_data_from_bq",
         project_id=PROJECT_ID,
         region=REGION,
-        job=PYSPARK_JOB,
+        job={
+            "job_id": f"fetch_data_from_bq_{str(uuid.uuid4())[:8]}",
+            "placement": {
+                "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
+            },
+            "pyspark_job": {
+                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/data/pull_data.py",
+                "args": [
+                    "--start-date",
+                    "{{ macros.ds_add(ds, -90) }}",
+                    "--end-date",
+                    "{{ ds }}",
+                    "--user-data-batch-days",
+                    "1",
+                    "--video-batch-size",
+                    "200",
+                ],
+            },
+        },
         asynchronous=False,  # Wait for the job to complete
         retries=3,  # Retry if the job fails
     )
