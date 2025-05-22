@@ -45,7 +45,11 @@ def main():
     # First, copy files to HDFS
     import subprocess
 
-    # Create directories, overwriting if they exist
+    # Create local output directory if it doesn't exist
+    local_output_dir = f"{DATA_ROOT}/emb_analysis"
+    subprocess.call(["mkdir", "-p", local_output_dir])
+
+    # Create hdfs directories, overwriting if they exist
     subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/user_interaction"])
     subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/video_index"])
     subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/emb_analysis"])
@@ -173,15 +177,14 @@ def main():
     output_path = "/tmp/emb_analysis/video_interaction_average.parquet"
     result_df.write.mode("overwrite").parquet(output_path)
 
+    # Create local output directory if not exists (double-check)
+    subprocess.call(["mkdir", "-p", local_output_dir])
+
     # Copy results back to local filesystem
-    subprocess.call(
-        ["hdfs", "dfs", "-get", "-f", output_path, f"{DATA_ROOT}/emb_analysis/"]
-    )
+    subprocess.call(["hdfs", "dfs", "-get", "-f", output_path, local_output_dir])
 
     print(f"Successfully wrote video interaction averages to {output_path}")
-    print(
-        f"And copied back to {DATA_ROOT}/emb_analysis/video_interaction_average.parquet"
-    )
+    print(f"And copied back to {local_output_dir}/video_interaction_average.parquet")
 
 
 if __name__ == "__main__":
