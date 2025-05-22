@@ -77,7 +77,7 @@ with DAG(
         external_task_id="end",  # Wait for the end task of the upstream DAG
         mode="reschedule",  # Reschedule if the dependency isn't met yet
         timeout=7200,  # 2 hours timeout
-        poke_interval=300,  # Check every 5 minutes
+        poke_interval=60,  # Check every 1 minute
         allowed_states=["success"],  # Only proceed if upstream DAG succeeded
     )
 
