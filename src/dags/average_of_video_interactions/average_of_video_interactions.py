@@ -76,15 +76,16 @@ with DAG(
         task_id="task-wait_for_data_fetch",
         external_dag_id="fetch_data_from_bq",
         external_task_id="end",  # Wait for the end task of the upstream DAG
-        mode="poke",  # Use poke mode instead of reschedule for better performance
+        mode="poke",
         timeout=3600,  # 1 hour timeout
         poke_interval=30,  # Check every 30 seconds
-        allowed_states=["success"],  # Only proceed if upstream DAG succeeded
+        allowed_states=["success"],
         failed_states=[
             "failed",
             "upstream_failed",
             "skipped",
-        ],  # Fail if upstream failed
+        ],
+        check_existence=True,  # Ensure the task instance exists
         dag=dag,
     )
 
