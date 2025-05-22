@@ -33,8 +33,8 @@ default_args = {
 CLUSTER_NAME_TEMPLATE = "staging-cluster-{ds_nodash}"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # todo: change this later after dev testing
-CLUSTER_IDLE_DELETE_TTL = 7200  # 30 minutes
-CLUSTER_AUTO_DELETE_TTL = 7200  # 1 hour
+CLUSTER_IDLE_DELETE_TTL = 14400  # 4 hours
+CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
 
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
