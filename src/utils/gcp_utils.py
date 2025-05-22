@@ -691,7 +691,8 @@ class GCPDataService:
             where_conditions.append(f"{date_column} >= '{start_date_str}'")
 
         if end_date:
-            end_date_str = end_date.strftime("%Y-%m-%d %H:%M:%S")
+            # Set end_date to end of day (23:59:59) to include the full day
+            end_date_str = end_date.strftime("%Y-%m-%d 23:59:59")
             where_conditions.append(f"{date_column} <= '{end_date_str}'")
 
         if user_ids:

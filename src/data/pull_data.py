@@ -57,6 +57,13 @@ async def fetch_all_video_data(video_ids, batch_size, gcp_utils, output_dir):
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Handle empty video_ids case
+    if not video_ids:
+        logger.warning(
+            "No video IDs provided to fetch_all_video_data. Returning empty DataFrame."
+        )
+        return pd.DataFrame()
+
     # Create batches of the specified size
     batches = [
         video_ids[i : i + batch_size] for i in range(0, len(video_ids), batch_size)
@@ -70,6 +77,11 @@ async def fetch_all_video_data(video_ids, batch_size, gcp_utils, output_dir):
     results = []
     for f in tqdm(asyncio.as_completed(tasks), total=len(tasks)):
         results.append(await f)
+
+    # Handle empty results case
+    if not results:
+        logger.warning("No video data fetched. Returning empty DataFrame.")
+        return pd.DataFrame()
 
     # Combine all results
     all_video_data = pd.concat(results, ignore_index=True)
@@ -185,6 +197,13 @@ async def fetch_video_index_data(video_ids, batch_size=100):
 
     output_dir = DATA_ROOT / "video_index"
 
+    # Handle empty video_ids case
+    if not video_ids:
+        logger.warning(
+            "No video IDs provided to fetch_video_index_data. Returning empty DataFrame."
+        )
+        return pd.DataFrame()
+
     # Run the async function with parameters
     video_data = await fetch_all_video_data(
         video_ids=video_ids,
@@ -248,7 +267,11 @@ async def main():
     )
 
     # Extract unique video IDs from user data
-    unique_video_ids = user_data["video_id"].unique().tolist()
+    unique_video_ids = (
+        user_data["video_id"].unique().tolist() if not user_data.empty else []
+    )
+
+    logger.info(f"Found {len(unique_video_ids)} unique videos to process")
 
     # Fetch video index data
     video_data = await fetch_video_index_data(
