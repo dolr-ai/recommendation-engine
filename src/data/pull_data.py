@@ -1,4 +1,3 @@
-# %%
 import os
 import json
 import pandas as pd
@@ -10,15 +9,13 @@ from datetime import datetime
 import pathlib
 from tqdm import tqdm
 from utils.common_utils import path_exists, get_logger
+from utils.gcp_utils import GCPUtils
 
 logger = get_logger()
 
-# utils
-from utils.gcp_utils import GCPUtils
-
 DATA_ROOT = pathlib.Path("/home/dataproc/recommendation-engine/data_root")
-
 GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials.json"
+
 with open(GCP_CREDENTIALS_PATH, "r") as f:
     _ = json.load(f)
     gcp_credentials_str = json.dumps(_)
@@ -285,8 +282,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-# %%
-# df_video_index
-# df_video_index["uri"].value_counts()
-# %%
