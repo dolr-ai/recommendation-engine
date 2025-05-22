@@ -18,6 +18,7 @@ from airflow.utils.trigger_rule import TriggerRule
 from airflow.models import Variable
 from airflow.exceptions import AirflowException
 from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.utils.dates import days_ago
 
 # Default arguments for the DAG
 default_args = {
@@ -63,7 +64,7 @@ with DAG(
     dag_id="average_of_video_interactions",
     default_args=default_args,
     description="Video Interaction Average Calculation Job",
-    schedule_interval="0 6 * * 1",  # Run at 6 AM every Monday (after fetch_data_from_bq runs at midnight)
+    schedule_interval="0 1 * * 1",  # Run at 1 AM every Monday (1 hour after fetch_data_from_bq)
     catchup=False,
     tags=["video", "dataproc", "etl", "recommendations"],
 ) as dag:
@@ -75,10 +76,16 @@ with DAG(
         task_id="task-wait_for_data_fetch",
         external_dag_id="fetch_data_from_bq",
         external_task_id="end",  # Wait for the end task of the upstream DAG
-        mode="reschedule",  # Reschedule if the dependency isn't met yet
-        timeout=7200,  # 2 hours timeout
-        poke_interval=60,  # Check every 1 minute
+        mode="poke",  # Use poke mode instead of reschedule for better performance
+        timeout=3600,  # 1 hour timeout
+        poke_interval=30,  # Check every 30 seconds
         allowed_states=["success"],  # Only proceed if upstream DAG succeeded
+        failed_states=[
+            "failed",
+            "upstream_failed",
+            "skipped",
+        ],  # Fail if upstream failed
+        dag=dag,
     )
 
     # Validate cluster is ready
