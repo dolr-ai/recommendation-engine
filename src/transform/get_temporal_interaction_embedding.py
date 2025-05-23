@@ -35,12 +35,22 @@ def rope_inspired_encoding(time_counts, dim=ROPE_DIM):
     Create a position-aware temporal encoding inspired by RoPE (Rotary Position Embedding)
 
     Args:
-        time_counts: List of count values for each time bin
+        time_counts: Dictionary with cluster ids as keys and lists of time bin counts as values,
+                   or a list of count values for each time bin
         dim: Dimension of the resulting embedding vector
 
     Returns:
         Array containing the temporal encoding
     """
+    # Check if input is a dictionary or list
+    if isinstance(time_counts, dict):
+        # Get all values (time bin arrays) and flatten them
+        all_bins = []
+        for cluster_id, bins in time_counts.items():
+            all_bins.extend(bins)
+        time_counts = all_bins
+
+    # Now process the flattened time counts
     n_time_periods = len(time_counts)
     features = np.zeros(dim)
 
@@ -170,25 +180,22 @@ def generate_temporal_embeddings(input_path, output_path):
     def create_temporal_dist_udf(engagement_list):
         if not engagement_list:
             return {}
-        return create_temporal_cluster_distribution(
+        result = create_temporal_cluster_distribution(
             engagement_list, min_timestamp, max_timestamp, NUM_TIME_BINS
         )
+        print(f"DEBUG - temporal_dist sample: {str(result)[:200]}...")
+        return result
 
     @F.udf(ArrayType(FloatType()))
     def rope_encoding_udf(cluster_dist):
         if not cluster_dist:
             return [0.0] * ROPE_DIM
 
-        # Combine all time distributions across clusters
-        flattened_dist = []
-        for cluster_id, time_bins in cluster_dist.items():
-            flattened_dist.extend(time_bins)
-
-        # If we have any data, encode it
-        if any(flattened_dist):
-            return rope_inspired_encoding(flattened_dist, ROPE_DIM)
-        else:
-            return [0.0] * ROPE_DIM
+        # Directly pass the cluster distribution dictionary to rope_inspired_encoding
+        # This exactly matches the notebook implementation
+        result = rope_inspired_encoding(cluster_dist, ROPE_DIM)
+        print(f"DEBUG - rope_encoding sample: {str(result)[:200]}...")
+        return result
 
     @F.udf(MapType(IntegerType(), ArrayType(FloatType())))
     def cluster_wise_rope_encoding_udf(cluster_dist):
@@ -202,26 +209,43 @@ def generate_temporal_embeddings(input_path, output_path):
             encoding = rope_inspired_encoding(time_bins, ROPE_DIM)
             cluster_embeddings[cluster_id] = encoding
 
+        print(
+            f"DEBUG - cluster_temporal_embeddings sample: {str(cluster_embeddings)[:200]}..."
+        )
         return cluster_embeddings
 
     print("\nSTEP 3: Generating temporal embeddings")
 
     # Apply UDFs to generate temporal embeddings
+    print("Creating temporal_cluster_distribution column...")
     df_temporal = df_user_dist.withColumn(
         "temporal_cluster_distribution",
         create_temporal_dist_udf("engagement_metadata_list"),
     )
+    print("Sample of temporal_cluster_distribution:")
+    df_temporal.select("temporal_cluster_distribution").limit(2).show(truncate=False)
 
     # Create overall temporal embedding (RoPE encoded across all clusters)
+    print("Creating temporal_embedding column...")
+    print("NOTE: This step passes the dictionary directly to rope_inspired_encoding,")
+    print(
+        "      which then flattens the bins internally - matching the notebook behavior."
+    )
     df_temporal = df_temporal.withColumn(
         "temporal_embedding", rope_encoding_udf("temporal_cluster_distribution")
     )
+    print("Sample of temporal_embedding:")
+    df_temporal.select("temporal_embedding").limit(2).show(truncate=False)
 
     # Create per-cluster temporal embeddings
+    print("Creating cluster_temporal_embeddings column...")
+    print("NOTE: This creates separate embeddings for each cluster's time bins.")
     df_temporal = df_temporal.withColumn(
         "cluster_temporal_embeddings",
         cluster_wise_rope_encoding_udf("temporal_cluster_distribution"),
     )
+    print("Sample of cluster_temporal_embeddings:")
+    df_temporal.select("cluster_temporal_embeddings").limit(2).show(truncate=False)
 
     # Add metadata about the time boundaries used
     df_temporal = df_temporal.withColumn(
@@ -254,7 +278,6 @@ def generate_temporal_embeddings(input_path, output_path):
     print("\nSTEP 4: Writing output data")
 
     # Write results to HDFS
-
     df_result.write.mode("overwrite").parquet(output_path)
 
     print(f"Successfully generated temporal embeddings at {output_path}")

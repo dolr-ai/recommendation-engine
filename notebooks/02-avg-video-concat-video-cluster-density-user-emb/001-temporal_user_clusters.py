@@ -143,6 +143,8 @@ df_alg2_emb["temporal_cluster_distribution_rope"] = df_alg2_emb[
     "temporal_cluster_distribution"
 ].apply(rope_inspired_encoding)
 # %%
+df_alg2_emb["engagement_metadata_list"].iloc[0]
+# %%
 res1
 # output
 # {1: [0, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
