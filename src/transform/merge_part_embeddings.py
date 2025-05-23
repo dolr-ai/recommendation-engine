@@ -20,12 +20,63 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import *
 import numpy as np
+from pyspark.ml.feature import Normalizer
+from pyspark.ml.linalg import Vectors, VectorUDT
 
 # Initialize Spark Session
 spark = SparkSession.builder.appName("Merge Part Embeddings").getOrCreate()
 
 # Define constants
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
+
+
+# UDFs for embedding operations
+def array_to_vector(array):
+    return Vectors.dense(array)
+
+
+array_to_vector_udf = F.udf(array_to_vector, VectorUDT())
+
+
+def vector_to_array(vector):
+    return vector.toArray().tolist()
+
+
+vector_to_array_udf = F.udf(vector_to_array, ArrayType(FloatType()))
+
+
+def concatenate_embeddings(emb1, emb2, emb3):
+    """
+    Concatenate three embedding arrays into one using NumPy.
+
+    Args:
+        emb1: First embedding array
+        emb2: Second embedding array
+        emb3: Third embedding array
+
+    Returns:
+        Concatenated array
+    """
+    if emb1 is None or emb2 is None or emb3 is None:
+        return None
+
+    try:
+        # Convert to numpy arrays
+        emb1_np = np.array(emb1)
+        emb2_np = np.array(emb2)
+        emb3_np = np.array(emb3)
+
+        # Use numpy's concatenate function
+        concatenated = np.concatenate([emb1_np, emb2_np, emb3_np])
+
+        # Return as list for Spark compatibility
+        return concatenated.tolist()
+    except Exception as e:
+        print(f"Error concatenating embeddings: {e}")
+        return None
+
+
+concatenate_embeddings_udf = F.udf(concatenate_embeddings, ArrayType(FloatType()))
 
 
 def merge_part_embeddings(
@@ -88,12 +139,46 @@ def merge_part_embeddings(
 
     print("\nSTEP 4: Creating final output dataframe")
 
-    # The final dataframe includes all three embedding types
-    df_result = df_joined.select(
+    # First select individual embeddings
+    df_with_embeddings = df_joined.select(
         "user_id",
         "avg_interaction_embedding",
         "temporal_embedding",
         "cluster_distribution_embedding",
+    )
+
+    print("\nSTEP 5: Concatenating embeddings")
+
+    # Concatenate embeddings into a single user embedding
+    df_with_concat = df_with_embeddings.withColumn(
+        "concatenated_embedding",
+        concatenate_embeddings_udf(
+            F.col("avg_interaction_embedding"),
+            F.col("temporal_embedding"),
+            F.col("cluster_distribution_embedding"),
+        ),
+    )
+
+    # Convert to vector for normalization
+    df_with_vector = df_with_concat.withColumn(
+        "embedding_vector", array_to_vector_udf(F.col("concatenated_embedding"))
+    )
+
+    # Normalize the concatenated embedding
+    normalizer = Normalizer(
+        inputCol="embedding_vector", outputCol="normalized_embedding_vector", p=2.0
+    )
+    df_normalized = normalizer.transform(df_with_vector)
+
+    # Convert back to array format
+    df_result = df_normalized.withColumn(
+        "user_embedding", vector_to_array_udf(F.col("normalized_embedding_vector"))
+    ).select(
+        "user_id",
+        "avg_interaction_embedding",
+        "temporal_embedding",
+        "cluster_distribution_embedding",
+        "user_embedding",
     )
 
     print("Final result count:", df_result.count())
@@ -157,7 +242,7 @@ def main():
 
     # Show a sample of data that was written
     print("\nSample of data written:")
-    df_result.show(5)
+    df_result.show(10)
 
     print(f"Successfully wrote merged user embeddings to {output_path}")
     print(f"And copied back to {local_output_dir}/merged_user_embeddings.parquet")
