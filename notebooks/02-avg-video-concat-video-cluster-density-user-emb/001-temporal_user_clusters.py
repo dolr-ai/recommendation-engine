@@ -51,10 +51,12 @@ df_alg2_emb = pd.read_parquet(
 
 # %%
 def rope_inspired_encoding(time_counts, dim=16):
+    print(time_counts)
     n_time_periods = len(time_counts)
     features = np.zeros(dim)
 
     for t, count in enumerate(time_counts):
+        print(t, count)
         if count == 0:
             continue
 
@@ -123,14 +125,122 @@ start_date = datetime(2025, 2, 1, tzinfo=timezone.utc)
 end_date = datetime(2025, 4, 30, tzinfo=timezone.utc)
 
 res1 = create_temporal_cluster_distribution(
-    df_alg2_emb["engagement_metadata_list"].iloc[0],
+    df_alg2_emb["engagement_metadata_list"].iloc[12],
     min_timestamp=start_date,
     max_timestamp=end_date,
     num_bins=16,
 )
+res1
+# %%
 
-res2 = rope_inspired_encoding(res1)
 
+def create_rope_inspired_embeddings(cluster_access_data, embedding_dim=16):
+    """
+    Create ROPE-inspired embeddings for cluster access patterns.
+
+    Args:
+        cluster_access_data: Dictionary with cluster IDs as keys and time bin access arrays as values
+        embedding_dim: Dimension of the embedding vectors (must be even)
+
+    Returns:
+        Dictionary with cluster IDs as keys and their embeddings as values
+    """
+    if embedding_dim % 2 != 0:
+        raise ValueError("Embedding dimension must be even for ROPE-style encodings")
+
+    # Create embeddings for each cluster
+    embeddings = {}
+
+    for cluster_id, time_bins in cluster_access_data.items():
+        # Initialize the final embedding for this cluster
+        cluster_embedding = np.zeros(embedding_dim)
+
+        # Convert cluster ID to a base embedding using a simple embedding function
+        # Here we're using a simple hash-based approach to create a unique embedding per cluster
+        base_embedding = np.zeros(embedding_dim)
+        for i in range(embedding_dim):
+            # Create a unique pattern based on cluster ID
+            base_embedding[i] = np.sin(cluster_id * (i + 1) / embedding_dim) * 0.5 + 0.5
+
+        # Normalize the base embedding
+        base_embedding = base_embedding / np.linalg.norm(base_embedding)
+
+        # For each time bin, apply a rotary position encoding if there were accesses
+        for pos, access_count in enumerate(time_bins):
+            if access_count > 0:
+                # Apply ROPE-style rotation based on position
+                # Create position-dependent frequencies
+                freqs = 1.0 / (
+                    10000 ** (np.arange(0, embedding_dim, 2) / embedding_dim)
+                )
+
+                # Calculate rotation angles based on position
+                theta = pos * freqs
+
+                # Create rotation matrix elements
+                cos_values = np.cos(theta)
+                sin_values = np.sin(theta)
+
+                # Apply rotation to pairs of dimensions
+                rotated_embedding = base_embedding.copy()
+                for i in range(0, embedding_dim, 2):
+                    # Rotation in 2D subspace
+                    x, y = rotated_embedding[i], rotated_embedding[i + 1]
+                    cos_theta, sin_theta = cos_values[i // 2], sin_values[i // 2]
+
+                    rotated_embedding[i] = x * cos_theta - y * sin_theta
+                    rotated_embedding[i + 1] = x * sin_theta + y * cos_theta
+
+                # Scale by access count and add to the final embedding
+                cluster_embedding += rotated_embedding * access_count
+
+        # Normalize the final embedding
+        if np.linalg.norm(cluster_embedding) > 0:
+            cluster_embedding = cluster_embedding / np.linalg.norm(cluster_embedding)
+
+        embeddings[cluster_id] = cluster_embedding
+
+    return embeddings
+
+
+res2 = create_rope_inspired_embeddings(res1)
+print(res2)
+
+
+# %%
+
+
+def rope_inspired_encoding(time_counts, dim=16):
+    print(time_counts)
+    n_time_periods = len(time_counts)
+    features = np.zeros(dim)
+    sum_counts = sum(time_counts)
+
+    for t, count in enumerate(time_counts):
+        if count == 0:
+            continue
+
+        # Create position encoding similar to RoPE
+        position = t / n_time_periods  # Normalize position to [0,1]
+        for i in range(dim // 2):
+            theta = position / (10000 ** (2 * i / dim))
+            features[2 * i] += (count / sum_counts) * np.sin(theta)
+            features[2 * i + 1] += (count / sum_counts) * np.cos(theta)
+
+    # Normalize
+    magnitude = np.linalg.norm(features)
+    if magnitude > 0:
+        features = features / magnitude
+
+    return features
+
+
+for i in res1.keys():
+    res2 = rope_inspired_encoding(res1[i])
+    print(res2)
+
+
+# %%
 df_alg2_emb["temporal_cluster_distribution"] = df_alg2_emb[
     "engagement_metadata_list"
 ].apply(
@@ -158,6 +268,34 @@ res2
 #        1.72668491e-02, 3.54135636e-01, 5.46317989e-03, 3.54585587e-01,
 #        1.72770162e-03, 3.54630597e-01, 5.46350147e-04, 3.54635098e-01,
 #        1.72771179e-04, 3.54635549e-01, 5.46350468e-05, 3.54635594e-01])
+# %%
+
+t = {
+    0: [14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    1: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    3: [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    4: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+}
+
+print(rope_inspired_encoding(t).tolist())
+[
+    0.0458782,
+    0.34161654,
+    0.015339742,
+    0.35358736,
+    0.004877817,
+    0.35483015,
+    0.0015433559,
+    0.35495487,
+    4.8807904e-4,
+    0.35496736,
+    1.5434499e-4,
+    0.3549686,
+    4.88082e-5,
+    0.35496873,
+    1.5434509e-5,
+    0.35496876,
+]
 # %%
 df_alg2_emb["temporal_cluster_distribution_rope"].iloc[0]
 
@@ -596,4 +734,4 @@ df_temp = pd.read_parquet(
 )
 
 # %%
-df_temp.iloc[0]
+df_temp.iloc[0]["temporal_merged_embedding"]

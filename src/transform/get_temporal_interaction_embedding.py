@@ -30,47 +30,64 @@ NUM_TIME_BINS = 16
 ROPE_DIM = 16
 
 
-def rope_inspired_encoding(time_counts, dim=ROPE_DIM):
+def rope_inspired_encoding(cluster_id, time_bins, dim=ROPE_DIM):
     """
     Create a position-aware temporal encoding inspired by RoPE (Rotary Position Embedding)
 
     Args:
-        time_counts: Dictionary with cluster ids as keys and lists of time bin counts as values,
-                   or a list of count values for each time bin
-        dim: Dimension of the resulting embedding vector
+        cluster_id: ID of the cluster
+        time_bins: List of count values for each time bin
+        dim: Dimension of the resulting embedding vector (must be even)
 
     Returns:
         Array containing the temporal encoding
     """
-    # Check if input is a dictionary or list
-    if isinstance(time_counts, dict):
-        # Get all values (time bin arrays) and flatten them
-        all_bins = []
-        for cluster_id, bins in time_counts.items():
-            all_bins.extend(bins)
-        time_counts = all_bins
+    if dim % 2 != 0:
+        raise ValueError("Embedding dimension must be even for ROPE-style encodings")
 
-    # Now process the flattened time counts
-    n_time_periods = len(time_counts)
-    features = np.zeros(dim)
+    # Initialize the final embedding for this cluster
+    cluster_embedding = np.zeros(dim)
 
-    for t, count in enumerate(time_counts):
-        if count == 0:
-            continue
+    # Create a base embedding based on cluster ID
+    base_embedding = np.zeros(dim)
+    for i in range(dim):
+        # Create a unique pattern based on cluster ID
+        base_embedding[i] = np.sin(cluster_id * (i + 1) / dim) * 0.5 + 0.5
 
-        # Create position encoding similar to RoPE
-        position = t / n_time_periods  # Normalize position to [0,1]
-        for i in range(dim // 2):
-            theta = position / (10000 ** (2 * i / dim))
-            features[2 * i] += count * np.sin(theta)
-            features[2 * i + 1] += count * np.cos(theta)
+    # Normalize the base embedding
+    base_embedding = base_embedding / np.linalg.norm(base_embedding)
 
-    # Normalize
-    magnitude = np.linalg.norm(features)
-    if magnitude > 0:
-        features = features / magnitude
+    # For each time bin, apply a rotary position encoding if there were accesses
+    for pos, access_count in enumerate(time_bins):
+        if access_count > 0:
+            # Create position-dependent frequencies
+            freqs = 1.0 / (10000 ** (np.arange(0, dim, 2) / dim))
 
-    return features.tolist()
+            # Calculate rotation angles based on position
+            theta = pos * freqs
+
+            # Create rotation matrix elements
+            cos_values = np.cos(theta)
+            sin_values = np.sin(theta)
+
+            # Apply rotation to pairs of dimensions
+            rotated_embedding = base_embedding.copy()
+            for i in range(0, dim, 2):
+                # Rotation in 2D subspace
+                x, y = rotated_embedding[i], rotated_embedding[i + 1]
+                cos_theta, sin_theta = cos_values[i // 2], sin_values[i // 2]
+
+                rotated_embedding[i] = x * cos_theta - y * sin_theta
+                rotated_embedding[i + 1] = x * sin_theta + y * cos_theta
+
+            # Scale by access count and add to the final embedding
+            cluster_embedding += rotated_embedding * access_count
+
+    # Normalize the final embedding
+    if np.linalg.norm(cluster_embedding) > 0:
+        cluster_embedding = cluster_embedding / np.linalg.norm(cluster_embedding)
+
+    return cluster_embedding.tolist()
 
 
 def create_temporal_cluster_distribution(
@@ -180,22 +197,9 @@ def generate_temporal_embeddings(input_path, output_path):
     def create_temporal_dist_udf(engagement_list):
         if not engagement_list:
             return {}
-        result = create_temporal_cluster_distribution(
+        return create_temporal_cluster_distribution(
             engagement_list, min_timestamp, max_timestamp, NUM_TIME_BINS
         )
-        print(f"DEBUG - temporal_dist sample: {str(result)[:200]}...")
-        return result
-
-    @F.udf(ArrayType(FloatType()))
-    def rope_encoding_udf(cluster_dist):
-        if not cluster_dist:
-            return [0.0] * ROPE_DIM
-
-        # Directly pass the cluster distribution dictionary to rope_inspired_encoding
-        # This exactly matches the notebook implementation
-        result = rope_inspired_encoding(cluster_dist, ROPE_DIM)
-        print(f"DEBUG - rope_encoding sample: {str(result)[:200]}...")
-        return result
 
     @F.udf(MapType(IntegerType(), ArrayType(FloatType())))
     def cluster_wise_rope_encoding_udf(cluster_dist):
@@ -206,46 +210,50 @@ def generate_temporal_embeddings(input_path, output_path):
         cluster_embeddings = {}
 
         for cluster_id, time_bins in cluster_dist.items():
-            encoding = rope_inspired_encoding(time_bins, ROPE_DIM)
-            cluster_embeddings[cluster_id] = encoding
+            if any(time_bins):
+                encoding = rope_inspired_encoding(cluster_id, time_bins, ROPE_DIM)
+                cluster_embeddings[cluster_id] = encoding
 
-        print(
-            f"DEBUG - cluster_temporal_embeddings sample: {str(cluster_embeddings)[:200]}..."
-        )
         return cluster_embeddings
+
+    @F.udf(ArrayType(FloatType()))
+    def average_cluster_embeddings_udf(cluster_embeddings_map):
+        if not cluster_embeddings_map:
+            return [0.0] * ROPE_DIM
+
+        # Extract all embeddings from the map
+        embeddings = [np.array(emb) for emb in cluster_embeddings_map.values()]
+
+        # Take the average of all embeddings
+        if embeddings:
+            avg_embedding = np.mean(embeddings, axis=0)
+            # Normalize the average embedding
+            norm = np.linalg.norm(avg_embedding)
+            if norm > 0:
+                avg_embedding = avg_embedding / norm
+            return avg_embedding.tolist()
+        else:
+            return [0.0] * ROPE_DIM
 
     print("\nSTEP 3: Generating temporal embeddings")
 
     # Apply UDFs to generate temporal embeddings
-    print("Creating temporal_cluster_distribution column...")
     df_temporal = df_user_dist.withColumn(
         "temporal_cluster_distribution",
         create_temporal_dist_udf("engagement_metadata_list"),
     )
-    print("Sample of temporal_cluster_distribution:")
-    df_temporal.select("temporal_cluster_distribution").limit(2).show(truncate=False)
-
-    # Create overall temporal embedding (RoPE encoded across all clusters)
-    print("Creating temporal_embedding column...")
-    print("NOTE: This step passes the dictionary directly to rope_inspired_encoding,")
-    print(
-        "      which then flattens the bins internally - matching the notebook behavior."
-    )
-    df_temporal = df_temporal.withColumn(
-        "temporal_embedding", rope_encoding_udf("temporal_cluster_distribution")
-    )
-    print("Sample of temporal_embedding:")
-    df_temporal.select("temporal_embedding").limit(2).show(truncate=False)
 
     # Create per-cluster temporal embeddings
-    print("Creating cluster_temporal_embeddings column...")
-    print("NOTE: This creates separate embeddings for each cluster's time bins.")
     df_temporal = df_temporal.withColumn(
         "cluster_temporal_embeddings",
         cluster_wise_rope_encoding_udf("temporal_cluster_distribution"),
     )
-    print("Sample of cluster_temporal_embeddings:")
-    df_temporal.select("cluster_temporal_embeddings").limit(2).show(truncate=False)
+
+    # Create overall temporal embedding by averaging the per-cluster embeddings
+    df_temporal = df_temporal.withColumn(
+        "temporal_embedding",
+        average_cluster_embeddings_udf("cluster_temporal_embeddings"),
+    )
 
     # Add metadata about the time boundaries used
     df_temporal = df_temporal.withColumn(
