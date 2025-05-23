@@ -82,7 +82,7 @@ def calculate_user_cluster_distributions():
 
     # Load input data
     user_interaction_path = "/tmp/user_interaction/user_interaction_all.parquet"
-    video_clusters_path = "/tmp/emb_analysis/video_clusters.parquet"
+    video_clusters_path = "/tmp/transformed/video_clusters/video_clusters.parquet"
 
     df_user_interaction = spark.read.parquet(user_interaction_path)
     df_video_clusters = spark.read.parquet(video_clusters_path)
@@ -235,8 +235,8 @@ def main():
             "dfs",
             "-put",
             "-f",
-            f"{DATA_ROOT}/emb_analysis/video_clusters.parquet",
-            "/tmp/emb_analysis/video_clusters.parquet",
+            f"{DATA_ROOT}/transformed/video_clusters/video_clusters.parquet",
+            "/tmp/transformed/video_clusters/video_clusters.parquet",
         ]
     )
 
