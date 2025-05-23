@@ -93,7 +93,7 @@ def merge_part_embeddings(
         "user_id",
         "avg_interaction_embedding",
         "temporal_embedding",
-        "cluster_embedding",
+        "cluster_distribution_embedding",
     )
 
     print("Final result count:", df_result.count())
