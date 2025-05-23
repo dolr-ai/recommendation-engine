@@ -1,9 +1,9 @@
 """
-User Video Clusters Distribution Calculation DAG
+Temporal Interaction Embedding DAG
 
-This DAG uses an existing Dataproc cluster to run a PySpark job that calculates the distribution
-of video clusters for each user. It depends on the video_clusters DAG to have already generated
-the video clusters.
+This DAG uses an existing Dataproc cluster to run a PySpark job that generates temporal
+interaction embeddings based on user video cluster distributions. It depends on the
+user_cluster_distribution DAG to have already generated the user cluster distributions.
 """
 
 import os
@@ -39,10 +39,10 @@ REGION = "us-central1"
 
 # Cluster name variable - same as in other DAGs
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
-# Status variable from video_clusters DAG
-VIDEO_CLUSTERS_STATUS_VARIABLE = "video_clusters_completed"
-# Status variable for this DAG
+# Status variable from user_cluster_distribution DAG
 USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE = "user_cluster_distribution_completed"
+# Status variable for this DAG
+TEMPORAL_EMBEDDING_STATUS_VARIABLE = "temporal_interaction_embedding_completed"
 
 
 # Function to validate cluster exists and is ready
@@ -61,30 +61,30 @@ def validate_cluster_ready(**kwargs):
         raise AirflowException(f"Cluster not ready: {str(e)}")
 
 
-# Function to check if video clusters job is completed
-def check_video_clusters_completed(**kwargs):
-    """Check if video_clusters has completed successfully."""
+# Function to check if user cluster distribution job is completed
+def check_user_cluster_distribution_completed(**kwargs):
+    """Check if user_cluster_distribution has completed successfully."""
     try:
-        status = Variable.get(VIDEO_CLUSTERS_STATUS_VARIABLE)
-        print(f"Video clusters status: {status}")
+        status = Variable.get(USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE)
+        print(f"User cluster distribution status: {status}")
 
         if status.lower() != "true":
             raise AirflowException(
-                "Video clusters job has not completed successfully. Cannot proceed."
+                "User cluster distribution job has not completed successfully. Cannot proceed."
             )
 
         return True
     except Exception as e:
-        print(f"Error checking video clusters status: {str(e)}")
-        raise AirflowException(f"Video clusters check failed: {str(e)}")
+        print(f"Error checking user cluster distribution status: {str(e)}")
+        raise AirflowException(f"User cluster distribution check failed: {str(e)}")
 
 
 # Function to initialize status variable
 def initialize_status_variable(**kwargs):
-    """Initialize the user_cluster_distribution_completed status variable to False."""
+    """Initialize the temporal_interaction_embedding_completed status variable to False."""
     try:
-        Variable.set(USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE, "False")
-        print(f"Set {USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE} to False")
+        Variable.set(TEMPORAL_EMBEDDING_STATUS_VARIABLE, "False")
+        print(f"Set {TEMPORAL_EMBEDDING_STATUS_VARIABLE} to False")
         return True
     except Exception as e:
         print(f"Error initializing status variable: {str(e)}")
@@ -93,10 +93,10 @@ def initialize_status_variable(**kwargs):
 
 # Function to set status variable to completed
 def set_status_completed(**kwargs):
-    """Set the user_cluster_distribution_completed status variable to True."""
+    """Set the temporal_interaction_embedding_completed status variable to True."""
     try:
-        Variable.set(USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE, "True")
-        print(f"Set {USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE} to True")
+        Variable.set(TEMPORAL_EMBEDDING_STATUS_VARIABLE, "True")
+        print(f"Set {TEMPORAL_EMBEDDING_STATUS_VARIABLE} to True")
         return True
     except Exception as e:
         print(f"Error setting status variable: {str(e)}")
@@ -105,12 +105,12 @@ def set_status_completed(**kwargs):
 
 # Create the DAG
 with DAG(
-    dag_id="user_cluster_distribution",
+    dag_id="temporal_interaction_embedding",
     default_args=default_args,
-    description="User Video Clusters Distribution Calculation Job",
-    schedule_interval="0 3 * * 1",  # Run at 3 AM every Monday (1 hour after video_clusters)
+    description="Temporal Interaction Embedding Generation Job",
+    schedule_interval="0 4 * * 1",  # Run at 4 AM every Monday (1 hour after user_cluster_distribution)
     catchup=False,
-    tags=["user", "video", "dataproc", "clustering", "recommendations"],
+    tags=["user", "temporal", "dataproc", "embeddings", "recommendations"],
 ) as dag:
 
     start = DummyOperator(task_id="start", dag=dag)
@@ -121,10 +121,10 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
-    # Check if video_clusters has completed
-    check_video_clusters = PythonOperator(
-        task_id="task-check_video_clusters",
-        python_callable=check_video_clusters_completed,
+    # Check if user_cluster_distribution has completed
+    check_user_cluster_distribution = PythonOperator(
+        task_id="task-check_user_cluster_distribution",
+        python_callable=check_user_cluster_distribution_completed,
         retries=12,  # Retry for up to 1 hour (12 * 5 minutes)
         retry_delay=timedelta(minutes=5),
     )
@@ -137,9 +137,9 @@ with DAG(
         retry_delay=timedelta(minutes=1),
     )
 
-    # Submit the PySpark job to calculate user video clusters distribution
-    calculate_user_clusters_distribution = DataprocSubmitJobOperator(
-        task_id="task-calculate_user_clusters_distribution",
+    # Submit the PySpark job to generate temporal interaction embeddings
+    generate_temporal_embeddings = DataprocSubmitJobOperator(
+        task_id="task-generate_temporal_embeddings",
         project_id=PROJECT_ID,
         region=REGION,
         job={
@@ -147,7 +147,7 @@ with DAG(
                 "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
             },
             "pyspark_job": {
-                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_user_video_cluster_distribution.py",
+                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_temporal_interaction_embedding.py",
                 "properties": {
                     # Optimized memory settings
                     "spark.driver.memory": "4g",
@@ -180,7 +180,7 @@ with DAG(
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
-        trigger_rule=TriggerRule.ALL_SUCCESS,  # Only run if the calculate task succeeds
+        trigger_rule=TriggerRule.ALL_SUCCESS,  # Only run if the generate task succeeds
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
@@ -189,9 +189,9 @@ with DAG(
     (
         start
         >> init_status
-        >> check_video_clusters
+        >> check_user_cluster_distribution
         >> validate_cluster
-        >> calculate_user_clusters_distribution
+        >> generate_temporal_embeddings
         >> set_status
         >> end
     )
