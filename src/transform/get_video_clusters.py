@@ -32,6 +32,10 @@ spark = SparkSession.builder.appName("Video Clustering").getOrCreate()
 MIN_K_VIDEO = 3
 # todo: increase this to 15 later
 MAX_K_VIDEO = 10
+
+# todo: remove this later
+K_VALUES = [6, 12]
+
 DEFAULT_OPTIMAL_K_CLUSTERS = 8
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 
@@ -195,7 +199,9 @@ def cluster_videos(
     # Create empty lists to store metrics
     silhouette_scores = []
     inertia_values = []
-    k_values = list(range(min_k, max_k + 1))
+    # todo: remove this later
+    # k_values = list(range(min_k, max_k + 1))
+    k_values = K_VALUES
 
     # Evaluate different k values
     for k in k_values:
