@@ -190,21 +190,19 @@ def generate_temporal_embeddings(input_path, output_path):
         else:
             return [0.0] * ROPE_DIM
 
-    @F.udf(ArrayType(ArrayType(FloatType())))
+    @F.udf(MapType(IntegerType(), ArrayType(FloatType())))
     def cluster_wise_rope_encoding_udf(cluster_dist):
         if not cluster_dist:
-            return []
+            return {}
 
-        # Get all unique cluster IDs and sort them
-        cluster_ids = sorted(cluster_dist.keys())
-        encodings = []
+        # Create a dictionary mapping cluster IDs to their temporal embeddings
+        cluster_embeddings = {}
 
-        for cluster_id in cluster_ids:
-            time_bins = cluster_dist[cluster_id]
+        for cluster_id, time_bins in cluster_dist.items():
             encoding = rope_inspired_encoding(time_bins, ROPE_DIM)
-            encodings.append(encoding)
+            cluster_embeddings[cluster_id] = encoding
 
-        return encodings
+        return cluster_embeddings
 
     print("\nSTEP 3: Generating temporal embeddings")
 

@@ -143,7 +143,21 @@ df_alg2_emb["temporal_cluster_distribution_rope"] = df_alg2_emb[
     "temporal_cluster_distribution"
 ].apply(rope_inspired_encoding)
 # %%
-df_alg2_emb["temporal_cluster_distribution_rope"]
+res1
+# output
+# {1: [0, 0, 0, 0, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#  5: [0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+#  7: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}
+
+# %%
+res2
+# output
+# array([1.62711235e-01, 3.06241358e-01, 5.43108956e-02, 3.49650722e-01,
+#        1.72668491e-02, 3.54135636e-01, 5.46317989e-03, 3.54585587e-01,
+#        1.72770162e-03, 3.54630597e-01, 5.46350147e-04, 3.54635098e-01,
+#        1.72771179e-04, 3.54635549e-01, 5.46350468e-05, 3.54635594e-01])
+# %%
+df_alg2_emb["temporal_cluster_distribution_rope"].iloc[0]
 
 
 # %%
@@ -570,3 +584,14 @@ plt.savefig(
     VISUALIZATION_DIR / "cluster_distribution.png", dpi=300, bbox_inches="tight"
 )
 plt.close()
+
+# %%
+
+import pandas as pd
+
+df_temp = pd.read_parquet(
+    "/Users/sagar/work/yral/recommendation-engine/data-3-month/transformed/temporal_merged_embeddings/user_merged_embeddings_with_clusters.parquet"
+)
+
+# %%
+df_temp.iloc[0]
