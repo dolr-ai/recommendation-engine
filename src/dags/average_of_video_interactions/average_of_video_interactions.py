@@ -40,6 +40,8 @@ REGION = "us-central1"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # Status variable from fetch_data_from_bq DAG
 FETCH_DATA_STATUS_VARIABLE = "fetch_data_from_bq_completed"
+# Status variable for this DAG
+AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE = "average_video_interactions_completed"
 
 
 # Function to validate cluster exists and is ready
@@ -76,6 +78,30 @@ def check_data_fetch_completed(**kwargs):
         raise AirflowException(f"Data fetch check failed: {str(e)}")
 
 
+# Function to initialize status variable
+def initialize_status_variable(**kwargs):
+    """Initialize the average_video_interactions_completed status variable to False."""
+    try:
+        Variable.set(AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE, "False")
+        print(f"Set {AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE} to False")
+        return True
+    except Exception as e:
+        print(f"Error initializing status variable: {str(e)}")
+        raise AirflowException(f"Failed to initialize status variable: {str(e)}")
+
+
+# Function to set status variable to completed
+def set_status_completed(**kwargs):
+    """Set the average_video_interactions_completed status variable to True."""
+    try:
+        Variable.set(AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE, "True")
+        print(f"Set {AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE} to True")
+        return True
+    except Exception as e:
+        print(f"Error setting status variable: {str(e)}")
+        raise AirflowException(f"Failed to set status variable: {str(e)}")
+
+
 # Create the DAG
 with DAG(
     dag_id="average_of_video_interactions",
@@ -87,6 +113,12 @@ with DAG(
 ) as dag:
 
     start = DummyOperator(task_id="start", dag=dag)
+
+    # Initialize status variable to False
+    init_status = PythonOperator(
+        task_id="task-init_status",
+        python_callable=initialize_status_variable,
+    )
 
     # Check if fetch_data_from_bq has completed
     check_data_fetch = PythonOperator(
@@ -117,13 +149,13 @@ with DAG(
                 "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_average_of_video_interactions.py",
                 "properties": {
                     # Reduced memory settings to fit within 6.5GB per node
-                    "spark.driver.memory": "2g",  # Reduced from 4g
-                    "spark.executor.memory": "2g",  # Reduced from 4g
-                    "spark.executor.cores": "1",  # Reduced from 2
-                    "spark.executor.instances": "2",  # Use both workers
+                    "spark.driver.memory": "4g",
+                    "spark.executor.memory": "4g",
+                    "spark.executor.cores": "4",
+                    "spark.executor.instances": "2",
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",
-                    "spark.driver.maxResultSize": "1g",
+                    "spark.driver.maxResultSize": "2g",
                     # Memory fraction settings for better memory management
                     "spark.executor.memoryFraction": "0.8",
                     "spark.executor.memoryStorageFraction": "0.3",
@@ -134,7 +166,22 @@ with DAG(
         retries=3,  # Retry if the job fails
     )
 
+    # Set status to completed after job finishes successfully
+    set_status = PythonOperator(
+        task_id="task-set_status_completed",
+        python_callable=set_status_completed,
+        trigger_rule=TriggerRule.ALL_SUCCESS,  # Only run if the calculate task succeeds
+    )
+
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> check_data_fetch >> validate_cluster >> calculate_video_avg >> end
+    (
+        start
+        >> init_status
+        >> check_data_fetch
+        >> validate_cluster
+        >> calculate_video_avg
+        >> set_status
+        >> end
+    )
