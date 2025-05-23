@@ -126,7 +126,9 @@ def calculate_user_cluster_distributions():
         .filter(F.col("count") >= WATCHED_MIN_VIDEOS)
     )
 
-    print("Users with min videos:", df_user_counts.count())
+    print(
+        f"Users who have watched atleast {WATCHED_MIN_VIDEOS} videos: {df_user_counts.count()}"
+    )
 
     # Join to keep only users with enough videos
     df_filtered = df_user_video_clusters.join(
@@ -163,6 +165,26 @@ def calculate_user_cluster_distributions():
 
     print("\nSTEP 4: Calculating cluster distributions per user")
 
+    # Include all interaction fields in metadata
+    df_filtered = df_filtered.withColumn(
+        "engagement_metadata",
+        F.struct(
+            F.col("video_id"),
+            F.col("last_watched_timestamp"),
+            F.col("mean_percentage_watched"),
+            F.col("liked"),
+            F.col("last_liked_timestamp"),
+            F.col("shared"),
+            F.col("last_shared_timestamp"),
+            F.col("cluster").cast("int").alias("cluster_label"),
+        ),
+    )
+
+    # Group by user to create list of engagement metadata
+    df_user_metadata = df_filtered.groupBy("user_id").agg(
+        F.collect_list("engagement_metadata").alias("engagement_metadata_list")
+    )
+
     # Calculate cluster counts per user using PySpark aggregation
     df_user_cluster_counts = df_filtered.groupBy("user_id", "cluster").count()
 
@@ -196,8 +218,11 @@ def calculate_user_cluster_distributions():
         normalize_distribution_udf(*[F.col(col) for col in cluster_columns]),
     )
 
-    # Select final output columns
-    df_result = df_user_distributions.select("user_id", "cluster_distribution")
+    # Join with the user metadata to include both distributions and full metadata
+    df_result = df_user_distributions.join(
+        df_user_metadata, on="user_id", how="inner"
+    ).select("user_id", "cluster_distribution", "engagement_metadata_list")
+
     print("Final user distributions count:", df_result.count())
     df_result.printSchema()
 
