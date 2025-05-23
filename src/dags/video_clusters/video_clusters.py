@@ -40,6 +40,8 @@ REGION = "us-central1"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # Status variable from fetch_data_from_bq DAG
 FETCH_DATA_STATUS_VARIABLE = "fetch_data_from_bq_completed"
+# Status variable for this DAG
+VIDEO_CLUSTERS_STATUS_VARIABLE = "video_clusters_completed"
 
 
 # Function to validate cluster exists and is ready
@@ -76,6 +78,30 @@ def check_data_fetch_completed(**kwargs):
         raise AirflowException(f"Data fetch check failed: {str(e)}")
 
 
+# Function to initialize status variable
+def initialize_status_variable(**kwargs):
+    """Initialize the video_clusters_completed status variable to False."""
+    try:
+        Variable.set(VIDEO_CLUSTERS_STATUS_VARIABLE, "False")
+        print(f"Set {VIDEO_CLUSTERS_STATUS_VARIABLE} to False")
+        return True
+    except Exception as e:
+        print(f"Error initializing status variable: {str(e)}")
+        raise AirflowException(f"Failed to initialize status variable: {str(e)}")
+
+
+# Function to set status variable to completed
+def set_status_completed(**kwargs):
+    """Set the video_clusters_completed status variable to True."""
+    try:
+        Variable.set(VIDEO_CLUSTERS_STATUS_VARIABLE, "True")
+        print(f"Set {VIDEO_CLUSTERS_STATUS_VARIABLE} to True")
+        return True
+    except Exception as e:
+        print(f"Error setting status variable: {str(e)}")
+        raise AirflowException(f"Failed to set status variable: {str(e)}")
+
+
 # Create the DAG
 with DAG(
     dag_id="video_clusters",
@@ -87,6 +113,12 @@ with DAG(
 ) as dag:
 
     start = DummyOperator(task_id="start", dag=dag)
+
+    # Initialize status variable to False
+    init_status = PythonOperator(
+        task_id="task-init_status",
+        python_callable=initialize_status_variable,
+    )
 
     # Check if fetch_data_from_bq has completed
     check_data_fetch = PythonOperator(
@@ -143,7 +175,22 @@ with DAG(
         retries=0,  # Retry if the job fails
     )
 
+    # Set status to completed after job finishes successfully
+    set_status = PythonOperator(
+        task_id="task-set_status_completed",
+        python_callable=set_status_completed,
+        trigger_rule=TriggerRule.ALL_SUCCESS,  # Only run if the cluster_videos task succeeds
+    )
+
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
-    start >> check_data_fetch >> validate_cluster >> cluster_videos >> end
+    (
+        start
+        >> init_status
+        >> check_data_fetch
+        >> validate_cluster
+        >> cluster_videos
+        >> set_status
+        >> end
+    )

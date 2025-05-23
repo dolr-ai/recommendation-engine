@@ -115,7 +115,7 @@ with DAG(
                 "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
             },
             "pyspark_job": {
-                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_user_video_clusters_density.py",
+                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_user_video_cluster_distribution.py",
                 "properties": {
                     # Optimized memory settings
                     "spark.driver.memory": "4g",
