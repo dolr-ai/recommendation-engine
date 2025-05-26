@@ -107,7 +107,7 @@ with DAG(
     dag_id="create_dataproc_cluster",
     default_args=default_args,
     description="Create Dataproc Cluster",
-    schedule_interval="0 0 * * 1",  # Run at midnight every Monday
+    schedule_interval=None,
     catchup=False,
     tags=["dataproc", "cluster"],
 ) as dag:

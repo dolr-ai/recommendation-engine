@@ -108,7 +108,7 @@ with DAG(
     dag_id="user_cluster_distribution",
     default_args=default_args,
     description="User Video Clusters Distribution Calculation Job",
-    schedule_interval="0 3 * * 1",  # Run at 3 AM every Monday (1 hour after video_clusters)
+    schedule_interval=None,
     catchup=False,
     tags=["user", "video", "dataproc", "clustering", "recommendations"],
 ) as dag:

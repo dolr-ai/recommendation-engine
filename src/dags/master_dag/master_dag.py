@@ -6,9 +6,9 @@ in a specific sequence:
 1. Create Dataproc Cluster
 2. Fetch Data from BigQuery
 3. Average Video Interactions and Video Clusters (in parallel)
-4. User Cluster Distribution
-5. Temporal Interaction Embedding
-6. Merge Part Embeddings
+4. User Cluster Distribution (after Video Clusters)
+5. Temporal Interaction Embedding (after User Cluster Distribution)
+6. Merge Part Embeddings (only after both Average Video Interactions AND Temporal Interaction Embedding)
 
 This master DAG triggers each individual DAG in sequence, respecting the dependencies,
 regardless of the individual DAGs' schedules.
@@ -97,7 +97,13 @@ with DAG(
         poke_interval=60,
     )
 
-    # Trigger merge_part_embeddings DAG after temporal_interaction_embedding
+    # Add a join point to ensure we only proceed when both paths are complete
+    join_for_merge = DummyOperator(
+        task_id="join_for_merge",
+        trigger_rule=TriggerRule.ALL_SUCCESS,  # Only proceed when both upstream tasks succeed
+    )
+
+    # Trigger merge_part_embeddings DAG after BOTH video_avg AND temporal_embedding
     trigger_merge_embeddings = TriggerDagRunOperator(
         task_id="trigger_merge_embeddings",
         trigger_dag_id="merge_part_embeddings",
@@ -121,9 +127,9 @@ with DAG(
     # After user_cluster_distribution completes, run temporal_embedding
     trigger_user_cluster_dist >> trigger_temporal_embedding
 
-    # After temporal_embedding completes, run merge_embeddings
-    trigger_temporal_embedding >> trigger_merge_embeddings
+    # Both video_avg and temporal_embedding must complete before merge_embeddings
+    trigger_video_avg >> join_for_merge
+    trigger_temporal_embedding >> join_for_merge
 
-    # Both avg_video_interactions and merge_embeddings must complete before end
-    trigger_video_avg >> end
-    trigger_merge_embeddings >> end
+    # Only run merge_embeddings when both paths complete
+    join_for_merge >> trigger_merge_embeddings >> end

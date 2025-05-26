@@ -107,7 +107,7 @@ with DAG(
     dag_id="average_of_video_interactions",
     default_args=default_args,
     description="Video Interaction Average Calculation Job",
-    schedule_interval="0 1 * * 1",  # Run at 1 AM every Monday (1 hour after fetch_data_from_bq)
+    schedule_interval=None,
     catchup=False,
     tags=["video", "dataproc", "etl", "recommendations"],
 ) as dag:

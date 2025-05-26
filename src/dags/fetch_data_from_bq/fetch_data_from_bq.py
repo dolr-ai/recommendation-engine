@@ -78,7 +78,7 @@ with DAG(
     dag_id="fetch_data_from_bq",
     default_args=default_args,
     description="BigQuery Data Fetch Job",
-    schedule_interval="0 0 * * 1",  # Run at midnight every Monday - same as cluster creation
+    schedule_interval=None,
     catchup=False,
     tags=["bigquery", "dataproc", "etl"],
 ) as dag:

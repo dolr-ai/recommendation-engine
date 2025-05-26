@@ -107,7 +107,7 @@ with DAG(
     dag_id="video_clusters",
     default_args=default_args,
     description="Video Clustering Job",
-    schedule_interval="0 2 * * 1",  # Run at 2 AM every Monday (1 hour after video interaction avg)
+    schedule_interval=None,
     catchup=False,
     tags=["video", "dataproc", "clustering", "recommendations"],
 ) as dag:

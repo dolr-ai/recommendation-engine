@@ -154,7 +154,7 @@ with DAG(
     dag_id="merge_part_embeddings",
     default_args=default_args,
     description="Merge Different Embedding Types Job",
-    schedule_interval="0 5 * * 1",  # Run at 5 AM every Monday (1 hour after temporal_interaction_embedding)
+    schedule_interval=None,
     catchup=False,
     tags=["user", "embeddings", "dataproc", "recommendations", "merge"],
 ) as dag:

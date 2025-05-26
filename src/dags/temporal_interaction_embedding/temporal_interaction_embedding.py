@@ -108,7 +108,7 @@ with DAG(
     dag_id="temporal_interaction_embedding",
     default_args=default_args,
     description="Temporal Interaction Embedding Generation Job",
-    schedule_interval="0 4 * * 1",  # Run at 4 AM every Monday (1 hour after user_cluster_distribution)
+    schedule_interval=None,
     catchup=False,
     tags=["user", "temporal", "dataproc", "embeddings", "recommendations"],
 ) as dag:
