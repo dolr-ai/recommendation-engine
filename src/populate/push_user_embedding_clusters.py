@@ -115,7 +115,7 @@ def main():
     user_clusters_path = "/tmp/transformed/user_clusters/user_clusters.parquet"
 
     # Load GCP credentials from environment or file
-    credentials_path = os.environ.get("GCP_CREDENTIALS_PATH", "")
+    credentials_path = "/home/dataproc/recommendation-engine/credentials_stage.json"
     credentials_json = ""
 
     if credentials_path and os.path.exists(credentials_path):
@@ -128,7 +128,7 @@ def main():
         raise ValueError("GCP credentials not found in environment variables or file")
 
     # Define BigQuery table info
-    dataset_id = "yral_ds"
+    dataset_id = "stage_test_tables"
     table_id = "test_user_cluster_embeddings"
 
     # Initialize GCP utils
