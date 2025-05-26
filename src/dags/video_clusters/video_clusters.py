@@ -166,7 +166,10 @@ with DAG(
             },
         },
         asynchronous=False,  # Wait for the job to complete
-        retries=0,  # Retry if the job fails
+        retries=1,  # Retry if the job fails
+        retry_delay=timedelta(minutes=5),
+        execution_timeout=timedelta(hours=1),  # Set a reasonable execution timeout
+        poll_interval=30,  # Check job status every 30 seconds.  Determines how often to poll the job for completion.
     )
 
     # Set status to completed after job finishes successfully
