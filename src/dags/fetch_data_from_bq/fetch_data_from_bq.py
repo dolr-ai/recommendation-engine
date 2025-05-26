@@ -120,6 +120,24 @@ with DAG(
                     "--video-batch-size",
                     "200",
                 ],
+                "properties": {
+                    # Optimized memory settings for scaled-up cluster
+                    "spark.driver.memory": "8g",
+                    "spark.executor.memory": "8g",
+                    # Optimized core allocation
+                    "spark.executor.cores": "4",
+                    "spark.executor.instances": "4",
+                    # Enable adaptive execution for better resource utilization
+                    "spark.sql.adaptive.enabled": "true",
+                    "spark.sql.adaptive.coalescePartitions.enabled": "true",
+                    # Increase shuffle partitions for better parallelism with BQ
+                    "spark.sql.shuffle.partitions": "120",
+                    # Increase driver result size
+                    "spark.driver.maxResultSize": "4g",
+                    # Memory management
+                    "spark.memory.fraction": "0.8",
+                    "spark.memory.storageFraction": "0.3",
+                },
             },
         },
         asynchronous=False,  # Wait for the job to complete

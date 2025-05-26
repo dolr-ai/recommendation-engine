@@ -148,12 +148,17 @@ with DAG(
             "pyspark_job": {
                 "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/populate/push_user_embedding_clusters.py",
                 "properties": {
-                    # Memory settings for the job
-                    "spark.driver.memory": "4g",
-                    "spark.executor.memory": "4g",
+                    # Memory settings for the job with scaled-up resources
+                    "spark.driver.memory": "8g",
+                    "spark.executor.memory": "8g",
                     # Core allocation
-                    "spark.executor.cores": "2",
-                    "spark.executor.instances": "2",
+                    "spark.executor.cores": "4",
+                    "spark.executor.instances": "4",
+                    # Enable adaptive execution for better resource utilization
+                    "spark.sql.adaptive.enabled": "true",
+                    "spark.sql.adaptive.coalescePartitions.enabled": "true",
+                    # Increase shuffle partitions for better parallelism with BQ
+                    "spark.sql.shuffle.partitions": "120",
                     # Memory management
                     "spark.memory.fraction": "0.8",
                     "spark.memory.storageFraction": "0.3",

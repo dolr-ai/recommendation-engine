@@ -57,7 +57,7 @@ CLUSTER_CONFIG = {
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
     },
     "worker_config": {
-        "num_instances": 2,
+        "num_instances": 4,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
     },
