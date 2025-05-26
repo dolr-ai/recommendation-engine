@@ -5,6 +5,8 @@ This file provides a unified interface for interacting with GCP services.
 
 import json
 import os
+import concurrent.futures
+from pathlib import Path
 import asyncio
 import pathlib
 import ffmpeg
@@ -224,27 +226,97 @@ class GCPStorageService:
             bucket_name,
         )
 
+    async def _upload_single_file_async(self, bucket, file_path, dest_blob_name):
+        """
+        Upload a single file asynchronously using asyncio.
+
+        Args:
+            bucket: GCS bucket object
+            file_path: Local file path to upload
+            dest_blob_name: Destination blob name in GCS
+
+        Returns:
+            Tuple of (blob_name, error_message) if error, None if successful
+        """
+        try:
+            # Run the upload in an executor since storage API isn't async
+            loop = asyncio.get_event_loop()
+            blob = bucket.blob(dest_blob_name)
+            await loop.run_in_executor(
+                None, lambda: blob.upload_from_filename(str(file_path))
+            )
+            return None  # Success
+        except Exception as e:
+            return (dest_blob_name, str(e))  # Return error info
+
+    async def _upload_directory_async(
+        self,
+        bucket,
+        file_paths,
+        relative_paths,
+        destination_prefix,
+        destination_gcs_path,
+        max_concurrent=20,
+    ):
+        """
+        Upload multiple files asynchronously with concurrency control.
+
+        Args:
+            bucket: GCS bucket object
+            file_paths: List of local file paths to upload
+            relative_paths: List of relative paths corresponding to file_paths
+            destination_prefix: Prefix to add to each relative path
+            destination_gcs_path: Full GCS destination path for logging
+            max_concurrent: Maximum number of concurrent uploads
+
+        Returns:
+            List of errors, empty if all successful
+        """
+        # Create a semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(max_concurrent)
+        errors = []
+
+        async def upload_with_semaphore(file_path, rel_path):
+            async with semaphore:
+                dest_blob_name = f"{destination_prefix}{rel_path}"
+                result = await self._upload_single_file_async(
+                    bucket, file_path, dest_blob_name
+                )
+                if result:
+                    errors.append(result)
+                    logger.error(f"Failed to upload {result[0]}: {result[1]}")
+                else:
+                    logger.debug(f"Uploaded {rel_path} to {destination_gcs_path}")
+
+        # Create tasks for all files
+        tasks = []
+        for file_path, rel_path in zip(file_paths, relative_paths):
+            task = asyncio.create_task(upload_with_semaphore(file_path, str(rel_path)))
+            tasks.append(task)
+
+        # Wait for all tasks to complete
+        await asyncio.gather(*tasks)
+        return errors
+
     def upload_directory(
         self,
         source_dir_path: str,
         destination_gcs_path: str,
-        max_workers: int = 8,
+        max_workers: int = 20,
     ) -> bool:
         """
-        Upload a directory to Google Cloud Storage using the TransferManager
+        Upload a directory to Google Cloud Storage using asyncio for better performance
+        with I/O-bound operations.
 
         Args:
             source_dir_path: Local path to the directory to upload
             destination_gcs_path: GCS destination path (e.g., gs://bucket-name/path/)
-            max_workers: Maximum number of workers for parallel upload
+            max_workers: Maximum number of concurrent uploads
 
         Returns:
             True if upload successful, False otherwise
         """
         try:
-            from pathlib import Path
-            from google.cloud.storage import transfer_manager
-
             logger.info(
                 f"Uploading directory {source_dir_path} to {destination_gcs_path}"
             )
@@ -260,6 +332,10 @@ class GCPStorageService:
             bucket_name = parts[0]
             destination_prefix = parts[1] if len(parts) > 1 else ""
 
+            # Ensure destination prefix ends with a slash if not empty
+            if destination_prefix and not destination_prefix.endswith("/"):
+                destination_prefix += "/"
+
             # Get the bucket
             bucket = self.client.bucket(bucket_name)
 
@@ -273,33 +349,35 @@ class GCPStorageService:
             # Make paths relative to source_dir_path
             relative_paths = [path.relative_to(source_dir_path) for path in file_paths]
 
-            # Convert paths to strings
+            # Convert paths to strings for logging
             string_paths = [str(path) for path in relative_paths]
 
             logger.info(f"Found {len(string_paths)} files to upload")
 
-            # Start the upload using TransferManager for parallel processing
-            results = transfer_manager.upload_many_from_filenames(
-                bucket,
-                string_paths,
-                source_directory=source_dir_path,
-                max_workers=max_workers,
-            )
+            # Use asyncio to upload files
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-            # Check for any errors
-            error_count = 0
-            for name, result in zip(string_paths, results):
-                if isinstance(result, Exception):
-                    logger.error(f"Failed to upload {name}: {result}")
-                    error_count += 1
-                else:
-                    logger.debug(f"Uploaded {name} to {bucket_name}")
-
-            if error_count:
-                logger.info(
-                    f"Completed with {error_count} errors out of {len(string_paths)} files"
+            try:
+                errors = loop.run_until_complete(
+                    self._upload_directory_async(
+                        bucket,
+                        file_paths,
+                        relative_paths,
+                        destination_prefix,
+                        destination_gcs_path,
+                        max_concurrent=max_workers,
+                    )
                 )
-                return error_count < len(
+            finally:
+                loop.close()
+
+            # Report results
+            if errors:
+                logger.info(
+                    f"Completed with {len(errors)} errors out of {len(string_paths)} files"
+                )
+                return len(errors) < len(
                     string_paths
                 )  # Return True if at least some files uploaded
             else:
