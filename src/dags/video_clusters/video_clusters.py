@@ -148,20 +148,14 @@ with DAG(
             "pyspark_job": {
                 "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_video_clusters.py",
                 "properties": {
-                    # Optimized memory settings for scaled-up cluster
-                    "spark.driver.memory": "10g",
-                    "spark.executor.memory": "10g",
-                    # Optimized core allocation
-                    "spark.executor.cores": "4",
-                    "spark.executor.instances": "4",
+                    # Enable dynamic allocation for YARN-managed resources
+                    "spark.dynamicAllocation.enabled": "true",
                     # Enable adaptive execution for better resource utilization
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",
                     "spark.sql.adaptive.skewJoin.enabled": "true",
                     # Increase shuffle partitions for better parallelism
                     "spark.sql.shuffle.partitions": "120",
-                    # Increase driver result size
-                    "spark.driver.maxResultSize": "5g",
                     # Use Kryo serializer for better performance
                     "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
                     "spark.kryoserializer.buffer.max": "256m",

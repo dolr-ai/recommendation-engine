@@ -148,14 +148,9 @@ with DAG(
             "pyspark_job": {
                 "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_average_of_video_interactions.py",
                 "properties": {
-                    # Increased memory settings for scaled-up cluster
-                    "spark.driver.memory": "8g",
-                    "spark.executor.memory": "8g",
-                    "spark.executor.cores": "4",
-                    "spark.executor.instances": "4",
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",
-                    "spark.driver.maxResultSize": "4g",
+                    "spark.dynamicAllocation.enabled": "true",
                     # Memory fraction settings for better memory management
                     "spark.executor.memoryFraction": "0.8",
                     "spark.executor.memoryStorageFraction": "0.3",

@@ -209,20 +209,14 @@ with DAG(
             "pyspark_job": {
                 "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/merge_part_embeddings.py",
                 "properties": {
-                    # Optimized memory settings for scaled-up cluster
-                    "spark.driver.memory": "8g",
-                    "spark.executor.memory": "8g",
-                    # Optimized core allocation
-                    "spark.executor.cores": "4",
-                    "spark.executor.instances": "4",
+                    # Enable dynamic allocation for YARN-managed resources
+                    "spark.dynamicAllocation.enabled": "true",
                     # Enable adaptive execution for better resource utilization
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",
                     "spark.sql.adaptive.skewJoin.enabled": "true",
                     # Increase shuffle partitions for better parallelism
                     "spark.sql.shuffle.partitions": "120",
-                    # Increase driver result size
-                    "spark.driver.maxResultSize": "4g",
                     # Use Kryo serializer for better performance with complex objects
                     "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
                     "spark.kryoserializer.buffer.max": "256m",
