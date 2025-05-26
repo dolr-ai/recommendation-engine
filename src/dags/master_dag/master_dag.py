@@ -10,6 +10,7 @@ in a specific sequence:
 5. Temporal Interaction Embedding (after User Cluster Distribution)
 6. Merge Part Embeddings (only after both Average Video Interactions AND Temporal Interaction Embedding)
 7. Write Data to BigQuery (after Merge Part Embeddings)
+8. Delete Dataproc Cluster (immediately if all tasks succeed, or after 30-minute delay if any failures)
 
 This master DAG triggers each individual DAG in sequence, respecting the dependencies,
 regardless of the individual DAGs' schedules.
@@ -20,6 +21,7 @@ from airflow import DAG
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.trigger_rule import TriggerRule
+from airflow.sensors.time_delta import TimeDeltaSensor
 
 # Default arguments for the DAG #
 default_args = {
@@ -149,7 +151,56 @@ with DAG(
         failed_states=["failed"],
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
+    # Create a branch for success path - immediate cluster deletion
+    success_branch = DummyOperator(
+        task_id="success_branch",
+        trigger_rule=TriggerRule.ALL_SUCCESS,  # Only run if all upstream tasks succeeded
+    )
+
+    # Create a branch for failure path - delayed cluster deletion
+    failure_branch = DummyOperator(
+        task_id="failure_branch",
+        trigger_rule=TriggerRule.ONE_FAILED,  # Run if any upstream task failed
+    )
+
+    # Add a 30-minute delay after write_data_to_bq fails
+    wait_thirty_minutes = TimeDeltaSensor(
+        task_id="wait_thirty_minutes",
+        delta=timedelta(minutes=30),
+    )
+
+    # Trigger delete_dataproc_cluster DAG immediately after success
+    trigger_delete_cluster_success = TriggerDagRunOperator(
+        task_id="trigger_delete_dataproc_cluster_success",
+        trigger_dag_id="delete_dataproc_cluster",
+        wait_for_completion=True,
+        reset_dag_run=True,
+        poke_interval=60,
+        allowed_states=["success"],
+        failed_states=["failed"],
+    )
+
+    # Trigger delete_dataproc_cluster DAG after delay (for failure cases)
+    trigger_delete_cluster_failure = TriggerDagRunOperator(
+        task_id="trigger_delete_dataproc_cluster_failure",
+        trigger_dag_id="delete_dataproc_cluster",
+        wait_for_completion=True,
+        reset_dag_run=True,
+        poke_interval=60,
+        allowed_states=["success"],
+        failed_states=["failed"],
+    )
+
+    # Join the success and failure paths
+    delete_join = DummyOperator(
+        task_id="delete_join",
+        trigger_rule=TriggerRule.ONE_SUCCESS,  # Proceed as long as one branch succeeds
+    )
+
+    end = DummyOperator(
+        task_id="end",
+        trigger_rule=TriggerRule.ALL_DONE,  # Complete the DAG regardless of upstream status
+    )
 
     # Define task dependencies
     start >> trigger_create_cluster >> trigger_fetch_data
@@ -174,5 +225,22 @@ with DAG(
         >> trigger_merge_embeddings
         >> trigger_user_clusters
         >> trigger_write_data_to_bq
-        >> end
     )
+
+    # Branch after write_data_to_bq
+    trigger_write_data_to_bq >> success_branch
+    trigger_write_data_to_bq >> failure_branch
+
+    # Success path - immediately delete cluster
+    success_branch >> trigger_delete_cluster_success >> delete_join
+
+    # Failure path - wait 30 minutes, then delete cluster
+    (
+        failure_branch
+        >> wait_thirty_minutes
+        >> trigger_delete_cluster_failure
+        >> delete_join
+    )
+
+    # Join the paths and end the DAG
+    delete_join >> end
