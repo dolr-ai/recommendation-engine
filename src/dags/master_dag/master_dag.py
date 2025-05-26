@@ -52,7 +52,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,  # Check every minute
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Trigger fetch_data_from_bq DAG after cluster creation
@@ -63,7 +63,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Trigger average_of_video_interactions DAG after data fetch
@@ -74,7 +74,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Trigger video_clusters DAG after data fetch (in parallel with avg_video_interactions)
@@ -85,7 +85,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Trigger user_cluster_distribution DAG after video_clusters
@@ -96,7 +96,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Trigger temporal_interaction_embedding DAG after user_cluster_distribution
@@ -107,7 +107,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Add a join point to ensure we only proceed when both paths are complete
@@ -124,7 +124,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Trigger user_clusters DAG after merge_part_embeddings
@@ -135,7 +135,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     # Trigger write_data_to_bq DAG after user_clusters
@@ -146,7 +146,7 @@ with DAG(
         reset_dag_run=True,
         poke_interval=60,
         allowed_states=["success"],
-        failed_states=["failed", "skipped"],
+        failed_states=["failed"],
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
