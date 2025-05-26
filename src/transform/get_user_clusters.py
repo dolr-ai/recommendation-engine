@@ -32,7 +32,9 @@ MIN_K_USER = 3
 MAX_K_USER = 10
 
 # Similar to video clustering, for testing
-K_VALUES = [6, 12]
+# todo: remove this later
+K_VALUES = [4, 5, 6, 8, 10, 12]
+
 
 DEFAULT_OPTIMAL_K_CLUSTERS = 8
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"

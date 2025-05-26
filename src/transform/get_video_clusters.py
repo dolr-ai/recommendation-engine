@@ -34,7 +34,7 @@ MIN_K_VIDEO = 3
 MAX_K_VIDEO = 10
 
 # todo: remove this later
-K_VALUES = [6, 12]
+K_VALUES = [4, 5, 6, 8, 10, 12]
 
 DEFAULT_OPTIMAL_K_CLUSTERS = 8
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
@@ -194,7 +194,7 @@ def cluster_videos(
     create_directories([trans_dir])
 
     # Find optimal k
-    print(f"Finding optimal k in range {min_k} to {max_k}...")
+    # print(f"Finding optimal k in range {min_k} to {max_k}...")
 
     # Create empty lists to store metrics
     silhouette_scores = []

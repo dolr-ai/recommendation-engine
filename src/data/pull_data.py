@@ -313,5 +313,6 @@ def check_and_copy_data_root():
 
 
 if __name__ == "__main__":
-    check_and_copy_data_root()
+    # todo: remove this after dev testing
+    # check_and_copy_data_root()
     asyncio.run(main())
