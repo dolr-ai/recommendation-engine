@@ -282,19 +282,34 @@ def main():
 
     # Copy results back to local filesystem
     local_output_path = f"{trans_dir}/user_clusters.parquet"
-    subprocess.call(["hdfs", "dfs", "-get", "-f", output_path, trans_dir])
+    # Create local directory if it doesn't exist
+    subprocess.call(["mkdir", "-p", local_output_path])
+
+    # Copy all partition files from HDFS to local
+    subprocess.call(
+        ["hdfs", "dfs", "-get", "-f", f"{output_path}/*", local_output_path]
+    )
 
     # Verify local file was created
     if os.path.exists(local_output_path):
         print(f"Successfully copied to local path: {local_output_path}")
-        # Get file size to verify it's not empty
-        local_size = os.path.getsize(local_output_path)
-        print(f"Local file size: {local_size} bytes")
+        # List the files to verify
+        subprocess.call(["ls", "-la", local_output_path])
+        # Get directory size to verify it's not empty
+        local_size = (
+            subprocess.check_output(["du", "-sh", local_output_path])
+            .decode()
+            .split()[0]
+        )
+        print(f"Local directory size: {local_size}")
     else:
         print(f"WARNING: Failed to copy to local path: {local_output_path}")
         # Try to create the directory again and copy
         os.makedirs(trans_dir, exist_ok=True)
-        subprocess.call(["hdfs", "dfs", "-get", "-f", output_path, trans_dir])
+        subprocess.call(["mkdir", "-p", local_output_path])
+        subprocess.call(
+            ["hdfs", "dfs", "-get", "-f", f"{output_path}/*", local_output_path]
+        )
 
     # Show a sample of clusters
     print("\nSample of user clusters:")
