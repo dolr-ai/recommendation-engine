@@ -54,24 +54,18 @@ GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 CLUSTER_CONFIG = {
     "master_config": {
         "num_instances": 1,
-        "min_instances": 1,
-        "max_instances": 2,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
         "weight": 1,
     },
     "worker_config": {
         "num_instances": 2,
-        "min_instances": 2,
-        "max_instances": 2,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
         "weight": 1,
     },
     "secondary_worker_config": {
         "num_instances": 2,
-        "min_instances": 2,
-        "max_instances": 10,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
         "weight": 1,
