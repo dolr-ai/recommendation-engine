@@ -49,7 +49,7 @@ def load_user_clusters(local_path):
     return df
 
 
-def upload_to_bigquery(df, gcp_utils, project_id, dataset_id, table_id):
+def upload_to_bigquery(df, gcp_utils, dataset_id, table_id):
     """
     Upload the user clusters to BigQuery.
 
@@ -97,7 +97,6 @@ def upload_to_bigquery(df, gcp_utils, project_id, dataset_id, table_id):
     # Upload the DataFrame to BigQuery
     gcp_utils.bigquery.upload_dataframe_to_table(
         df=df,
-        project_id=project_id,
         dataset_id=dataset_id,
         table_id=table_id,
         if_exists="replace",  # Replace the existing table
@@ -129,8 +128,7 @@ def main():
         raise ValueError("GCP credentials not found in environment variables or file")
 
     # Define BigQuery table info
-    project_id = "jay-dhanwant-experiments"
-    dataset_id = "stage_test_tables"
+    dataset_id = "yral_ds"
     table_id = "test_user_cluster_embeddings"
 
     # Initialize GCP utils
@@ -140,7 +138,7 @@ def main():
     df_clusters = load_user_clusters(user_clusters_path)
 
     # Upload to BigQuery
-    upload_to_bigquery(df_clusters, gcp_utils, project_id, dataset_id, table_id)
+    upload_to_bigquery(df_clusters, gcp_utils, dataset_id, table_id)
 
     print("Process completed successfully")
 

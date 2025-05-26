@@ -288,7 +288,6 @@ class GCPBigQueryService:
     def upload_dataframe_to_table(
         self,
         df: pd.DataFrame,
-        project_id: str,
         dataset_id: str,
         table_id: str,
         if_exists: str = "fail",
@@ -310,7 +309,7 @@ class GCPBigQueryService:
         """
         try:
             # Full table reference
-            table_ref = f"{project_id}.{dataset_id}.{table_id}"
+            table_ref = f"{self.core.project_id}.{dataset_id}.{table_id}"
             logger.info(f"Uploading DataFrame with {len(df)} rows to {table_ref}")
 
             # Configure job
