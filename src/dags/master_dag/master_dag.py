@@ -50,7 +50,6 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,  # Check every minute
-        timeout=7200,  # 2 hours timeout
     )
 
     # Trigger fetch_data_from_bq DAG after cluster creation
@@ -60,7 +59,6 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
-        timeout=7200,
     )
 
     # Trigger average_of_video_interactions DAG after data fetch
@@ -70,7 +68,6 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
-        timeout=7200,
     )
 
     # Trigger video_clusters DAG after data fetch (in parallel with avg_video_interactions)
@@ -80,7 +77,6 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
-        timeout=7200,
     )
 
     # Trigger user_cluster_distribution DAG after video_clusters
@@ -90,7 +86,6 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
-        timeout=7200,
     )
 
     # Trigger temporal_interaction_embedding DAG after user_cluster_distribution
@@ -100,7 +95,6 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
-        timeout=7200,
     )
 
     # Trigger merge_part_embeddings DAG after temporal_interaction_embedding
@@ -110,7 +104,6 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
-        timeout=7200,
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
