@@ -51,6 +51,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,  # Check every minute
+        timeout=3600,  # Set 1 hour timeout to prevent indefinite waiting
     )
 
     # Trigger fetch_data_from_bq DAG after cluster creation
@@ -60,6 +61,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     # Trigger average_of_video_interactions DAG after data fetch
@@ -69,6 +71,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     # Trigger video_clusters DAG after data fetch (in parallel with avg_video_interactions)
@@ -78,6 +81,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     # Trigger user_cluster_distribution DAG after video_clusters
@@ -87,6 +91,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     # Trigger temporal_interaction_embedding DAG after user_cluster_distribution
@@ -96,6 +101,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     # Add a join point to ensure we only proceed when both paths are complete
@@ -111,6 +117,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     # Trigger user_clusters DAG after merge_part_embeddings
@@ -120,6 +127,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     # Trigger write_data_to_bq DAG after user_clusters
@@ -129,6 +137,7 @@ with DAG(
         wait_for_completion=True,
         reset_dag_run=True,
         poke_interval=60,
+        timeout=3600,
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
