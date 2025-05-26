@@ -9,8 +9,9 @@ in a specific sequence:
 4. User Cluster Distribution (after Video Clusters)
 5. Temporal Interaction Embedding (after User Cluster Distribution)
 6. Merge Part Embeddings (only after both Average Video Interactions AND Temporal Interaction Embedding)
-7. Write Data to BigQuery (after Merge Part Embeddings)
-8. Delete Dataproc Cluster (immediately if all tasks succeed, or after 30-minute delay if any failures)
+7. User Clusters (after Merge Part Embeddings)
+8. Write Data to BigQuery (after User Clusters)
+9. Delete Dataproc Cluster (immediately if all tasks succeed, or after 30-minute delay if any failures)
 
 This master DAG triggers each individual DAG in sequence, respecting the dependencies,
 regardless of the individual DAGs' schedules.
@@ -18,26 +19,18 @@ regardless of the individual DAGs' schedules.
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.models import Variable
 from airflow.operators.dummy import DummyOperator
-from airflow.operators.python import PythonOperator
+from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.sensors.external_task import ExternalTaskSensor
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.exceptions import AirflowException
+from airflow.models import XCom, DagRun
+from airflow.utils.session import provide_session
+from airflow.utils.state import State
+import pendulum
 
-# Status variable names as defined in each individual DAG
-# We're using the same names to access the variables that the child DAGs set
-FETCH_DATA_STATUS_VARIABLE = "fetch_data_from_bq_completed"
-AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE = "average_video_interactions_completed"
-VIDEO_CLUSTERS_STATUS_VARIABLE = "video_clusters_completed"
-USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE = "user_cluster_distribution_completed"
-TEMPORAL_EMBEDDING_STATUS_VARIABLE = "temporal_interaction_embedding_completed"
-MERGE_EMBEDDINGS_STATUS_VARIABLE = "merge_part_embeddings_completed"
-USER_CLUSTERS_STATUS_VARIABLE = "user_clusters_completed"
-WRITE_DATA_TO_BQ_STATUS_VARIABLE = "write_data_to_bq_completed"
-DELETE_CLUSTER_STATUS_VARIABLE = "delete_dataproc_cluster_completed"
-
-# Default arguments for the DAG #
+# Default arguments for the DAG
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -48,233 +41,57 @@ default_args = {
     "start_date": datetime(2025, 5, 19),
 }
 
+# Define DAG IDs
+CREATE_CLUSTER_DAG_ID = "create_dataproc_cluster"
+FETCH_DATA_DAG_ID = "fetch_data_from_bq"
+VIDEO_AVG_DAG_ID = "average_of_video_interactions"
+VIDEO_CLUSTERS_DAG_ID = "video_clusters"
+USER_CLUSTER_DIST_DAG_ID = "user_cluster_distribution"
+TEMPORAL_EMBEDDING_DAG_ID = "temporal_interaction_embedding"
+MERGE_EMBEDDINGS_DAG_ID = "merge_part_embeddings"
+USER_CLUSTERS_DAG_ID = "user_clusters"
+WRITE_DATA_DAG_ID = "write_data_to_bq"
+DELETE_CLUSTER_DAG_ID = "delete_dataproc_cluster"
 
-# Status check functions for each DAG
-def check_create_cluster_completed(**kwargs):
-    """Check if create_dataproc_cluster DAG has completed by checking cluster existence."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        # Instead of looking for a status variable, check if the cluster name variable exists
-        cluster_name = Variable.get("active_dataproc_cluster_name")
-        if cluster_name and len(cluster_name) > 0:
-            print(
-                f"Create cluster completed successfully, found cluster: {cluster_name}"
-            )
-            return True
-        if require_success:
-            print(f"Create cluster not yet completed, no cluster name found")
-            raise AirflowException(
-                "Create cluster not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking cluster status: {str(e)}")
-        if require_success:
-            raise AirflowException(f"Failed to confirm cluster creation: {str(e)}")
-        return False
+# XCom keys for status reporting
+XCOM_SUCCESS_KEY = "success_status"
+XCOM_CLUSTER_NAME_KEY = "cluster_name"
 
 
-def check_fetch_data_completed(**kwargs):
-    """Check if fetch_data_from_bq DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(FETCH_DATA_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Fetch data completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"Fetch data not yet completed, status: {status}")
-            raise AirflowException(
-                "Fetch data not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(f"Failed to confirm data fetch: {str(e)}")
-        return False
+# Helper function to trigger a DAG and set up sensor dependencies
+def trigger_dag_task(dag_id, wait_for_completion=True, reset_dag_run=True):
+    return TriggerDagRunOperator(
+        task_id=f"trigger_{dag_id}",
+        trigger_dag_id=dag_id,
+        wait_for_completion=False,
+        reset_dag_run=reset_dag_run,
+        conf={"master_dag_run_id": "{{ run_id }}"},  # Pass master run_id to child DAGs
+    )
 
 
-def check_video_avg_completed(**kwargs):
-    """Check if average_of_video_interactions DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Video average completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"Video average not yet completed, status: {status}")
-            raise AirflowException(
-                "Video average not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(
-                f"Failed to confirm video average completion: {str(e)}"
-            )
-        return False
+# Helper function to wait for DAG completion
+def wait_for_dag_task(dag_id, timeout=60 * 60, poke_interval=60):
+    return ExternalTaskSensor(
+        task_id=f"wait_for_{dag_id}",
+        external_dag_id=dag_id,
+        external_task_id=None,  # Wait for the entire DAG
+        allowed_states=[State.SUCCESS],
+        failed_states=[State.FAILED, State.UPSTREAM_FAILED],
+        execution_delta=None,
+        execution_date_fn=lambda dt: dt,  # Use same execution date
+        timeout=timeout,
+        poke_interval=poke_interval,
+        mode="reschedule",  # Release worker slot while waiting
+    )
 
 
-def check_video_clusters_completed(**kwargs):
-    """Check if video_clusters DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(VIDEO_CLUSTERS_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Video clusters completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"Video clusters not yet completed, status: {status}")
-            raise AirflowException(
-                "Video clusters not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(
-                f"Failed to confirm video clusters completion: {str(e)}"
-            )
-        return False
-
-
-def check_user_cluster_dist_completed(**kwargs):
-    """Check if user_cluster_distribution DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE)
-        if status == "True":
-            print(f"User cluster distribution completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"User cluster distribution not yet completed, status: {status}")
-            raise AirflowException(
-                "User cluster distribution not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(
-                f"Failed to confirm user cluster distribution completion: {str(e)}"
-            )
-        return False
-
-
-def check_temporal_embedding_completed(**kwargs):
-    """Check if temporal_interaction_embedding DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(TEMPORAL_EMBEDDING_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Temporal embedding completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"Temporal embedding not yet completed, status: {status}")
-            raise AirflowException(
-                "Temporal embedding not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(
-                f"Failed to confirm temporal embedding completion: {str(e)}"
-            )
-        return False
-
-
-def check_merge_embeddings_completed(**kwargs):
-    """Check if merge_part_embeddings DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(MERGE_EMBEDDINGS_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Merge embeddings completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"Merge embeddings not yet completed, status: {status}")
-            raise AirflowException(
-                "Merge embeddings not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(
-                f"Failed to confirm merge embeddings completion: {str(e)}"
-            )
-        return False
-
-
-def check_user_clusters_completed(**kwargs):
-    """Check if user_clusters DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(USER_CLUSTERS_STATUS_VARIABLE)
-        if status == "True":
-            print(f"User clusters completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"User clusters not yet completed, status: {status}")
-            raise AirflowException(
-                "User clusters not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(
-                f"Failed to confirm user clusters completion: {str(e)}"
-            )
-        return False
-
-
-def check_write_data_completed(**kwargs):
-    """Check if write_data_to_bq DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(WRITE_DATA_TO_BQ_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Write data completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"Write data not yet completed, status: {status}")
-            raise AirflowException(
-                "Write data not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(f"Failed to confirm write data completion: {str(e)}")
-        return False
-
-
-def check_delete_cluster_completed(**kwargs):
-    """Check if delete_dataproc_cluster DAG has completed."""
-    require_success = kwargs.get("require_success", False)
-    try:
-        status = Variable.get(DELETE_CLUSTER_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Delete cluster completed successfully: {status}")
-            return True
-        if require_success:
-            print(f"Delete cluster not yet completed, status: {status}")
-            raise AirflowException(
-                "Delete cluster not yet completed successfully. Retrying..."
-            )
-        return False
-    except Exception as e:
-        print(f"Error checking status: {str(e)}")
-        if require_success:
-            raise AirflowException(
-                f"Failed to confirm delete cluster completion: {str(e)}"
-            )
-        return False
+# Function to determine if cluster deletion should be triggered
+def check_failure_branch(**context):
+    """Check if any upstream tasks failed and branch accordingly"""
+    for task_instance in context["dag_run"].get_task_instances():
+        if task_instance.state == State.FAILED:
+            return "trigger_delete_dataproc_cluster_on_failure"
+    return "trigger_delete_dataproc_cluster"
 
 
 # Define the DAG
@@ -289,293 +106,136 @@ with DAG(
 
     start = DummyOperator(task_id="start")
 
-    # Trigger create_dataproc_cluster DAG
-    trigger_create_cluster = TriggerDagRunOperator(
-        task_id="trigger_create_dataproc_cluster",
-        trigger_dag_id="create_dataproc_cluster",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
+    # Create Dataproc Cluster
+    trigger_create_cluster = trigger_dag_task(CREATE_CLUSTER_DAG_ID)
+    wait_for_create_cluster = wait_for_dag_task(CREATE_CLUSTER_DAG_ID)
 
-    # Check if create_dataproc_cluster has completed
-    check_create_cluster = PythonOperator(
-        task_id="check_create_cluster_status",
-        python_callable=check_create_cluster_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
+    # Fetch Data from BigQuery
+    trigger_fetch_data = trigger_dag_task(FETCH_DATA_DAG_ID)
+    wait_for_fetch_data = wait_for_dag_task(FETCH_DATA_DAG_ID)
 
-    # Trigger fetch_data_from_bq DAG after cluster creation
-    trigger_fetch_data = TriggerDagRunOperator(
-        task_id="trigger_fetch_data_from_bq",
-        trigger_dag_id="fetch_data_from_bq",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
+    # Average Video Interactions
+    trigger_video_avg = trigger_dag_task(VIDEO_AVG_DAG_ID)
+    wait_for_video_avg = wait_for_dag_task(VIDEO_AVG_DAG_ID)
 
-    # Check if fetch_data_from_bq has completed
-    check_fetch_data = PythonOperator(
-        task_id="check_fetch_data_status",
-        python_callable=check_fetch_data_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
+    # Video Clusters
+    trigger_video_clusters = trigger_dag_task(VIDEO_CLUSTERS_DAG_ID)
+    wait_for_video_clusters = wait_for_dag_task(VIDEO_CLUSTERS_DAG_ID)
 
-    # Trigger average_of_video_interactions DAG after data fetch
-    trigger_video_avg = TriggerDagRunOperator(
-        task_id="trigger_avg_video_interactions",
-        trigger_dag_id="average_of_video_interactions",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
+    # User Cluster Distribution
+    trigger_user_cluster_dist = trigger_dag_task(USER_CLUSTER_DIST_DAG_ID)
+    wait_for_user_cluster_dist = wait_for_dag_task(USER_CLUSTER_DIST_DAG_ID)
 
-    # Check if average_of_video_interactions has completed
-    check_video_avg = PythonOperator(
-        task_id="check_video_avg_status",
-        python_callable=check_video_avg_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
+    # Temporal Interaction Embedding
+    trigger_temporal_embedding = trigger_dag_task(TEMPORAL_EMBEDDING_DAG_ID)
+    wait_for_temporal_embedding = wait_for_dag_task(TEMPORAL_EMBEDDING_DAG_ID)
 
-    # Trigger video_clusters DAG after data fetch (in parallel with avg_video_interactions)
-    trigger_video_clusters = TriggerDagRunOperator(
-        task_id="trigger_video_clusters",
-        trigger_dag_id="video_clusters",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
-
-    # Check if video_clusters has completed
-    check_video_clusters = PythonOperator(
-        task_id="check_video_clusters_status",
-        python_callable=check_video_clusters_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
-
-    # Trigger user_cluster_distribution DAG after video_clusters
-    trigger_user_cluster_dist = TriggerDagRunOperator(
-        task_id="trigger_user_cluster_distribution",
-        trigger_dag_id="user_cluster_distribution",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
-
-    # Check if user_cluster_distribution has completed
-    check_user_cluster_dist = PythonOperator(
-        task_id="check_user_cluster_dist_status",
-        python_callable=check_user_cluster_dist_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
-
-    # Trigger temporal_interaction_embedding DAG after user_cluster_distribution
-    trigger_temporal_embedding = TriggerDagRunOperator(
-        task_id="trigger_temporal_embedding",
-        trigger_dag_id="temporal_interaction_embedding",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
-
-    # Check if temporal_interaction_embedding has completed
-    check_temporal_embedding = PythonOperator(
-        task_id="check_temporal_embedding_status",
-        python_callable=check_temporal_embedding_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
-
-    # Add a join point to ensure we only proceed when both paths are complete
+    # Join point before merge embeddings
     join_for_merge = DummyOperator(
         task_id="join_for_merge",
-        trigger_rule=TriggerRule.ALL_SUCCESS,  # Only proceed when both upstream tasks succeed
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
-    # Trigger merge_part_embeddings DAG after BOTH video_avg AND temporal_embedding
-    trigger_merge_embeddings = TriggerDagRunOperator(
-        task_id="trigger_merge_embeddings",
-        trigger_dag_id="merge_part_embeddings",
-        wait_for_completion=False,
+    # Merge Part Embeddings
+    trigger_merge_embeddings = trigger_dag_task(MERGE_EMBEDDINGS_DAG_ID)
+    wait_for_merge_embeddings = wait_for_dag_task(MERGE_EMBEDDINGS_DAG_ID)
+
+    # User Clusters
+    trigger_user_clusters = trigger_dag_task(USER_CLUSTERS_DAG_ID)
+    wait_for_user_clusters = wait_for_dag_task(USER_CLUSTERS_DAG_ID)
+
+    # Write Data to BigQuery
+    trigger_write_data = trigger_dag_task(WRITE_DATA_DAG_ID)
+    wait_for_write_data = wait_for_dag_task(WRITE_DATA_DAG_ID)
+
+    # Branch to determine if we need to handle failure
+    branch_task = BranchPythonOperator(
+        task_id="check_for_failures",
+        python_callable=check_failure_branch,
+        provide_context=True,
+    )
+
+    # Delete Dataproc Cluster - Normal path
+    trigger_delete_cluster = trigger_dag_task(DELETE_CLUSTER_DAG_ID)
+    wait_for_delete_cluster = wait_for_dag_task(DELETE_CLUSTER_DAG_ID)
+
+    # Delete Dataproc Cluster - Failure path
+    trigger_delete_cluster_on_failure = trigger_dag_task(
+        DELETE_CLUSTER_DAG_ID,
         reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
+    wait_for_delete_cluster_on_failure = wait_for_dag_task(DELETE_CLUSTER_DAG_ID)
 
-    # Check if merge_part_embeddings has completed
-    check_merge_embeddings = PythonOperator(
-        task_id="check_merge_embeddings_status",
-        python_callable=check_merge_embeddings_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
-
-    # Trigger user_clusters DAG after merge_part_embeddings
-    trigger_user_clusters = TriggerDagRunOperator(
-        task_id="trigger_user_clusters",
-        trigger_dag_id="user_clusters",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
-
-    # Check if user_clusters has completed
-    check_user_clusters = PythonOperator(
-        task_id="check_user_clusters_status",
-        python_callable=check_user_clusters_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
-
-    # Trigger write_data_to_bq DAG after user_clusters
-    trigger_write_data_to_bq = TriggerDagRunOperator(
-        task_id="trigger_write_data_to_bq",
-        trigger_dag_id="write_data_to_bq",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
-
-    # Check if write_data_to_bq has completed
-    check_write_data = PythonOperator(
-        task_id="check_write_data_status",
-        python_callable=check_write_data_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
-
-    # Trigger delete_dataproc_cluster DAG after write_data_to_bq completes (normal completion path)
-    trigger_delete_cluster = TriggerDagRunOperator(
-        task_id="trigger_delete_dataproc_cluster",
-        trigger_dag_id="delete_dataproc_cluster",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-    )
-
-    # Add failure handler to delete cluster immediately on any task failure
-    trigger_delete_cluster_on_failure = TriggerDagRunOperator(
-        task_id="trigger_delete_dataproc_cluster_on_failure",
-        trigger_dag_id="delete_dataproc_cluster",
-        wait_for_completion=False,
-        reset_dag_run=True,
-        trigger_rule=TriggerRule.ONE_FAILED,  # Run if any upstream task fails
-    )
-
-    # Check if delete_dataproc_cluster has completed (normal path)
-    check_delete_cluster = PythonOperator(
-        task_id="check_delete_cluster_status",
-        python_callable=check_delete_cluster_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        op_kwargs={"require_success": True},
-    )
-
-    # Check if delete_dataproc_cluster has completed (failure path)
-    check_delete_cluster_failure = PythonOperator(
-        task_id="check_delete_cluster_failure_status",
-        python_callable=check_delete_cluster_completed,
-        retries=100,
-        retry_delay=timedelta(seconds=60),
-        trigger_rule=TriggerRule.ALL_DONE,  # Continue regardless of success/failure
-        op_kwargs={"require_success": True},
-    )
-
-    # Final end task - normal path
+    # Final end tasks
     end_success = DummyOperator(
         task_id="end_success",
         trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
-    # Final end task - failure path
     end_failure = DummyOperator(
         task_id="end_failure",
         trigger_rule=TriggerRule.ONE_FAILED,
     )
 
     # Define task dependencies
+    # Initial sequential path
+    start >> trigger_create_cluster >> wait_for_create_cluster
+    wait_for_create_cluster >> trigger_fetch_data >> wait_for_fetch_data
+
+    # Parallel paths after data fetch
+    wait_for_fetch_data >> trigger_video_avg >> wait_for_video_avg
+    wait_for_fetch_data >> trigger_video_clusters >> wait_for_video_clusters
+
+    # Video clusters path
+    wait_for_video_clusters >> trigger_user_cluster_dist >> wait_for_user_cluster_dist
     (
-        start
-        >> trigger_create_cluster
-        >> check_create_cluster
-        >> trigger_fetch_data
-        >> check_fetch_data
+        wait_for_user_cluster_dist
+        >> trigger_temporal_embedding
+        >> wait_for_temporal_embedding
     )
 
-    # After data fetch, run video_avg and video_clusters in parallel
-    check_fetch_data >> trigger_video_avg >> check_video_avg
-    check_fetch_data >> trigger_video_clusters >> check_video_clusters
+    # Join paths before merge embeddings
+    wait_for_video_avg >> join_for_merge
+    wait_for_temporal_embedding >> join_for_merge
 
-    # After video_clusters completes, run user_cluster_distribution
-    check_video_clusters >> trigger_user_cluster_dist >> check_user_cluster_dist
+    # Continue sequential path after merge
+    join_for_merge >> trigger_merge_embeddings >> wait_for_merge_embeddings
+    wait_for_merge_embeddings >> trigger_user_clusters >> wait_for_user_clusters
+    wait_for_user_clusters >> trigger_write_data >> wait_for_write_data
 
-    # After user_cluster_distribution completes, run temporal_embedding
-    check_user_cluster_dist >> trigger_temporal_embedding >> check_temporal_embedding
+    # Branch for normal completion or failure handling
+    wait_for_write_data >> branch_task
 
-    # Both video_avg and temporal_embedding must complete before merge_embeddings
-    check_video_avg >> join_for_merge
-    check_temporal_embedding >> join_for_merge
+    # Normal completion path
+    branch_task >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
 
-    # Only run merge_embeddings when both paths complete, then user_clusters, then write_data_to_bq
+    # Failure handling path
     (
-        join_for_merge
-        >> trigger_merge_embeddings
-        >> check_merge_embeddings
-        >> trigger_user_clusters
-        >> check_user_clusters
-        >> trigger_write_data_to_bq
-        >> check_write_data
-    )
-
-    # Normal completion path - delete cluster and end the DAG
-    check_write_data >> trigger_delete_cluster >> check_delete_cluster >> end_success
-
-    # Failure handling - connect every task to the failure path
-    # Each task that could fail should trigger cluster deletion
-    (
-        [
-            check_create_cluster,
-            trigger_fetch_data,
-            check_fetch_data,
-            trigger_video_avg,
-            check_video_avg,
-            trigger_video_clusters,
-            check_video_clusters,
-            trigger_user_cluster_dist,
-            check_user_cluster_dist,
-            trigger_temporal_embedding,
-            check_temporal_embedding,
-            trigger_merge_embeddings,
-            check_merge_embeddings,
-            trigger_user_clusters,
-            check_user_clusters,
-            trigger_write_data_to_bq,
-            check_write_data,
-        ]
+        branch_task
         >> trigger_delete_cluster_on_failure
-        >> check_delete_cluster_failure
+        >> wait_for_delete_cluster_on_failure
         >> end_failure
     )
+
+    # Set up failure triggers from every task that could fail
+    # This creates a shortcut to cluster deletion if any task fails
+    for task in [
+        wait_for_create_cluster,
+        trigger_fetch_data,
+        wait_for_fetch_data,
+        trigger_video_avg,
+        wait_for_video_avg,
+        trigger_video_clusters,
+        wait_for_video_clusters,
+        trigger_user_cluster_dist,
+        wait_for_user_cluster_dist,
+        trigger_temporal_embedding,
+        wait_for_temporal_embedding,
+        trigger_merge_embeddings,
+        wait_for_merge_embeddings,
+        trigger_user_clusters,
+        wait_for_user_clusters,
+        trigger_write_data,
+        wait_for_write_data,
+    ]:
+        task.on_failure_trigger = trigger_delete_cluster_on_failure.task_id
