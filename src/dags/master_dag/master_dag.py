@@ -23,11 +23,10 @@ from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.trigger_rule import TriggerRule
-from airflow.sensors.time_delta import TimeDeltaSensor
 from airflow.exceptions import AirflowException
 
-# Status variable names for all DAGs
-CREATE_CLUSTER_STATUS_VARIABLE = "create_dataproc_cluster_completed"
+# Status variable names as defined in each individual DAG
+# We're using the same names to access the variables that the child DAGs set
 FETCH_DATA_STATUS_VARIABLE = "fetch_data_from_bq_completed"
 AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE = "average_video_interactions_completed"
 VIDEO_CLUSTERS_STATUS_VARIABLE = "video_clusters_completed"
@@ -50,43 +49,26 @@ default_args = {
 }
 
 
-# Function to initialize all status variables
-def initialize_status_variables(**kwargs):
-    """Initialize all status variables to False."""
-    try:
-        Variable.set(CREATE_CLUSTER_STATUS_VARIABLE, "False")
-        Variable.set(FETCH_DATA_STATUS_VARIABLE, "False")
-        Variable.set(AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE, "False")
-        Variable.set(VIDEO_CLUSTERS_STATUS_VARIABLE, "False")
-        Variable.set(USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE, "False")
-        Variable.set(TEMPORAL_EMBEDDING_STATUS_VARIABLE, "False")
-        Variable.set(MERGE_EMBEDDINGS_STATUS_VARIABLE, "False")
-        Variable.set(USER_CLUSTERS_STATUS_VARIABLE, "False")
-        Variable.set(WRITE_DATA_TO_BQ_STATUS_VARIABLE, "False")
-        Variable.set(DELETE_CLUSTER_STATUS_VARIABLE, "False")
-        return True
-    except Exception as e:
-        print(f"Error initializing status variables: {str(e)}")
-        raise AirflowException(f"Failed to initialize status variables: {str(e)}")
-
-
 # Status check functions for each DAG
 def check_create_cluster_completed(**kwargs):
-    """Check if create_dataproc_cluster DAG has completed."""
+    """Check if create_dataproc_cluster DAG has completed by checking cluster existence."""
     require_success = kwargs.get("require_success", False)
     try:
-        status = Variable.get(CREATE_CLUSTER_STATUS_VARIABLE)
-        if status == "True":
-            print(f"Create cluster completed successfully: {status}")
+        # Instead of looking for a status variable, check if the cluster name variable exists
+        cluster_name = Variable.get("active_dataproc_cluster_name")
+        if cluster_name and len(cluster_name) > 0:
+            print(
+                f"Create cluster completed successfully, found cluster: {cluster_name}"
+            )
             return True
         if require_success:
-            print(f"Create cluster not yet completed, status: {status}")
+            print(f"Create cluster not yet completed, no cluster name found")
             raise AirflowException(
                 "Create cluster not yet completed successfully. Retrying..."
             )
         return False
     except Exception as e:
-        print(f"Error checking status: {str(e)}")
+        print(f"Error checking cluster status: {str(e)}")
         if require_success:
             raise AirflowException(f"Failed to confirm cluster creation: {str(e)}")
         return False
@@ -307,18 +289,13 @@ with DAG(
 
     start = DummyOperator(task_id="start")
 
-    # Initialize all status variables at the beginning
-    init_status_vars = PythonOperator(
-        task_id="initialize_status_variables",
-        python_callable=initialize_status_variables,
-    )
-
     # Trigger create_dataproc_cluster DAG
     trigger_create_cluster = TriggerDagRunOperator(
         task_id="trigger_create_dataproc_cluster",
         trigger_dag_id="create_dataproc_cluster",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if create_dataproc_cluster has completed
@@ -328,7 +305,6 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
-        # Keep checking until status is True
         op_kwargs={"require_success": True},
     )
 
@@ -543,7 +519,6 @@ with DAG(
     # Define task dependencies
     (
         start
-        >> init_status_vars
         >> trigger_create_cluster
         >> check_create_cluster
         >> trigger_fetch_data
