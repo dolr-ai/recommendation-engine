@@ -27,7 +27,7 @@ from airflow.utils.trigger_rule import TriggerRule
 from airflow.exceptions import AirflowException
 from airflow.models import XCom, DagRun
 from airflow.utils.session import provide_session
-from airflow.utils.state import State, DagRunState
+from airflow.utils.state import State
 import pendulum
 
 # Default arguments for the DAG
@@ -75,8 +75,8 @@ def wait_for_dag_task(dag_id, timeout=60 * 60, poke_interval=60):
         task_id=f"wait_for_{dag_id}",
         external_dag_id=dag_id,
         external_task_id=None,  # Wait for the entire DAG
-        allowed_states=[DagRunState.SUCCESS],
-        failed_states=[DagRunState.FAILED],
+        allowed_states=["success"],  # Using string values instead of enum
+        failed_states=["failed"],  # Using string values instead of enum
         execution_delta=None,
         execution_date_fn=lambda dt: dt,  # Use same execution date
         timeout=timeout,
