@@ -35,6 +35,7 @@ CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # todo: change this later after dev testing
 CLUSTER_IDLE_DELETE_TTL = 14400  # 4 hours
 CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
+AUTOSCALING_POLICY_ID = "test-dataproc-policy"
 
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
@@ -53,13 +54,30 @@ GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 CLUSTER_CONFIG = {
     "master_config": {
         "num_instances": 1,
+        "min_instances": 1,
+        "max_instances": 2,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
+        "weight": 1,
     },
     "worker_config": {
-        "num_instances": 4,
+        "num_instances": 2,
+        "min_instances": 2,
+        "max_instances": 2,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
+        "weight": 1,
+    },
+    "secondary_worker_config": {
+        "num_instances": 2,
+        "min_instances": 2,
+        "max_instances": 10,
+        "machine_type_uri": "e2-standard-4",
+        "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
+        "weight": 1,
+    },
+    "autoscaling_config": {
+        "policy_uri": f"projects/{PROJECT_ID}/regions/{REGION}/autoscalingPolicies/{AUTOSCALING_POLICY_ID}"
     },
     "software_config": {
         "image_version": "2.2-ubuntu22",

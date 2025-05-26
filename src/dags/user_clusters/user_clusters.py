@@ -153,7 +153,7 @@ with DAG(
                     "spark.driver.memory": "6g",
                     "spark.executor.memory": "6g",
                     # Optimized core allocation
-                    "spark.executor.cores": "8",
+                    "spark.executor.cores": "4",
                     "spark.executor.instances": "4",
                     # Enable adaptive execution for better resource utilization
                     "spark.sql.adaptive.enabled": "true",
