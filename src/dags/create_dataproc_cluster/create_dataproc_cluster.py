@@ -56,19 +56,16 @@ CLUSTER_CONFIG = {
         "num_instances": 1,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
-        "weight": 1,
     },
     "worker_config": {
         "num_instances": 2,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
-        "weight": 1,
     },
     "secondary_worker_config": {
         "num_instances": 2,
         "machine_type_uri": "e2-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
-        "weight": 1,
     },
     "autoscaling_config": {
         "policy_uri": f"projects/{PROJECT_ID}/regions/{REGION}/autoscalingPolicies/{AUTOSCALING_POLICY_ID}"
