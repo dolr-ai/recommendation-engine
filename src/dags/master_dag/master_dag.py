@@ -223,6 +223,7 @@ with DAG(
         python_callable=check_create_cluster_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Trigger fetch_data_from_bq DAG after cluster creation
@@ -231,6 +232,7 @@ with DAG(
         trigger_dag_id="fetch_data_from_bq",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if fetch_data_from_bq has completed
@@ -239,6 +241,7 @@ with DAG(
         python_callable=check_fetch_data_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Trigger average_of_video_interactions DAG after data fetch
@@ -247,6 +250,7 @@ with DAG(
         trigger_dag_id="average_of_video_interactions",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if average_of_video_interactions has completed
@@ -255,6 +259,7 @@ with DAG(
         python_callable=check_video_avg_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Trigger video_clusters DAG after data fetch (in parallel with avg_video_interactions)
@@ -263,6 +268,7 @@ with DAG(
         trigger_dag_id="video_clusters",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if video_clusters has completed
@@ -271,6 +277,7 @@ with DAG(
         python_callable=check_video_clusters_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Trigger user_cluster_distribution DAG after video_clusters
@@ -279,6 +286,7 @@ with DAG(
         trigger_dag_id="user_cluster_distribution",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if user_cluster_distribution has completed
@@ -287,6 +295,7 @@ with DAG(
         python_callable=check_user_cluster_dist_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Trigger temporal_interaction_embedding DAG after user_cluster_distribution
@@ -295,6 +304,7 @@ with DAG(
         trigger_dag_id="temporal_interaction_embedding",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if temporal_interaction_embedding has completed
@@ -303,6 +313,7 @@ with DAG(
         python_callable=check_temporal_embedding_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Add a join point to ensure we only proceed when both paths are complete
@@ -317,6 +328,7 @@ with DAG(
         trigger_dag_id="merge_part_embeddings",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if merge_part_embeddings has completed
@@ -325,6 +337,7 @@ with DAG(
         python_callable=check_merge_embeddings_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Trigger user_clusters DAG after merge_part_embeddings
@@ -333,6 +346,7 @@ with DAG(
         trigger_dag_id="user_clusters",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if user_clusters has completed
@@ -341,6 +355,7 @@ with DAG(
         python_callable=check_user_clusters_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Trigger write_data_to_bq DAG after user_clusters
@@ -349,6 +364,7 @@ with DAG(
         trigger_dag_id="write_data_to_bq",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
     # Check if write_data_to_bq has completed
@@ -357,27 +373,55 @@ with DAG(
         python_callable=check_write_data_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
-    # Trigger delete_dataproc_cluster DAG after write_data_to_bq completes (regardless of success/failure)
+    # Trigger delete_dataproc_cluster DAG after write_data_to_bq completes (normal completion path)
     trigger_delete_cluster = TriggerDagRunOperator(
         task_id="trigger_delete_dataproc_cluster",
         trigger_dag_id="delete_dataproc_cluster",
         wait_for_completion=False,
         reset_dag_run=True,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
-    # Check if delete_dataproc_cluster has completed
+    # Add failure handler to delete cluster immediately on any task failure
+    trigger_delete_cluster_on_failure = TriggerDagRunOperator(
+        task_id="trigger_delete_dataproc_cluster_on_failure",
+        trigger_dag_id="delete_dataproc_cluster",
+        wait_for_completion=False,
+        reset_dag_run=True,
+        trigger_rule=TriggerRule.ONE_FAILED,  # Run if any upstream task fails
+    )
+
+    # Check if delete_dataproc_cluster has completed (normal path)
     check_delete_cluster = PythonOperator(
         task_id="check_delete_cluster_status",
         python_callable=check_delete_cluster_completed,
         retries=100,
         retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
-    end = DummyOperator(
-        task_id="end",
-        trigger_rule=TriggerRule.ALL_DONE,  # Complete the DAG regardless of upstream status
+    # Check if delete_dataproc_cluster has completed (failure path)
+    check_delete_cluster_failure = PythonOperator(
+        task_id="check_delete_cluster_failure_status",
+        python_callable=check_delete_cluster_completed,
+        retries=100,
+        retry_delay=timedelta(seconds=60),
+        trigger_rule=TriggerRule.ALL_DONE,  # Continue regardless of success/failure
+    )
+
+    # Final end task - normal path
+    end_success = DummyOperator(
+        task_id="end_success",
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+    )
+
+    # Final end task - failure path
+    end_failure = DummyOperator(
+        task_id="end_failure",
+        trigger_rule=TriggerRule.ONE_FAILED,
     )
 
     # Define task dependencies
@@ -415,5 +459,32 @@ with DAG(
         >> check_write_data
     )
 
-    # After write_data_to_bq, always delete the cluster and end the DAG
-    check_write_data >> trigger_delete_cluster >> check_delete_cluster >> end
+    # Normal completion path - delete cluster and end the DAG
+    check_write_data >> trigger_delete_cluster >> check_delete_cluster >> end_success
+
+    # Failure handling - connect every task to the failure path
+    # Each task that could fail should trigger cluster deletion
+    (
+        [
+            check_create_cluster,
+            trigger_fetch_data,
+            check_fetch_data,
+            trigger_video_avg,
+            check_video_avg,
+            trigger_video_clusters,
+            check_video_clusters,
+            trigger_user_cluster_dist,
+            check_user_cluster_dist,
+            trigger_temporal_embedding,
+            check_temporal_embedding,
+            trigger_merge_embeddings,
+            check_merge_embeddings,
+            trigger_user_clusters,
+            check_user_clusters,
+            trigger_write_data_to_bq,
+            check_write_data,
+        ]
+        >> trigger_delete_cluster_on_failure
+        >> check_delete_cluster_failure
+        >> end_failure
+    )
