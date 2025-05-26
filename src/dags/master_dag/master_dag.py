@@ -22,13 +22,14 @@ from airflow import DAG
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
-from airflow.sensors.external_task import ExternalTaskSensor
+from airflow.sensors.python import PythonSensor
 from airflow.utils.trigger_rule import TriggerRule
 from airflow.exceptions import AirflowException
-from airflow.models import XCom, DagRun
+from airflow.models import XCom, DagRun, TaskInstance
 from airflow.utils.session import provide_session
-from airflow.utils.state import State
+from airflow.utils.state import State, DagRunState
 import pendulum
+from sqlalchemy import and_
 
 # Default arguments for the DAG
 default_args = {
@@ -53,10 +54,6 @@ USER_CLUSTERS_DAG_ID = "user_clusters"
 WRITE_DATA_DAG_ID = "write_data_to_bq"
 DELETE_CLUSTER_DAG_ID = "delete_dataproc_cluster"
 
-# XCom keys for status reporting
-XCOM_SUCCESS_KEY = "success_status"
-XCOM_CLUSTER_NAME_KEY = "cluster_name"
-
 
 # Helper function to trigger a DAG and set up sensor dependencies
 def trigger_dag_task(
@@ -80,14 +77,37 @@ def trigger_dag_task(
         trigger_dag_id=dag_id,
         wait_for_completion=False,
         reset_dag_run=reset_dag_run,
-        conf={"master_dag_run_id": "{{ run_id }}"},  # Pass master run_id to child DAGs
+        conf={"master_dag_run_id": "{{ run_id }}"},
     )
 
 
-# Helper function to wait for DAG completion
+# Function to check if a DAG run has completed successfully
+@provide_session
+def check_dag_status(dag_id, session=None):
+    """
+    Check if the most recent DAG run for the given DAG ID has completed successfully
+    """
+    most_recent_dagrun = (
+        session.query(DagRun)
+        .filter(DagRun.dag_id == dag_id)
+        .order_by(DagRun.execution_date.desc())
+        .first()
+    )
+
+    if most_recent_dagrun and most_recent_dagrun.state == DagRunState.SUCCESS:
+        print(f"DAG {dag_id} has completed successfully")
+        return True
+
+    print(
+        f"DAG {dag_id} has not completed yet. Current state: {most_recent_dagrun.state if most_recent_dagrun else 'No run found'}"
+    )
+    return False
+
+
+# Helper function to create a sensor for DAG completion
 def wait_for_dag_task(dag_id, task_id_suffix="", timeout=60 * 60, poke_interval=60):
     """
-    Create an ExternalTaskSensor for a given DAG ID
+    Create a PythonSensor to wait for a DAG to complete
 
     Args:
         dag_id: The ID of the DAG to wait for
@@ -99,14 +119,10 @@ def wait_for_dag_task(dag_id, task_id_suffix="", timeout=60 * 60, poke_interval=
     if task_id_suffix:
         task_id = f"{task_id}_{task_id_suffix}"
 
-    return ExternalTaskSensor(
+    return PythonSensor(
         task_id=task_id,
-        external_dag_id=dag_id,
-        external_task_id=None,  # Wait for the entire DAG
-        allowed_states=["success"],  # Using string values instead of enum
-        failed_states=["failed"],  # Using string values instead of enum
-        execution_delta=None,
-        execution_date_fn=lambda dt: dt,  # Use same execution date
+        python_callable=check_dag_status,
+        op_kwargs={"dag_id": dag_id},
         timeout=timeout,
         poke_interval=poke_interval,
         mode="reschedule",  # Release worker slot while waiting
