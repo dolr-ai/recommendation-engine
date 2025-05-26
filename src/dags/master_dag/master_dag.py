@@ -21,7 +21,7 @@ from airflow.operators.dummy import DummyOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.trigger_rule import TriggerRule
 
-# Default arguments for the DAG
+# Default arguments for the DAG #
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
