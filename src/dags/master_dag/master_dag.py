@@ -73,121 +73,225 @@ def initialize_status_variables(**kwargs):
 # Status check functions for each DAG
 def check_create_cluster_completed(**kwargs):
     """Check if create_dataproc_cluster DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(CREATE_CLUSTER_STATUS_VARIABLE)
         if status == "True":
+            print(f"Create cluster completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Create cluster not yet completed, status: {status}")
+            raise AirflowException(
+                "Create cluster not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(f"Failed to confirm cluster creation: {str(e)}")
         return False
 
 
 def check_fetch_data_completed(**kwargs):
     """Check if fetch_data_from_bq DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(FETCH_DATA_STATUS_VARIABLE)
         if status == "True":
+            print(f"Fetch data completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Fetch data not yet completed, status: {status}")
+            raise AirflowException(
+                "Fetch data not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(f"Failed to confirm data fetch: {str(e)}")
         return False
 
 
 def check_video_avg_completed(**kwargs):
     """Check if average_of_video_interactions DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(AVERAGE_VIDEO_INTERACTIONS_STATUS_VARIABLE)
         if status == "True":
+            print(f"Video average completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Video average not yet completed, status: {status}")
+            raise AirflowException(
+                "Video average not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(
+                f"Failed to confirm video average completion: {str(e)}"
+            )
         return False
 
 
 def check_video_clusters_completed(**kwargs):
     """Check if video_clusters DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(VIDEO_CLUSTERS_STATUS_VARIABLE)
         if status == "True":
+            print(f"Video clusters completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Video clusters not yet completed, status: {status}")
+            raise AirflowException(
+                "Video clusters not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(
+                f"Failed to confirm video clusters completion: {str(e)}"
+            )
         return False
 
 
 def check_user_cluster_dist_completed(**kwargs):
     """Check if user_cluster_distribution DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(USER_CLUSTER_DISTRIBUTION_STATUS_VARIABLE)
         if status == "True":
+            print(f"User cluster distribution completed successfully: {status}")
             return True
+        if require_success:
+            print(f"User cluster distribution not yet completed, status: {status}")
+            raise AirflowException(
+                "User cluster distribution not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(
+                f"Failed to confirm user cluster distribution completion: {str(e)}"
+            )
         return False
 
 
 def check_temporal_embedding_completed(**kwargs):
     """Check if temporal_interaction_embedding DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(TEMPORAL_EMBEDDING_STATUS_VARIABLE)
         if status == "True":
+            print(f"Temporal embedding completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Temporal embedding not yet completed, status: {status}")
+            raise AirflowException(
+                "Temporal embedding not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(
+                f"Failed to confirm temporal embedding completion: {str(e)}"
+            )
         return False
 
 
 def check_merge_embeddings_completed(**kwargs):
     """Check if merge_part_embeddings DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(MERGE_EMBEDDINGS_STATUS_VARIABLE)
         if status == "True":
+            print(f"Merge embeddings completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Merge embeddings not yet completed, status: {status}")
+            raise AirflowException(
+                "Merge embeddings not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(
+                f"Failed to confirm merge embeddings completion: {str(e)}"
+            )
         return False
 
 
 def check_user_clusters_completed(**kwargs):
     """Check if user_clusters DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(USER_CLUSTERS_STATUS_VARIABLE)
         if status == "True":
+            print(f"User clusters completed successfully: {status}")
             return True
+        if require_success:
+            print(f"User clusters not yet completed, status: {status}")
+            raise AirflowException(
+                "User clusters not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(
+                f"Failed to confirm user clusters completion: {str(e)}"
+            )
         return False
 
 
 def check_write_data_completed(**kwargs):
     """Check if write_data_to_bq DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(WRITE_DATA_TO_BQ_STATUS_VARIABLE)
         if status == "True":
+            print(f"Write data completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Write data not yet completed, status: {status}")
+            raise AirflowException(
+                "Write data not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(f"Failed to confirm write data completion: {str(e)}")
         return False
 
 
 def check_delete_cluster_completed(**kwargs):
     """Check if delete_dataproc_cluster DAG has completed."""
+    require_success = kwargs.get("require_success", False)
     try:
         status = Variable.get(DELETE_CLUSTER_STATUS_VARIABLE)
         if status == "True":
+            print(f"Delete cluster completed successfully: {status}")
             return True
+        if require_success:
+            print(f"Delete cluster not yet completed, status: {status}")
+            raise AirflowException(
+                "Delete cluster not yet completed successfully. Retrying..."
+            )
         return False
     except Exception as e:
         print(f"Error checking status: {str(e)}")
+        if require_success:
+            raise AirflowException(
+                f"Failed to confirm delete cluster completion: {str(e)}"
+            )
         return False
 
 
@@ -224,6 +328,8 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        # Keep checking until status is True
+        op_kwargs={"require_success": True},
     )
 
     # Trigger fetch_data_from_bq DAG after cluster creation
@@ -242,6 +348,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Trigger average_of_video_interactions DAG after data fetch
@@ -260,6 +367,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Trigger video_clusters DAG after data fetch (in parallel with avg_video_interactions)
@@ -278,6 +386,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Trigger user_cluster_distribution DAG after video_clusters
@@ -296,6 +405,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Trigger temporal_interaction_embedding DAG after user_cluster_distribution
@@ -314,6 +424,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Add a join point to ensure we only proceed when both paths are complete
@@ -338,6 +449,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Trigger user_clusters DAG after merge_part_embeddings
@@ -356,6 +468,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Trigger write_data_to_bq DAG after user_clusters
@@ -374,6 +487,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Trigger delete_dataproc_cluster DAG after write_data_to_bq completes (normal completion path)
@@ -401,6 +515,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_SUCCESS,
+        op_kwargs={"require_success": True},
     )
 
     # Check if delete_dataproc_cluster has completed (failure path)
@@ -410,6 +525,7 @@ with DAG(
         retries=100,
         retry_delay=timedelta(seconds=60),
         trigger_rule=TriggerRule.ALL_DONE,  # Continue regardless of success/failure
+        op_kwargs={"require_success": True},
     )
 
     # Final end task - normal path
