@@ -113,7 +113,16 @@ with DAG(
         poke_interval=60,
     )
 
-    # Trigger write_data_to_bq DAG after merge_part_embeddings
+    # Trigger user_clusters DAG after merge_part_embeddings
+    trigger_user_clusters = TriggerDagRunOperator(
+        task_id="trigger_user_clusters",
+        trigger_dag_id="user_clusters",
+        wait_for_completion=True,
+        reset_dag_run=True,
+        poke_interval=60,
+    )
+
+    # Trigger write_data_to_bq DAG after user_clusters
     trigger_write_data_to_bq = TriggerDagRunOperator(
         task_id="trigger_write_data_to_bq",
         trigger_dag_id="write_data_to_bq",
@@ -141,5 +150,11 @@ with DAG(
     trigger_video_avg >> join_for_merge
     trigger_temporal_embedding >> join_for_merge
 
-    # Only run merge_embeddings when both paths complete
-    join_for_merge >> trigger_merge_embeddings >> trigger_write_data_to_bq >> end
+    # Only run merge_embeddings when both paths complete, then user_clusters, then write_data_to_bq
+    (
+        join_for_merge
+        >> trigger_merge_embeddings
+        >> trigger_user_clusters
+        >> trigger_write_data_to_bq
+        >> end
+    )
