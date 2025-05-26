@@ -9,6 +9,7 @@ in a specific sequence:
 4. User Cluster Distribution (after Video Clusters)
 5. Temporal Interaction Embedding (after User Cluster Distribution)
 6. Merge Part Embeddings (only after both Average Video Interactions AND Temporal Interaction Embedding)
+7. Write Data to BigQuery (after Merge Part Embeddings)
 
 This master DAG triggers each individual DAG in sequence, respecting the dependencies,
 regardless of the individual DAGs' schedules.
@@ -112,6 +113,15 @@ with DAG(
         poke_interval=60,
     )
 
+    # Trigger write_data_to_bq DAG after merge_part_embeddings
+    trigger_write_data_to_bq = TriggerDagRunOperator(
+        task_id="trigger_write_data_to_bq",
+        trigger_dag_id="write_data_to_bq",
+        wait_for_completion=True,
+        reset_dag_run=True,
+        poke_interval=60,
+    )
+
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
 
     # Define task dependencies
@@ -132,4 +142,4 @@ with DAG(
     trigger_temporal_embedding >> join_for_merge
 
     # Only run merge_embeddings when both paths complete
-    join_for_merge >> trigger_merge_embeddings >> end
+    join_for_merge >> trigger_merge_embeddings >> trigger_write_data_to_bq >> end

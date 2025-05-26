@@ -108,12 +108,9 @@ def upload_to_bigquery(df, gcp_utils, dataset_id, table_id):
 
 def main():
     """Main execution function"""
-    # Define paths and table info
-    data_root = os.environ.get(
-        "DATA_ROOT", "/home/dataproc/recommendation-engine/data_root"
-    )
     user_clusters_path = "/tmp/transformed/user_clusters/user_clusters.parquet"
 
+    # todo: remove this hardcoded path
     # Load GCP credentials from environment or file
     credentials_path = "/home/dataproc/recommendation-engine/credentials_stage.json"
     credentials_json = ""
