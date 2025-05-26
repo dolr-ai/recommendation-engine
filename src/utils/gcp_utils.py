@@ -224,6 +224,94 @@ class GCPStorageService:
             bucket_name,
         )
 
+    def upload_directory(
+        self,
+        source_dir_path: str,
+        destination_gcs_path: str,
+        max_workers: int = 8,
+    ) -> bool:
+        """
+        Upload a directory to Google Cloud Storage using the TransferManager
+
+        Args:
+            source_dir_path: Local path to the directory to upload
+            destination_gcs_path: GCS destination path (e.g., gs://bucket-name/path/)
+            max_workers: Maximum number of workers for parallel upload
+
+        Returns:
+            True if upload successful, False otherwise
+        """
+        try:
+            from pathlib import Path
+            from google.cloud.storage import transfer_manager
+
+            logger.info(
+                f"Uploading directory {source_dir_path} to {destination_gcs_path}"
+            )
+
+            # Parse the GCS URI to get bucket name
+            if not destination_gcs_path.startswith("gs://"):
+                raise ValueError(
+                    f"Invalid GCS path: {destination_gcs_path}. Must start with gs://"
+                )
+
+            # Remove gs:// prefix and split into bucket and path
+            parts = destination_gcs_path[5:].split("/", 1)
+            bucket_name = parts[0]
+            destination_prefix = parts[1] if len(parts) > 1 else ""
+
+            # Get the bucket
+            bucket = self.client.bucket(bucket_name)
+
+            # Generate a list of paths relative to the source directory
+            directory_as_path_obj = Path(source_dir_path)
+            paths = directory_as_path_obj.rglob("*")
+
+            # Filter so the list only includes files, not directories
+            file_paths = [path for path in paths if path.is_file()]
+
+            # Make paths relative to source_dir_path
+            relative_paths = [path.relative_to(source_dir_path) for path in file_paths]
+
+            # Convert paths to strings
+            string_paths = [str(path) for path in relative_paths]
+
+            logger.info(f"Found {len(string_paths)} files to upload")
+
+            # Start the upload using TransferManager for parallel processing
+            results = transfer_manager.upload_many_from_filenames(
+                bucket,
+                string_paths,
+                source_directory=source_dir_path,
+                max_workers=max_workers,
+            )
+
+            # Check for any errors
+            error_count = 0
+            for name, result in zip(string_paths, results):
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to upload {name}: {result}")
+                    error_count += 1
+                else:
+                    logger.debug(f"Uploaded {name} to {bucket_name}")
+
+            if error_count:
+                logger.info(
+                    f"Completed with {error_count} errors out of {len(string_paths)} files"
+                )
+                return error_count < len(
+                    string_paths
+                )  # Return True if at least some files uploaded
+            else:
+                logger.info(
+                    f"Successfully uploaded all {len(string_paths)} files to {destination_gcs_path}"
+                )
+                return True
+
+        except Exception as e:
+            logger.error(f"Error during directory upload: {e}")
+            return False
+
 
 class GCPBigQueryService:
     """Google BigQuery service class providing query operations"""
