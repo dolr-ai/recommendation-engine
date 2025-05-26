@@ -302,7 +302,7 @@ def main():
 
     # Show cluster sizes
     print("\nUser counts per cluster:")
-    df_user_clusters.groupBy("cluster").count().orderBy("cluster").show(optimal_k)
+    df_user_clusters.groupBy("cluster").count().orderBy("cluster").show(int(optimal_k))
 
     # Verify HDFS file exists
     hdfs_check = subprocess.run(
