@@ -59,9 +59,24 @@ XCOM_CLUSTER_NAME_KEY = "cluster_name"
 
 
 # Helper function to trigger a DAG and set up sensor dependencies
-def trigger_dag_task(dag_id, wait_for_completion=True, reset_dag_run=True):
+def trigger_dag_task(
+    dag_id, task_id_suffix="", wait_for_completion=True, reset_dag_run=True
+):
+    """
+    Create a TriggerDagRunOperator for a given DAG ID
+
+    Args:
+        dag_id: The ID of the DAG to trigger
+        task_id_suffix: Optional suffix to make the task ID unique
+        wait_for_completion: Whether to wait for DAG completion
+        reset_dag_run: Whether to reset any existing DAG runs
+    """
+    task_id = f"trigger_{dag_id}"
+    if task_id_suffix:
+        task_id = f"{task_id}_{task_id_suffix}"
+
     return TriggerDagRunOperator(
-        task_id=f"trigger_{dag_id}",
+        task_id=task_id,
         trigger_dag_id=dag_id,
         wait_for_completion=False,
         reset_dag_run=reset_dag_run,
@@ -70,9 +85,22 @@ def trigger_dag_task(dag_id, wait_for_completion=True, reset_dag_run=True):
 
 
 # Helper function to wait for DAG completion
-def wait_for_dag_task(dag_id, timeout=60 * 60, poke_interval=60):
+def wait_for_dag_task(dag_id, task_id_suffix="", timeout=60 * 60, poke_interval=60):
+    """
+    Create an ExternalTaskSensor for a given DAG ID
+
+    Args:
+        dag_id: The ID of the DAG to wait for
+        task_id_suffix: Optional suffix to make the task ID unique
+        timeout: Maximum time to wait
+        poke_interval: How often to check status
+    """
+    task_id = f"wait_for_{dag_id}"
+    if task_id_suffix:
+        task_id = f"{task_id}_{task_id_suffix}"
+
     return ExternalTaskSensor(
-        task_id=f"wait_for_{dag_id}",
+        task_id=task_id,
         external_dag_id=dag_id,
         external_task_id=None,  # Wait for the entire DAG
         allowed_states=["success"],  # Using string values instead of enum
@@ -91,7 +119,7 @@ def check_failure_branch(**context):
     for task_instance in context["dag_run"].get_task_instances():
         if task_instance.state == State.FAILED:
             return "trigger_delete_dataproc_cluster_on_failure"
-    return "trigger_delete_dataproc_cluster"
+    return "trigger_delete_dataproc_cluster_normal"
 
 
 # Define the DAG
@@ -156,15 +184,22 @@ with DAG(
     )
 
     # Delete Dataproc Cluster - Normal path
-    trigger_delete_cluster = trigger_dag_task(DELETE_CLUSTER_DAG_ID)
-    wait_for_delete_cluster = wait_for_dag_task(DELETE_CLUSTER_DAG_ID)
+    trigger_delete_cluster = trigger_dag_task(
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="normal"
+    )
+    wait_for_delete_cluster = wait_for_dag_task(
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="normal"
+    )
 
     # Delete Dataproc Cluster - Failure path
     trigger_delete_cluster_on_failure = trigger_dag_task(
         DELETE_CLUSTER_DAG_ID,
+        task_id_suffix="on_failure",
         reset_dag_run=True,
     )
-    wait_for_delete_cluster_on_failure = wait_for_dag_task(DELETE_CLUSTER_DAG_ID)
+    wait_for_delete_cluster_on_failure = wait_for_dag_task(
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="on_failure"
+    )
 
     # Final end tasks
     end_success = DummyOperator(
