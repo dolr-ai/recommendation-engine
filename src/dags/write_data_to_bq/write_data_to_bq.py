@@ -171,7 +171,7 @@ with DAG(
         trigger_rule=TriggerRule.ALL_SUCCESS,  # Only run if the write_to_bigquery task succeeds
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
+    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Define task dependencies
     (

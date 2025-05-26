@@ -133,7 +133,7 @@ with DAG(
         trigger_rule=TriggerRule.ALL_SUCCESS,
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
+    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Define task dependencies
     start >> init_status >> validate_cluster >> fetch_bq_data >> set_status >> end

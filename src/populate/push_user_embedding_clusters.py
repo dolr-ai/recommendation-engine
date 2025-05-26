@@ -10,13 +10,15 @@ and uploads it to a BigQuery table for further analysis and serving.
 """
 
 import os
-import json
+import subprocess
 from datetime import datetime
-import pandas as pd
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from utils.gcp_utils import GCPUtils
+from utils.common_utils import path_exists
+
+DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 
 
 def load_user_clusters(local_path):
@@ -108,7 +110,46 @@ def upload_to_bigquery(df, gcp_utils, dataset_id, table_id):
 
 def main():
     """Main execution function"""
-    user_clusters_path = "/tmp/transformed/user_clusters/user_clusters.parquet"
+    # First check if file exists in HDFS
+
+    # Check both potential locations
+    hdfs_path = "/tmp/transformed/user_clusters/user_clusters.parquet"
+    local_path = f"{DATA_ROOT}/transformed/user_clusters/user_clusters.parquet"
+
+    # Check if file exists in HDFS
+    hdfs_check = subprocess.run(
+        ["hdfs", "dfs", "-test", "-e", hdfs_path], capture_output=True
+    )
+    hdfs_exists = hdfs_check.returncode == 0
+
+    # Check if file exists locally
+    local_exists = path_exists(local_path)
+
+    print(f"HDFS path exists: {hdfs_exists}, Local path exists: {local_exists}")
+
+    # Use the path that exists
+    if hdfs_exists:
+        user_clusters_path = hdfs_path
+        print(f"Using HDFS path: {hdfs_path}")
+    elif local_exists:
+        user_clusters_path = local_path
+        print(f"Using local path: {local_path}")
+    else:
+        # Create the directory if it doesn't exist
+        subprocess.call(
+            ["hdfs", "dfs", "-mkdir", "-p", "/tmp/transformed/user_clusters"]
+        )
+        # List directories to debug
+        print("Available directories in HDFS:")
+        subprocess.call(["hdfs", "dfs", "-ls", "/tmp/transformed"])
+        print("Available local directories:")
+        subprocess.call(
+            ["ls", "-la", "/home/dataproc/recommendation-engine/data_root/transformed/"]
+        )
+
+        raise FileNotFoundError(
+            f"User clusters file not found at {hdfs_path} or {local_path}"
+        )
 
     # todo: remove this hardcoded path
     # Load GCP credentials from environment or file

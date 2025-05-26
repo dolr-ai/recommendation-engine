@@ -11,9 +11,8 @@ get_video_clusters.py, but for user embeddings instead of video embeddings.
 """
 
 import os
-import sys
 import json
-import pathlib
+import subprocess
 from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -239,15 +238,18 @@ def cluster_users(
 
 def main():
     """Main execution function"""
-    import subprocess
 
     # Create local output directory
     trans_dir = f"{DATA_ROOT}/transformed/user_clusters"
     create_directories([trans_dir])
+    print(f"Created local directory: {trans_dir}")
 
     # Create hdfs directories
     subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/emb_analysis"])
     subprocess.call(["hdfs", "dfs", "-mkdir", "-p", "/tmp/transformed/user_clusters"])
+    # Verify HDFS directories were created
+    print("Verifying HDFS directories:")
+    subprocess.call(["hdfs", "dfs", "-ls", "/tmp/transformed"])
 
     # Copy input files to HDFS
     subprocess.call(
@@ -277,7 +279,20 @@ def main():
     df_user_clusters.write.mode("overwrite").parquet(output_path)
 
     # Copy results back to local filesystem
+    local_output_path = f"{trans_dir}/user_clusters.parquet"
     subprocess.call(["hdfs", "dfs", "-get", "-f", output_path, trans_dir])
+
+    # Verify local file was created
+    if os.path.exists(local_output_path):
+        print(f"Successfully copied to local path: {local_output_path}")
+        # Get file size to verify it's not empty
+        local_size = os.path.getsize(local_output_path)
+        print(f"Local file size: {local_size} bytes")
+    else:
+        print(f"WARNING: Failed to copy to local path: {local_output_path}")
+        # Try to create the directory again and copy
+        os.makedirs(trans_dir, exist_ok=True)
+        subprocess.call(["hdfs", "dfs", "-get", "-f", output_path, trans_dir])
 
     # Show a sample of clusters
     print("\nSample of user clusters:")
@@ -287,9 +302,23 @@ def main():
     print("\nUser counts per cluster:")
     df_user_clusters.groupBy("cluster").count().orderBy("cluster").show(optimal_k)
 
-    print(f"Successfully wrote user clusters to {output_path}")
-    print(f"And copied back to {trans_dir}/user_clusters.parquet")
+    # Verify HDFS file exists
+    hdfs_check = subprocess.run(
+        ["hdfs", "dfs", "-test", "-e", output_path], capture_output=True
+    )
+    if hdfs_check.returncode == 0:
+        print(f"Successfully wrote user clusters to {output_path}")
+    else:
+        print(f"WARNING: HDFS file {output_path} does not exist after writing!")
+
+    print(f"And copied back to {local_output_path}")
     print(f"Cluster mapping saved to {trans_dir}/user_cluster_label_map.json")
+
+    # List both locations to verify
+    print("\nVerifying HDFS output directory:")
+    subprocess.call(["hdfs", "dfs", "-ls", "/tmp/transformed/user_clusters"])
+    print("\nVerifying local output directory:")
+    subprocess.call(["ls", "-la", trans_dir])
 
 
 if __name__ == "__main__":

@@ -122,7 +122,7 @@ with DAG(
         poke_interval=60,
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
+    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Define task dependencies
     start >> trigger_create_cluster >> trigger_fetch_data

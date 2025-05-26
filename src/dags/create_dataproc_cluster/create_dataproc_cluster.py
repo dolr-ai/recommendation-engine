@@ -39,6 +39,8 @@ CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
+# todo: remove this credential after dev testing
+GCP_CREDENTIALS_STAGE = os.environ.get("GCP_CREDENTIALS_STAGE")
 
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"
@@ -81,6 +83,8 @@ CLUSTER_CONFIG = {
         "zone_uri": f"{REGION}-a",  # Specify the zone
         "metadata": {
             "GCP_CREDENTIALS": GCP_CREDENTIALS,
+            # todo: remove this credential after dev testing
+            "GCP_CREDENTIALS_STAGE": GCP_CREDENTIALS_STAGE,
             "SERVICE_ACCOUNT": SERVICE_ACCOUNT,
         },
     },
@@ -131,17 +135,7 @@ with DAG(
         num_retries_if_resource_is_not_ready=3,
     )
 
-    # Delete the cluster manually (even though it has auto-delete)
-    # This ensures the cluster is deleted after a specified period
-    # delete_cluster = DataprocDeleteClusterOperator(
-    #     task_id="task-delete_dataproc_cluster",
-    #     project_id=PROJECT_ID,
-    #     region=REGION,
-    #     cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
-    #     trigger_rule=TriggerRule.ALL_DONE,  # Run this even if previous tasks fail
-    # )
-
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
+    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Define task dependencies
     start >> set_cluster_variable >> create_cluster >> end
