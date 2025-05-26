@@ -113,7 +113,7 @@ def main():
     data_root = os.environ.get(
         "DATA_ROOT", "/home/dataproc/recommendation-engine/data_root"
     )
-    local_clusters_path = f"{data_root}/transformed/user_clusters/user_clusters.parquet"
+    user_clusters_path = "/tmp/transformed/user_clusters/user_clusters.parquet"
 
     # Load GCP credentials from environment or file
     credentials_path = os.environ.get("GCP_CREDENTIALS_PATH", "")
@@ -137,7 +137,7 @@ def main():
     gcp_utils = GCPUtils(gcp_credentials=credentials_json)
 
     # Load the user clusters data
-    df_clusters = load_user_clusters(local_clusters_path)
+    df_clusters = load_user_clusters(user_clusters_path)
 
     # Upload to BigQuery
     upload_to_bigquery(df_clusters, gcp_utils, project_id, dataset_id, table_id)
