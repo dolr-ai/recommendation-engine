@@ -288,6 +288,7 @@ class GCPBigQueryService:
     def upload_dataframe_to_table(
         self,
         df: pd.DataFrame,
+        project_id: str,
         dataset_id: str,
         table_id: str,
         if_exists: str = "fail",
@@ -298,6 +299,7 @@ class GCPBigQueryService:
 
         Args:
             df: Pandas DataFrame to upload
+            project_id: GCP project ID
             dataset_id: BigQuery dataset ID
             table_id: BigQuery table ID
             if_exists: What to do if the table exists ('fail', 'replace', 'append')
@@ -307,9 +309,6 @@ class GCPBigQueryService:
             True if upload successful, False otherwise
         """
         try:
-            # Use project_id from core instance
-            project_id = self.core.project_id
-
             # Full table reference
             table_ref = f"{project_id}.{dataset_id}.{table_id}"
             logger.info(f"Uploading DataFrame with {len(df)} rows to {table_ref}")
