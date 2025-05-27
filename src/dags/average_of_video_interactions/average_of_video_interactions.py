@@ -156,12 +156,12 @@ with DAG(
                     "spark.executor.memoryStorageFraction": "0.3",
                 },
             },
+            "labels": {"job_type": DAG_ID},
         },
         asynchronous=False,  # Wait for the job to complete
         retries=1,  # Increase retries for more resilience
         retry_delay=timedelta(minutes=5),
         execution_timeout=timedelta(hours=1),  # Set a reasonable execution timeout
-        labels={"job_type": DAG_ID},
     )
 
     # Set status to completed after job finishes successfully

@@ -133,12 +133,12 @@ with DAG(
                     "spark.memory.storageFraction": "0.3",
                 },
             },
+            "labels": {"job_type": DAG_ID},
         },
         asynchronous=False,  # Wait for the job to complete
         retries=1,  # Retry if the job fails
         retry_delay=timedelta(minutes=5),
         execution_timeout=timedelta(hours=1),  # Set a reasonable execution timeout
-        labels={"job_type": DAG_ID},
     )
 
     # Set status to True upon successful completion

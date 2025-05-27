@@ -171,10 +171,10 @@ with DAG(
                     "spark.memory.storageFraction": "0.3",
                 },
             },
+            "labels": {"job_type": DAG_ID},
         },
         asynchronous=False,  # Wait for the job to complete
         retries=0,  # Retry if the job fails
-        labels={"job_type": DAG_ID},
     )
 
     # Set status to completed after job finishes successfully
