@@ -121,7 +121,9 @@ def merge_part_embeddings(
     )
 
     df_cluster_emb = df_cluster_distribution.select(
-        "user_id", F.col("cluster_distribution").alias("cluster_distribution_embedding")
+        "user_id",
+        F.col("cluster_distribution").alias("cluster_distribution_embedding"),
+        "engagement_metadata_list",
     )
 
     print("\nSTEP 3: Joining dataframes on user_id")
