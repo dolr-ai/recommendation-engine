@@ -13,18 +13,8 @@ and uploads it to a BigQuery table for further analysis and serving.
 import os
 import subprocess
 from datetime import datetime
-import json
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-from pyspark.sql.types import (
-    ArrayType,
-    StructType,
-    StringType,
-    TimestampType,
-    FloatType,
-    BooleanType,
-    IntegerType,
-)
 
 from utils.gcp_utils import GCPUtils
 from utils.common_utils import path_exists
@@ -40,7 +30,7 @@ def load_user_clusters(local_path):
         local_path: Path to the user_clusters.parquet file
 
     Returns:
-        pandas DataFrame with the user clusters data
+        PySpark DataFrame with the user clusters data
     """
     print(f"Loading user clusters data from {local_path}")
 
@@ -50,25 +40,7 @@ def load_user_clusters(local_path):
     # Load the parquet file
     df_spark = spark.read.parquet(local_path)
 
-    # Define schema for engagement_metadata
-    engagement_metadata_schema = StructType(
-        [
-            ("video_id", StringType()),
-            ("last_watched_timestamp", TimestampType()),
-            ("mean_percentage_watched", FloatType()),
-            ("liked", BooleanType()),
-            ("last_liked_timestamp", TimestampType()),
-            ("shared", BooleanType()),
-            ("last_shared_timestamp", TimestampType()),
-            ("cluster_label", IntegerType()),
-        ]
-    )
-
-    # Convert engagement_metadata_list to JSON string to avoid timestamp conversion issues
-    df_spark = df_spark.withColumn(
-        "engagement_metadata_list", F.to_json(F.col("engagement_metadata_list"))
-    )
-
+    # todo: remove embedding columns if not needed
     # Select all required columns including all embeddings
     df_spark = df_spark.select(
         "user_id",
@@ -80,144 +52,46 @@ def load_user_clusters(local_path):
         "engagement_metadata_list",
     )
 
-    # Convert to pandas DataFrame
-    df = df_spark.toPandas()
+    # Add updated_at timestamp
+    df_spark = df_spark.withColumn("updated_at", F.current_timestamp())
 
-    # Parse the JSON strings back to Python lists
-    df["engagement_metadata_list"] = df["engagement_metadata_list"].apply(
-        lambda x: json.loads(x) if x else []
-    )
-
-    print(f"Loaded {len(df)} user clusters")
-    return df
+    print(f"Loaded user clusters dataframe")
+    return df_spark
 
 
-def upload_to_bigquery(df, gcp_utils, dataset_id, table_id):
+def upload_to_bigquery(df_spark, gcp_utils, dataset_id, table_id, credentials_path):
     """
-    Upload the user clusters to BigQuery.
+    Upload the user clusters to BigQuery directly from PySpark using the
+    BigQuery Storage Write API.
 
     Args:
-        df: DataFrame with user clusters
+        df_spark: PySpark DataFrame with user clusters
         gcp_utils: GCPUtils instance
         dataset_id: BigQuery dataset ID
         table_id: BigQuery table ID
     """
-    print(
-        f"Uploading {len(df)} user clusters to BigQuery table {dataset_id}.{table_id}"
-    )
+    print(f"Uploading PySpark DataFrame to BigQuery table {dataset_id}.{table_id}")
 
-    # Define schema for the user clusters table
-    schema = [
-        {
-            "name": "user_id",
-            "type": "STRING",
-            "mode": "REQUIRED",
-            "description": "Unique user identifier",
-        },
-        {
-            "name": "cluster_id",
-            "type": "INTEGER",
-            "mode": "NULLABLE",
-            "description": "Cluster identifier for partitioning and performance optimization",
-        },
-        {
-            "name": "user_embedding",
-            "type": "FLOAT64",
-            "mode": "REPEATED",
-            "description": "Normalized concatenated user embedding vector",
-        },
-        {
-            "name": "avg_interaction_embedding",
-            "type": "FLOAT64",
-            "mode": "REPEATED",
-            "description": "Average interaction embedding vector",
-        },
-        {
-            "name": "temporal_embedding",
-            "type": "FLOAT64",
-            "mode": "REPEATED",
-            "description": "Temporal interaction embedding vector",
-        },
-        {
-            "name": "cluster_distribution_embedding",
-            "type": "FLOAT64",
-            "mode": "REPEATED",
-            "description": "Cluster distribution embedding vector",
-        },
-        {
-            "name": "engagement_metadata_list",
-            "type": "RECORD",
-            "mode": "REPEATED",
-            "description": "List of video engagement metadata for user",
-            "fields": [
-                {"name": "video_id", "type": "STRING", "mode": "NULLABLE"},
-                {
-                    "name": "last_watched_timestamp",
-                    "type": "TIMESTAMP",
-                    "mode": "NULLABLE",
-                },
-                {
-                    "name": "mean_percentage_watched",
-                    "type": "FLOAT64",
-                    "mode": "NULLABLE",
-                },
-                {"name": "liked", "type": "BOOLEAN", "mode": "NULLABLE"},
-                {
-                    "name": "last_liked_timestamp",
-                    "type": "TIMESTAMP",
-                    "mode": "NULLABLE",
-                },
-                {"name": "shared", "type": "BOOLEAN", "mode": "NULLABLE"},
-                {
-                    "name": "last_shared_timestamp",
-                    "type": "TIMESTAMP",
-                    "mode": "NULLABLE",
-                },
-                {"name": "cluster_label", "type": "INTEGER", "mode": "NULLABLE"},
-            ],
-        },
-        {
-            "name": "updated_at",
-            "type": "TIMESTAMP",
-            "mode": "REQUIRED",
-            "description": "Timestamp when the embedding was uploaded",
-        },
-    ]
+    # Full table reference
+    table_ref = f"{gcp_utils.core.project_id}.{dataset_id}.{table_id}"
 
-    # Add updated_at timestamp to the DataFrame
-    df["updated_at"] = datetime.utcnow()
+    # Get the project ID
+    project_id = gcp_utils.core.project_id
 
-    # Ensure engagement_metadata_list is properly formatted
-    # This step handles any timestamp conversions that might be needed
-    for i, row in enumerate(df["engagement_metadata_list"]):
-        for item in row:
-            # Convert timestamp strings to datetime objects if needed
-            for ts_field in [
-                "last_watched_timestamp",
-                "last_liked_timestamp",
-                "last_shared_timestamp",
-            ]:
-                if (
-                    ts_field in item
-                    and item[ts_field]
-                    and isinstance(item[ts_field], str)
-                ):
-                    try:
-                        item[ts_field] = datetime.fromisoformat(
-                            item[ts_field].replace("Z", "+00:00")
-                        )
-                    except (ValueError, AttributeError):
-                        # If conversion fails, set to None
-                        item[ts_field] = None
+    # Print information for debugging
+    print(f"Project ID: {project_id}")
+    print(f"Target table: {table_ref}")
+    print(f"DataFrame schema: {df_spark.schema}")
 
-    # Upload the DataFrame to BigQuery
-    gcp_utils.bigquery.upload_dataframe_to_table(
-        df=df,
-        dataset_id=dataset_id,
-        table_id=table_id,
-        if_exists="replace",  # Replace the existing table
-        schema_updates=schema,
-    )
+    # Set Spark configuration for BigQuery
+    spark = df_spark.sparkSession
+    spark.conf.set("parentProject", project_id)
+    spark.conf.set("credentialsFile", credentials_path)
+
+    # Write to BigQuery using the direct write API
+    df_spark.write.format("bigquery").option("table", table_ref).option(
+        "temporaryGcsBucket", "stage-yral-ds-dataproc-bucket"
+    ).option("writeMethod", "direct").mode("overwrite").save()
 
     print("Successfully uploaded user clusters to BigQuery")
 
@@ -290,7 +164,7 @@ def main():
     df_clusters = load_user_clusters(user_clusters_path)
 
     # Upload to BigQuery
-    upload_to_bigquery(df_clusters, gcp_utils, dataset_id, table_id)
+    upload_to_bigquery(df_clusters, gcp_utils, dataset_id, table_id, credentials_path)
 
     # Upload data_root to GCS bucket - use the same gcp_utils object
     source_path = DATA_ROOT
