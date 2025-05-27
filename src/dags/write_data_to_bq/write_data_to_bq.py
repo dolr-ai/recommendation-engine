@@ -27,7 +27,7 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
 }
-
+DAG_ID = "write_data_to_bq"
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
@@ -104,7 +104,7 @@ def set_status_completed(**kwargs):
 
 # Create the DAG
 with DAG(
-    dag_id="write_data_to_bq",
+    dag_id=DAG_ID,
     default_args=default_args,
     description="Write User Clusters to BigQuery",
     schedule_interval=None,
@@ -163,6 +163,7 @@ with DAG(
         },
         asynchronous=False,  # Wait for the job to complete
         retries=0,  # No retries
+        labels={"job_type": DAG_ID},
     )
 
     # Set status to completed after job finishes successfully

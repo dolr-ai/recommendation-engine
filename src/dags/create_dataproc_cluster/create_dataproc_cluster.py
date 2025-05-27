@@ -28,7 +28,7 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
 }
-
+DAG_ID = "create_dataproc_cluster"
 # Cluster variables
 CLUSTER_NAME_TEMPLATE = "staging-cluster-{ds_nodash}"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
@@ -117,7 +117,7 @@ def set_cluster_name(**context):
 
 # Create the DAG
 with DAG(
-    dag_id="create_dataproc_cluster",
+    dag_id=DAG_ID,
     default_args=default_args,
     description="Create Dataproc Cluster",
     schedule_interval=None,
@@ -142,6 +142,7 @@ with DAG(
         cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
         cluster_config=CLUSTER_CONFIG,
         num_retries_if_resource_is_not_ready=3,
+        labels={"job_type": DAG_ID},
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)

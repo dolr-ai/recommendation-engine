@@ -27,7 +27,7 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
 }
-
+DAG_ID = "video_clusters"
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
@@ -104,7 +104,7 @@ def set_status_completed(**kwargs):
 
 # Create the DAG
 with DAG(
-    dag_id="video_clusters",
+    dag_id=DAG_ID,
     default_args=default_args,
     description="Video Clustering Job",
     schedule_interval=None,
@@ -169,6 +169,7 @@ with DAG(
         retries=1,  # Retry if the job fails
         retry_delay=timedelta(minutes=5),
         execution_timeout=timedelta(hours=1),  # Set a reasonable execution timeout
+        labels={"job_type": DAG_ID},
     )
 
     # Set status to completed after job finishes successfully
