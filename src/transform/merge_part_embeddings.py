@@ -178,10 +178,11 @@ def merge_part_embeddings(
         "user_embedding", vector_to_array_udf(F.col("normalized_embedding_vector"))
     ).select(
         "user_id",
-        "avg_interaction_embedding",
-        "temporal_embedding",
-        "cluster_distribution_embedding",
         "user_embedding",
+        "avg_interaction_embedding",
+        "cluster_distribution_embedding",
+        "temporal_embedding",
+        "engagement_metadata_list",
     )
 
     print("Final result count:", df_result.count())
