@@ -40,9 +40,16 @@ def load_user_clusters(local_path):
     # Load the parquet file
     df_spark = spark.read.parquet(local_path)
 
-    # Select only the required columns
+    # todo: remove embedding columns if not needed
+    # Select all required columns including all embeddings
     df_spark = df_spark.select(
-        "user_id", F.col("cluster").alias("cluster_id"), "user_embedding"
+        "user_id",
+        F.col("cluster").alias("cluster_id"),
+        "user_embedding",
+        "avg_interaction_embedding",
+        "cluster_distribution_embedding",
+        "temporal_embedding",
+        "engagement_metadata_list",
     )
 
     # Convert to pandas DataFrame
@@ -85,6 +92,56 @@ def upload_to_bigquery(df, gcp_utils, dataset_id, table_id):
             "type": "FLOAT64",
             "mode": "REPEATED",
             "description": "Normalized concatenated user embedding vector",
+        },
+        {
+            "name": "avg_interaction_embedding",
+            "type": "FLOAT64",
+            "mode": "REPEATED",
+            "description": "Average interaction embedding vector",
+        },
+        {
+            "name": "temporal_embedding",
+            "type": "FLOAT64",
+            "mode": "REPEATED",
+            "description": "Temporal interaction embedding vector",
+        },
+        {
+            "name": "cluster_distribution_embedding",
+            "type": "FLOAT64",
+            "mode": "REPEATED",
+            "description": "Cluster distribution embedding vector",
+        },
+        {
+            "name": "engagement_metadata_list",
+            "type": "RECORD",
+            "mode": "REPEATED",
+            "description": "List of video engagement metadata for user",
+            "fields": [
+                {"name": "video_id", "type": "STRING", "mode": "NULLABLE"},
+                {
+                    "name": "last_watched_timestamp",
+                    "type": "TIMESTAMP",
+                    "mode": "NULLABLE",
+                },
+                {
+                    "name": "mean_percentage_watched",
+                    "type": "FLOAT64",
+                    "mode": "NULLABLE",
+                },
+                {"name": "liked", "type": "BOOLEAN", "mode": "NULLABLE"},
+                {
+                    "name": "last_liked_timestamp",
+                    "type": "TIMESTAMP",
+                    "mode": "NULLABLE",
+                },
+                {"name": "shared", "type": "BOOLEAN", "mode": "NULLABLE"},
+                {
+                    "name": "last_shared_timestamp",
+                    "type": "TIMESTAMP",
+                    "mode": "NULLABLE",
+                },
+                {"name": "cluster_label", "type": "INTEGER", "mode": "NULLABLE"},
+            ],
         },
         {
             "name": "updated_at",

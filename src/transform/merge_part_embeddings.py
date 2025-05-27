@@ -145,6 +145,7 @@ def merge_part_embeddings(
         "avg_interaction_embedding",
         "temporal_embedding",
         "cluster_distribution_embedding",
+        "engagement_metadata_list",
     )
 
     print("\nSTEP 5: Concatenating embeddings")

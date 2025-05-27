@@ -193,7 +193,18 @@ def cluster_users(
     # Select only the columns we need
     df_user_clusters = final_predictions.select(
         "user_id", F.col("prediction").alias("cluster")
-    ).join(df_user_embeddings.select("user_id", "user_embedding"), "user_id", "inner")
+    ).join(
+        df_user_embeddings.select(
+            "user_id",
+            "user_embedding",
+            "avg_interaction_embedding",
+            "cluster_distribution_embedding",
+            "temporal_embedding",
+            "engagement_metadata_list",
+        ),
+        "user_id",
+        "inner",
+    )
 
     # Calculate cluster sizes for summary
     cluster_counts = df_user_clusters.groupBy("cluster").count().collect()
