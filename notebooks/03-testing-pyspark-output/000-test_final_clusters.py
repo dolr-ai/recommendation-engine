@@ -20,6 +20,7 @@ from sklearn.metrics import silhouette_score
 import plotly.express as px
 from kneed import KneeLocator
 
+
 # utils
 from utils.gcp_utils import GCPUtils
 
@@ -39,8 +40,16 @@ gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
 del gcp_credentials_str, _
 
 # %%
-df = gcp.bigquery.execute_query(
-    "SELECT * FROM `stage_test_tables.test_user_cluster_embeddings`"
+# df = gcp.bigquery.execute_query(
+#     "SELECT * FROM `stage_test_tables.test_user_cluster_embeddings`"
+# )
+# %%
+# df.to_parquet(
+#     "/Users/sagar/work/yral/recommendation-engine/data-temp/master_dag_output/master_dag_user_cluster_output.parquet"
+# )
+
+df = pd.read_parquet(
+    "/Users/sagar/work/yral/recommendation-engine/data-temp/master_dag_output/master_dag_user_cluster_output.parquet"
 )
 # %%
 df.iloc[0]["user_embedding"]
@@ -65,10 +74,18 @@ def cluster_and_visualize_embeddings(
     default_k=3,
     tsne_perplexity=30,
     tsne_n_iter=1000,
+    type_of_embedding="",
 ):
+    print("#" * 100)
+    print(f"Clustering and visualizing {type_of_embedding}")
+    print("#" * 100)
     # Extract embeddings as numpy array
     embeddings = np.array(df[embedding_column].tolist())
     print(f"Embedding array shape: {embeddings.shape}")
+
+    # Normalize embeddings to unit length
+    embeddings = normalize(embeddings, norm="l2")
+    print("Embeddings normalized to unit length (L2 norm)")
 
     # Perform dimensionality reduction with t-SNE
     print("Performing t-SNE dimensionality reduction...")
@@ -76,7 +93,6 @@ def cluster_and_visualize_embeddings(
         n_components=2,
         perplexity=tsne_perplexity,
         n_iter=tsne_n_iter,
-        random_state=42,
         metric="cosine",
     )
     tsne_results = tsne.fit_transform(embeddings)
@@ -88,7 +104,7 @@ def cluster_and_visualize_embeddings(
     # Plot t-SNE projection
     fig, ax = plt.subplots(figsize=(12, 10))
     ax.scatter(tsne_results[:, 0], tsne_results[:, 1], alpha=0.5)
-    ax.set_title("t-SNE Projection of Temporal Embeddings")
+    ax.set_title(f"t-SNE Projection of {type_of_embedding} Embeddings")
     plt.show()
 
     # Determine optimal number of clusters
@@ -96,9 +112,12 @@ def cluster_and_visualize_embeddings(
     inertia_values = []
     k_range = range(min_k, max_k)
 
-    print("Determining optimal k for temporal embedding clusters...")
+    print(f"Determining optimal k for {type_of_embedding} clusters...")
     for k in tqdm(k_range, desc="K-Means"):
-        kmeans = KMeans(n_clusters=k, random_state=42, n_init="auto")
+        kmeans = KMeans(
+            n_clusters=k,
+            n_init="auto",
+        )
         cluster_labels = kmeans.fit_predict(embeddings)
 
         if (
@@ -195,7 +214,7 @@ def cluster_and_visualize_embeddings(
         )
 
     fig.colorbar(scatter, ax=ax, label="Cluster")
-    ax.set_title(f"t-SNE Projection with {optimal_k} Clusters - Temporal Embeddings")
+    ax.set_title(f"t-SNE Projection with {optimal_k} Clusters - {type_of_embedding}")
     plt.show()
 
     # Create interactive plotly visualization
@@ -205,7 +224,7 @@ def cluster_and_visualize_embeddings(
         y="tsne_2",
         color="cluster",
         hover_data=["user_id"],
-        title=f"t-SNE Projection of Temporal Embeddings ({optimal_k} clusters)",
+        title=f"t-SNE Projection of {type_of_embedding} ({optimal_k} clusters)",
         color_continuous_scale=px.colors.qualitative.G10,
     )
     fig_plotly.update_layout(width=1000, height=800, legend_title_text="Cluster")
@@ -233,7 +252,6 @@ def cluster_and_visualize_embeddings(
         n_components=3,
         perplexity=tsne_perplexity,
         n_iter=tsne_n_iter,
-        random_state=42,
         metric="cosine",
     )
     tsne_results_3d = tsne_3d.fit_transform(embeddings)
@@ -251,7 +269,7 @@ def cluster_and_visualize_embeddings(
         z="tsne_3",
         color="cluster",
         hover_data=["user_id"],
-        title=f"3D t-SNE Projection of Embeddings ({optimal_k} clusters)",
+        title=f"3D t-SNE Projection of {type_of_embedding} ({optimal_k} clusters)",
         color_continuous_scale=px.colors.qualitative.G10,
     )
 
@@ -319,28 +337,70 @@ def cluster_and_visualize_embeddings(
     # Visualize cluster sizes
     fig, ax = plt.subplots(figsize=(10, 6))
     sns.barplot(x="cluster", y="user_count", data=cluster_stats, ax=ax)
-    ax.set_title(f"User Count per Cluster (k={optimal_k}) - User Embeddings")
+    ax.set_title(f"User Count per Cluster (k={optimal_k}) - {type_of_embedding}")
     plt.show()
 
     return df_result, df_tsne, cluster_stats, optimal_k
 
 
 # %%
-# Perform clustering and visualization using temporal_embedding
-df_clustered, df_tsne, cluster_stats, optimal_k = cluster_and_visualize_embeddings(
-    df, embedding_column="user_embedding", min_k=2, max_k=10, default_k=3
+df["etype1"] = df["avg_interaction_embedding"]
+df["etype2"] = df.apply(
+    lambda x: np.concatenate(
+        [x["avg_interaction_embedding"], x["cluster_distribution_embedding"]]
+    ),
+    axis=1,
 )
+df["etype3"] = df.apply(
+    lambda x: np.concatenate(
+        [
+            x["avg_interaction_embedding"],
+            x["cluster_distribution_embedding"],
+            x["temporal_embedding"],
+        ]
+    ),
+    axis=1,
+)
+df["etype4"] = df["user_embedding"]
+df["etype5"] = df["cluster_distribution_embedding"]
+df["etype6"] = df["temporal_embedding"]
 
+etype_to_type_of_embedding = {
+    "etype1": "<Avg Interaction> Embedding",
+    "etype2": "<Avg Interaction, Cluster Distribution> Embedding",
+    "etype3": "<Avg Interaction, Cluster Distribution, Temporal> Embedding",
+    "etype4": "<User> Embedding",
+    # exploration purposes
+    "etype5": "<Cluster Distribution> Embedding",
+    "etype6": "<Temporal> Embedding",
+}
+# %%
+df
 
 # %%
-# Display distribution of users across clusters
-plt.figure(figsize=(10, 6))
-cluster_counts = df_clustered["cluster"].value_counts().sort_index()
-cluster_counts.plot(kind="bar")
-plt.title("Number of Users in Each Cluster")
-plt.xlabel("Cluster")
-plt.ylabel("Count")
-plt.show()
+d_results = {}
+for etype in ["etype1", "etype2", "etype3", "etype4", "etype5", "etype6"]:
+    # Perform clustering and visualization using temporal_embedding
+    df_clustered, df_tsne, cluster_stats, optimal_k = cluster_and_visualize_embeddings(
+        df,
+        embedding_column=etype,
+        min_k=2,
+        max_k=10,
+        default_k=3,
+        type_of_embedding=etype_to_type_of_embedding[etype],
+    )
+    d_results[etype] = {
+        "df_clustered": df_clustered,
+        "df_tsne": df_tsne,
+        "cluster_stats": cluster_stats,
+        "optimal_k": optimal_k,
+    }
+# %%
+pd.to_pickle(
+    d_results,
+    "/Users/sagar/work/yral/recommendation-engine/data-temp/master_dag_output/master_dag_user_cluster_output_results.pkl",
+)
+
 # %%
 
 
@@ -374,6 +434,9 @@ def calculate_cosine_similarity_matrix(df, embedding_column):
 
     return similarity_matrix, user_ids
 
+
+# %%
+input()
 
 # %%
 # Calculate similarity matrix
