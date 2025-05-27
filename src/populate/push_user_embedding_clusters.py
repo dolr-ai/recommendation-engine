@@ -165,21 +165,6 @@ def main():
 
     # Upload to BigQuery
     upload_to_bigquery(df_clusters, gcp_utils, dataset_id, table_id, credentials_path)
-
-    # Upload data_root to GCS bucket - use the same gcp_utils object
-    source_path = DATA_ROOT
-    destination_path = "gs://stage-yral-ds-dataproc-bucket/data_dev_debug/"
-    success = gcp_utils.storage.upload_directory(
-        source_path,
-        destination_path,
-        max_workers=16,  # Use more workers for faster upload
-    )
-
-    if success:
-        print(f"Successfully uploaded {source_path} to {destination_path}")
-    else:
-        print(f"Failed to upload {source_path} to {destination_path}")
-
     print("Process completed successfully")
 
 
