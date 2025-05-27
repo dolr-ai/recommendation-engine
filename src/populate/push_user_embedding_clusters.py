@@ -13,8 +13,18 @@ and uploads it to a BigQuery table for further analysis and serving.
 import os
 import subprocess
 from datetime import datetime
+import json
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.types import (
+    ArrayType,
+    StructType,
+    StringType,
+    TimestampType,
+    FloatType,
+    BooleanType,
+    IntegerType,
+)
 
 from utils.gcp_utils import GCPUtils
 from utils.common_utils import path_exists
@@ -40,7 +50,25 @@ def load_user_clusters(local_path):
     # Load the parquet file
     df_spark = spark.read.parquet(local_path)
 
-    # todo: remove embedding columns if not needed
+    # Define schema for engagement_metadata
+    engagement_metadata_schema = StructType(
+        [
+            ("video_id", StringType()),
+            ("last_watched_timestamp", TimestampType()),
+            ("mean_percentage_watched", FloatType()),
+            ("liked", BooleanType()),
+            ("last_liked_timestamp", TimestampType()),
+            ("shared", BooleanType()),
+            ("last_shared_timestamp", TimestampType()),
+            ("cluster_label", IntegerType()),
+        ]
+    )
+
+    # Convert engagement_metadata_list to JSON string to avoid timestamp conversion issues
+    df_spark = df_spark.withColumn(
+        "engagement_metadata_list", F.to_json(F.col("engagement_metadata_list"))
+    )
+
     # Select all required columns including all embeddings
     df_spark = df_spark.select(
         "user_id",
@@ -54,6 +82,11 @@ def load_user_clusters(local_path):
 
     # Convert to pandas DataFrame
     df = df_spark.toPandas()
+
+    # Parse the JSON strings back to Python lists
+    df["engagement_metadata_list"] = df["engagement_metadata_list"].apply(
+        lambda x: json.loads(x) if x else []
+    )
 
     print(f"Loaded {len(df)} user clusters")
     return df
@@ -153,6 +186,29 @@ def upload_to_bigquery(df, gcp_utils, dataset_id, table_id):
 
     # Add updated_at timestamp to the DataFrame
     df["updated_at"] = datetime.utcnow()
+
+    # Ensure engagement_metadata_list is properly formatted
+    # This step handles any timestamp conversions that might be needed
+    for i, row in enumerate(df["engagement_metadata_list"]):
+        for item in row:
+            # Convert timestamp strings to datetime objects if needed
+            for ts_field in [
+                "last_watched_timestamp",
+                "last_liked_timestamp",
+                "last_shared_timestamp",
+            ]:
+                if (
+                    ts_field in item
+                    and item[ts_field]
+                    and isinstance(item[ts_field], str)
+                ):
+                    try:
+                        item[ts_field] = datetime.fromisoformat(
+                            item[ts_field].replace("Z", "+00:00")
+                        )
+                    except (ValueError, AttributeError):
+                        # If conversion fails, set to None
+                        item[ts_field] = None
 
     # Upload the DataFrame to BigQuery
     gcp_utils.bigquery.upload_dataframe_to_table(
