@@ -443,7 +443,7 @@ class GCPBigQueryService:
 
             # Convert to DataFrame if requested
             if to_dataframe:
-                result = result.to_dataframe(create_bqstorage_client=False)
+                result = result.to_dataframe(create_bqstorage_client=True)
 
             return result
         except Exception as e:
