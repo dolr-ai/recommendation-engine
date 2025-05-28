@@ -268,25 +268,31 @@ with DAG(
         >> end_failure
     )
 
-    # Set up failure triggers from every task that could fail
-    # This creates a shortcut to cluster deletion if any task fails
+    # Set up proper failure handling
+    # Create a task that will run on any failure using trigger rule
+    failure_handler = DummyOperator(
+        task_id="handle_failure",
+        trigger_rule=TriggerRule.ONE_FAILED,
+    )
+
+    # Connect all tasks that could fail to the failure handler
     for task in [
         wait_for_create_cluster,
-        trigger_fetch_data,
         wait_for_fetch_data,
-        trigger_video_avg,
         wait_for_video_avg,
-        trigger_video_clusters,
         wait_for_video_clusters,
-        trigger_user_cluster_dist,
         wait_for_user_cluster_dist,
-        trigger_temporal_embedding,
         wait_for_temporal_embedding,
-        trigger_merge_embeddings,
         wait_for_merge_embeddings,
-        trigger_user_clusters,
         wait_for_user_clusters,
-        trigger_write_data,
         wait_for_write_data,
     ]:
-        task.on_failure_trigger = trigger_delete_cluster_on_failure.task_id
+        task >> failure_handler
+
+    # Connect failure handler to trigger cluster deletion
+    (
+        failure_handler
+        >> trigger_delete_cluster_on_failure
+        >> wait_for_delete_cluster_on_failure
+        >> end_failure
+    )
