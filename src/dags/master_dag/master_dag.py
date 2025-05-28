@@ -31,9 +31,6 @@ from airflow.utils.state import State, DagRunState
 import pendulum
 from sqlalchemy import and_
 
-# Development mode flag - when True, cluster will not be deleted at the end
-DEV_MODE = True
-
 # Default arguments for the DAG
 default_args = {
     "owner": "airflow",
@@ -260,22 +257,23 @@ with DAG(
     # Branch for normal completion or failure handling
     wait_for_write_data >> branch_task
 
+    # todo: enable deletion of cluster
     # Normal completion path
-    if not DEV_MODE:
-        branch_task >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
-    else:
-        branch_task >> end_success
+    (
+        branch_task
+        # >> trigger_delete_cluster
+        # >> wait_for_delete_cluster
+        >> end_success
+    )
 
+    # todo: enable deletion of cluster
     # Failure handling path
-    if not DEV_MODE:
-        (
-            branch_task
-            >> trigger_delete_cluster_on_failure
-            >> wait_for_delete_cluster_on_failure
-            >> end_failure
-        )
-    else:
-        branch_task >> end_failure
+    (
+        branch_task
+        # >> trigger_delete_cluster_on_failure
+        # >> wait_for_delete_cluster_on_failure
+        >> end_failure
+    )
 
     # Set up failure triggers from every task that could fail
     # This creates a shortcut to cluster deletion if any task fails
