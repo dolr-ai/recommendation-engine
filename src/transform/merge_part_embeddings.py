@@ -162,23 +162,10 @@ def merge_part_embeddings(
         ),
     )
 
-    # Convert to vector for normalization
-    df_with_vector = df_with_concat.withColumn(
-        "embedding_vector", array_to_vector_udf(F.col("concatenated_embedding"))
-    )
-
-    # Normalize the concatenated embedding
-    normalizer = Normalizer(
-        inputCol="embedding_vector", outputCol="normalized_embedding_vector", p=2.0
-    )
-    df_normalized = normalizer.transform(df_with_vector)
-
-    # Convert back to array format
-    df_result = df_normalized.withColumn(
-        "user_embedding", vector_to_array_udf(F.col("normalized_embedding_vector"))
-    ).select(
+    # Simply select the required columns for the final result
+    df_result = df_with_concat.select(
         "user_id",
-        "user_embedding",
+        F.col("concatenated_embedding").alias("user_embedding"),
         "avg_interaction_embedding",
         "cluster_distribution_embedding",
         "temporal_embedding",

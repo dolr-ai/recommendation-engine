@@ -209,7 +209,17 @@ def calculate_user_cluster_distributions():
         total = sum(counts_list)
         if total == 0:
             return [0.0] * len(counts_list)
-        return [float(c) / total for c in counts_list]
+
+        # First normalize by sum to get distribution
+        distribution = [float(c) / total for c in counts_list]
+
+        # Apply L2 normalization using numpy
+        distribution_array = np.array(distribution)
+        l2_norm = np.linalg.norm(distribution_array)
+        if l2_norm > 0:
+            distribution = (distribution_array / l2_norm).tolist()
+
+        return distribution
 
     # Register UDF with array return type
     normalize_distribution_udf = F.udf(normalize_distribution, ArrayType(FloatType()))

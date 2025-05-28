@@ -283,6 +283,24 @@ def generate_temporal_embeddings(input_path, output_path):
         ),
     )
 
+    # Apply L2 normalization to the temporal embedding
+    @F.udf(ArrayType(FloatType()))
+    def normalize_embedding_udf(embedding):
+        if not embedding:
+            return [0.0] * MAX_ROPE_DIM
+
+        embedding_array = np.array(embedding)
+        norm = np.linalg.norm(embedding_array)
+        if norm > 0:
+            normalized_embedding = embedding_array / norm
+            return normalized_embedding.tolist()
+        return embedding
+
+    # Apply the normalization UDF
+    df_temporal = df_temporal.withColumn(
+        "temporal_embedding", normalize_embedding_udf("temporal_embedding")
+    )
+
     # Select important columns for output
     df_result = df_temporal.select(
         "user_id",
