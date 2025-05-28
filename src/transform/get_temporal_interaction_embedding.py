@@ -28,6 +28,8 @@ spark = SparkSession.builder.appName("Temporal Interaction Embeddings").getOrCre
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 NUM_TIME_BINS = 16
 ROPE_DIM = 16
+MAX_NUM_CLUSTERS = 10
+MAX_ROPE_DIM = ROPE_DIM * MAX_NUM_CLUSTERS  # as we are concatenating embeddings
 
 
 def rope_inspired_encoding(cluster_id, time_bins, dim=ROPE_DIM):
@@ -217,42 +219,50 @@ def generate_temporal_embeddings(input_path, output_path):
         return cluster_embeddings
 
     @F.udf(ArrayType(FloatType()))
-    def average_cluster_embeddings_udf(cluster_embeddings_map):
+    def concat_cluster_embeddings_udf(cluster_embeddings_map):
         if not cluster_embeddings_map:
-            return [0.0] * ROPE_DIM
+            return [0.0] * MAX_ROPE_DIM
 
         # Extract all embeddings from the map
         embeddings = [np.array(emb) for emb in cluster_embeddings_map.values()]
 
-        # Take the average of all embeddings
+        # Concatenate embeddings instead of averaging them
         if embeddings:
-            avg_embedding = np.mean(embeddings, axis=0)
-            # Normalize the average embedding
-            norm = np.linalg.norm(avg_embedding)
+            concat_embedding = np.concatenate(embeddings)
+            # Normalize the concatenated embedding
+            norm = np.linalg.norm(concat_embedding)
             if norm > 0:
-                avg_embedding = avg_embedding / norm
-            return avg_embedding.tolist()
+                concat_embedding = concat_embedding / norm
+            return concat_embedding.tolist()
         else:
-            return [0.0] * ROPE_DIM
+            return [0.0] * MAX_ROPE_DIM
 
     print("\nSTEP 3: Generating temporal embeddings")
 
     # Apply UDFs to generate temporal embeddings
+    # output after this: is dictionary of cluster_id to corresponding temporal distribution
+    # {1: [c1, c2, ...], 2: [c1, c2, ...], ...}
+    # 1, 2, ... are cluster_ids
+    # where c1 is count of accesses in first time bin, c2 is count of accesses in second time bin, etc.
     df_temporal = df_user_dist.withColumn(
         "temporal_cluster_distribution",
         create_temporal_dist_udf("engagement_metadata_list"),
     )
 
     # Create per-cluster temporal embeddings
+    # output after this: is dictionary of cluster_id to corresponding temporalembedding
+    # {1: [e1, e2, ...], 2: [e1, e2, ...], ...}
     df_temporal = df_temporal.withColumn(
         "cluster_temporal_embeddings",
         cluster_wise_rope_encoding_udf("temporal_cluster_distribution"),
     )
 
-    # Create overall temporal embedding by averaging the per-cluster embeddings
+    # Create overall temporal embedding by concatenating the per-cluster embeddings
+    # output after this: is a single vector of length MAX_ROPE_DIM
+    # [e1, e2, ...]
     df_temporal = df_temporal.withColumn(
         "temporal_embedding",
-        average_cluster_embeddings_udf("cluster_temporal_embeddings"),
+        concat_cluster_embeddings_udf("cluster_temporal_embeddings"),
     )
 
     # Add metadata about the time boundaries used

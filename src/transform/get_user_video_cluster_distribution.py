@@ -22,7 +22,11 @@ import numpy as np
 # Initialize Spark Session
 spark = SparkSession.builder.appName("User Video Clusters Distribution").getOrCreate()
 
+# todo: use shared parameter from env/ config
 # Define constants
+# Always use 10 clusters for embedding dimension
+# NOTE: earlier task should have this parameter
+MAX_NUM_CLUSTERS = 10
 WATCHED_MIN_VIDEOS = 2
 WATCHED_MAX_VIDEOS = 100
 WATCHED_MIN_PERCENTAGE = 25
@@ -94,10 +98,11 @@ def calculate_user_cluster_distributions():
     print("Video clusters count:", df_video_clusters.count())
     df_video_clusters.printSchema()
 
-    # Get max cluster ID to determine array size
+    # Get actual number of clusters in data (for logging purposes only)
     max_cluster_id = df_video_clusters.agg(F.max("cluster")).collect()[0][0]
-    num_clusters = max_cluster_id + 1
-    print(f"Number of clusters: {num_clusters}")
+    actual_num_clusters = max_cluster_id + 1
+    print(f"Actual number of clusters in data: {actual_num_clusters}")
+    print(f"Using MAX_NUM_CLUSTERS={MAX_NUM_CLUSTERS} for fixed-dimension embeddings")
 
     print("\nSTEP 2: Joining user interactions with video clusters")
 
@@ -189,7 +194,7 @@ def calculate_user_cluster_distributions():
     df_user_cluster_counts = df_filtered.groupBy("user_id", "cluster").count()
 
     # Pivot to create cluster count columns
-    cluster_ids = list(range(num_clusters))
+    cluster_ids = list(range(MAX_NUM_CLUSTERS))
     df_user_cluster_pivot = (
         df_user_cluster_counts.groupBy("user_id")
         .pivot("cluster", cluster_ids)

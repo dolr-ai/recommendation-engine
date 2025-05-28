@@ -33,8 +33,15 @@ MIN_K_VIDEO = 3
 # todo: increase this to 15 later
 MAX_K_VIDEO = 10
 
+# todo: add max number as shared parameter in env/ config
+MAX_NUM_CLUSTERS = 10
+# why:
+# - this influences user cluster distribution embedding's dimension and temporal embedding's dimension
+# - we wont be able to use user embedding in downstream tasks if the dimensions are changing
+# - we would have to do dimension reduction for user embedding (avoiding this for now)
+
 # todo: remove this later
-K_VALUES = [4, 5, 6, 8, 10, 12]
+K_VALUES = range(4, MAX_NUM_CLUSTERS + 1, 2)
 
 DEFAULT_OPTIMAL_K_CLUSTERS = 8
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
