@@ -165,7 +165,10 @@ def main():
 
     # Upload to BigQuery
     upload_to_bigquery(df_clusters, gcp_utils, dataset_id, table_id, credentials_path)
-    print("Process completed successfully")
+    print("Process completed successfully and pushed to BigQuery")
+    print(f"Number of rows in user clusters dataframe: {df_clusters.count()}")
+    print("Sample of data written:")
+    df_clusters.limit(10).show(truncate=False)
 
 
 if __name__ == "__main__":
