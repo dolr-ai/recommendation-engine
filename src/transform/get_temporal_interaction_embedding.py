@@ -195,7 +195,7 @@ def generate_temporal_embeddings(input_path, output_path):
     @F.udf(temporal_dist_schema)
     def create_temporal_dist_udf(engagement_list):
         if not engagement_list:
-            return {}
+            return {i: [0] * NUM_TIME_BINS for i in range(MAX_NUM_CLUSTERS)}
         return create_temporal_cluster_distribution(
             engagement_list, min_timestamp, max_timestamp, NUM_TIME_BINS
         )
@@ -203,10 +203,10 @@ def generate_temporal_embeddings(input_path, output_path):
     @F.udf(MapType(IntegerType(), ArrayType(FloatType())))
     def cluster_wise_rope_encoding_udf(cluster_dist):
         if not cluster_dist:
-            return {}
+            return {i: [0.0] * ROPE_DIM for i in range(MAX_NUM_CLUSTERS)}
 
         # Create a dictionary mapping cluster IDs to their temporal embeddings
-        cluster_embeddings = {}
+        cluster_embeddings = {i: [0.0] * ROPE_DIM for i in range(MAX_NUM_CLUSTERS)}
 
         for cluster_id, time_bins in cluster_dist.items():
             if any(time_bins):
@@ -318,7 +318,7 @@ def generate_temporal_embeddings(input_path, output_path):
     df_result.printSchema()
 
     print("\nSample of data written:")
-    df_result.limit(2).show(truncate=False)
+    df_result.limit(10).show(truncate=False)
 
     return df_result
 
