@@ -167,8 +167,8 @@ def merge_part_embeddings(
         "user_id",
         F.col("concatenated_embedding").alias("user_embedding"),
         "avg_interaction_embedding",
-        "cluster_distribution_embedding",
         "temporal_embedding",
+        "cluster_distribution_embedding",
         "engagement_metadata_list",
     )
 
