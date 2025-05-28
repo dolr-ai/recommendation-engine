@@ -89,7 +89,6 @@ CLUSTER_CONFIG = {
         "internal_ip_only": False,
         "service_account": SERVICE_ACCOUNT,
         "service_account_scopes": ["https://www.googleapis.com/auth/cloud-platform"],
-        "zone_uri": f"{REGION}-a",  # Specify the zone
         "metadata": {
             "GCP_CREDENTIALS": GCP_CREDENTIALS,
             # todo: remove this credential after dev testing

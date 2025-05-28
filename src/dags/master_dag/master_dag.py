@@ -257,21 +257,14 @@ with DAG(
     # Branch for normal completion or failure handling
     wait_for_write_data >> branch_task
 
-    # todo: enable deletion of cluster
     # Normal completion path
-    (
-        branch_task
-        # >> trigger_delete_cluster
-        # >> wait_for_delete_cluster
-        >> end_success
-    )
+    branch_task >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
 
-    # todo: enable deletion of cluster
     # Failure handling path
     (
         branch_task
-        # >> trigger_delete_cluster_on_failure
-        # >> wait_for_delete_cluster_on_failure
+        >> trigger_delete_cluster_on_failure
+        >> wait_for_delete_cluster_on_failure
         >> end_failure
     )
 
