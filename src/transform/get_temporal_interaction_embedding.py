@@ -29,7 +29,9 @@ DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 NUM_TIME_BINS = 16
 ROPE_DIM = 16
 MAX_NUM_CLUSTERS = 10
-MAX_ROPE_DIM = ROPE_DIM * MAX_NUM_CLUSTERS  # as we are concatenating embeddings
+
+# todo: parameterize whether you want to concatenate or average embeddings when the scale increases
+MAX_ROPE_DIM = ROPE_DIM * MAX_NUM_CLUSTERS  # used when we concatenate embeddings
 
 
 def rope_inspired_encoding(cluster_id, time_bins, dim=ROPE_DIM):
@@ -234,6 +236,25 @@ def generate_temporal_embeddings(input_path, output_path):
         else:
             return [0.0] * MAX_ROPE_DIM
 
+    @F.udf(ArrayType(FloatType()))
+    def average_cluster_embeddings_udf(cluster_embeddings_map):
+        if not cluster_embeddings_map:
+            return [0.0] * ROPE_DIM
+
+        # Extract all embeddings from the map
+        embeddings = [np.array(emb) for emb in cluster_embeddings_map.values()]
+
+        # Take the average of all embeddings
+        if embeddings:
+            avg_embedding = np.mean(embeddings, axis=0)
+            # Normalize the average embedding
+            norm = np.linalg.norm(avg_embedding)
+            if norm > 0:
+                avg_embedding = avg_embedding / norm
+            return avg_embedding.tolist()
+        else:
+            return [0.0] * ROPE_DIM
+
     print("\nSTEP 3: Generating temporal embeddings")
 
     # Apply UDFs to generate temporal embeddings
@@ -254,12 +275,12 @@ def generate_temporal_embeddings(input_path, output_path):
         cluster_wise_rope_encoding_udf("temporal_cluster_distribution"),
     )
 
-    # Create overall temporal embedding by concatenating the per-cluster embeddings
+    # Create overall temporal embedding by averaging the per-cluster embeddings
     # output after this: is a single vector of length MAX_ROPE_DIM
     # [e1, e2, ...]
     df_temporal = df_temporal.withColumn(
         "temporal_embedding",
-        concat_cluster_embeddings_udf("cluster_temporal_embeddings"),
+        average_cluster_embeddings_udf("cluster_temporal_embeddings"),
     )
 
     # Add metadata about the time boundaries used

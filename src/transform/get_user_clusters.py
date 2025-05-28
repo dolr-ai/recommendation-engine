@@ -36,7 +36,7 @@ MAX_K_USER = 10
 K_VALUES = [4, 5, 6, 8, 10, 12]
 
 
-DEFAULT_OPTIMAL_K_CLUSTERS = 8
+DEFAULT_OPTIMAL_K_CLUSTERS = 6
 DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
 
 
