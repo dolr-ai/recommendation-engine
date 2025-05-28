@@ -425,7 +425,12 @@ class GCPBigQueryService:
         return self.client.query("SELECT 1").result()
 
     @time_execution
-    def execute_query(self, query: str, to_dataframe: bool = True):
+    def execute_query(
+        self,
+        query: str,
+        to_dataframe: bool = True,
+        create_bqstorage_client: bool = False,
+    ):
         """
         Execute a BigQuery query
 
@@ -443,7 +448,9 @@ class GCPBigQueryService:
 
             # Convert to DataFrame if requested
             if to_dataframe:
-                result = result.to_dataframe(create_bqstorage_client=True)
+                result = result.to_dataframe(
+                    create_bqstorage_client=create_bqstorage_client
+                )
 
             return result
         except Exception as e:
