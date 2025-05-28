@@ -7,10 +7,10 @@ CREATE TABLE `hot-or-not-feed-intelligence.yral_ds.test_user_cluster_embeddings`
     OPTIONS(description="Normalized concatenated user embedding vector"),
   avg_interaction_embedding ARRAY<FLOAT64>
     OPTIONS(description="Average interaction embedding vector"),
-  temporal_embedding ARRAY<FLOAT64>
-    OPTIONS(description="Temporal interaction embedding vector"),
   cluster_distribution_embedding ARRAY<FLOAT64>
     OPTIONS(description="Cluster distribution embedding vector"),
+  temporal_embedding ARRAY<FLOAT64>
+    OPTIONS(description="Temporal interaction embedding vector"),
   engagement_metadata_list ARRAY<STRUCT<
     video_id STRING,
     last_watched_timestamp TIMESTAMP,
