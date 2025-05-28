@@ -112,7 +112,8 @@ def create_temporal_cluster_distribution(
     bin_width_days = total_time_range / num_bins
 
     # Initialize the cluster distribution dictionary
-    cluster_distribution = {}
+    # this will ensure that all clusters are represented in the temporal distribution
+    cluster_distribution = {i: [0] * num_bins for i in range(MAX_NUM_CLUSTERS)}
 
     # Process each engagement record
     for record in engagement_metadata:
@@ -125,10 +126,6 @@ def create_temporal_cluster_distribution(
         # Calculate which bin this timestamp falls into (using days)
         days_from_start = (timestamp - min_timestamp).total_seconds() / (24 * 3600)
         bin_index = min(int(days_from_start / bin_width_days), num_bins - 1)
-
-        # Initialize this cluster in the distribution dict if it doesn't exist
-        if cluster_label not in cluster_distribution:
-            cluster_distribution[cluster_label] = [0] * num_bins
 
         # Increment the count for this cluster in the appropriate time bin
         cluster_distribution[cluster_label][bin_index] += 1
