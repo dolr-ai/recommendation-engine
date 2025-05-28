@@ -173,6 +173,27 @@ def merge_part_embeddings(
     )
 
     print("Final result count:", df_result.count())
+
+    # Print dimensions of each embedding type
+    print("\nEmbedding dimensions:")
+
+    # Convert to pandas to easily access the first row
+    sample_row = df_result.limit(1).toPandas()
+
+    if not sample_row.empty:
+        print(f"user_embedding dimensions: {len(sample_row['user_embedding'].iloc[0])}")
+        print(
+            f"avg_interaction_embedding dimensions: {len(sample_row['avg_interaction_embedding'].iloc[0])}"
+        )
+        print(
+            f"temporal_embedding dimensions: {len(sample_row['temporal_embedding'].iloc[0])}"
+        )
+        print(
+            f"cluster_distribution_embedding dimensions: {len(sample_row['cluster_distribution_embedding'].iloc[0])}"
+        )
+    else:
+        print("No data available to print dimensions")
+
     return df_result
 
 

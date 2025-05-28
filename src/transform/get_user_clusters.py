@@ -246,6 +246,26 @@ def cluster_users(
     print(f"User clustering complete. Found {optimal_k} clusters.")
     print(f"Results saved to {trans_dir}")
 
+    # Print dimensions of each embedding type
+    print("\nEmbedding dimensions in get_user_clusters.py:")
+
+    # Convert to pandas to easily access the first row
+    sample_row = df_user_clusters.limit(1).toPandas()
+
+    if not sample_row.empty:
+        print(f"user_embedding dimensions: {len(sample_row['user_embedding'].iloc[0])}")
+        print(
+            f"avg_interaction_embedding dimensions: {len(sample_row['avg_interaction_embedding'].iloc[0])}"
+        )
+        print(
+            f"temporal_embedding dimensions: {len(sample_row['temporal_embedding'].iloc[0])}"
+        )
+        print(
+            f"cluster_distribution_embedding dimensions: {len(sample_row['cluster_distribution_embedding'].iloc[0])}"
+        )
+    else:
+        print("No data available to print dimensions")
+
     return df_user_clusters, optimal_k
 
 
