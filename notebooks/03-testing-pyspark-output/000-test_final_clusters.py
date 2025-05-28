@@ -436,13 +436,8 @@ def calculate_cosine_similarity_matrix(df, embedding_column):
 
 
 # %%
-input()
-
-# %%
 # Calculate similarity matrix
-similarity_matrix, user_ids = calculate_cosine_similarity_matrix(
-    df, "temporal_embedding"
-)
+similarity_matrix, user_ids = calculate_cosine_similarity_matrix(df, "etype4")
 
 # %%
 # Plot heatmap of the full similarity matrix
@@ -527,9 +522,9 @@ if "cluster" in df.columns:
 
 # %%
 # Calculate and plot intra-cluster and inter-cluster similarities
-if "cluster" in df.columns:
+if "cluster_id" in df.columns:
     # Get list of clusters
-    clusters = sorted(df["cluster"].unique())
+    clusters = sorted(df["cluster_id"].unique())
     n_clusters = len(clusters)
 
     # Calculate average similarity within and between clusters
@@ -538,8 +533,8 @@ if "cluster" in df.columns:
     for i, cluster_i in enumerate(clusters):
         for j, cluster_j in enumerate(clusters):
             # Get indices for users in each cluster
-            indices_i = df[df["cluster"] == cluster_i].index
-            indices_j = df[df["cluster"] == cluster_j].index
+            indices_i = df[df["cluster_id"] == cluster_i].index
+            indices_j = df[df["cluster_id"] == cluster_j].index
 
             # Calculate average similarity between these clusters
             mean_sim = np.mean(similarity_matrix[np.ix_(indices_i, indices_j)])
@@ -576,3 +571,4 @@ if "cluster" in df.columns:
     plt.show()
 
 # %%
+df.columns

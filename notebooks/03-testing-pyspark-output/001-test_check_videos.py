@@ -89,7 +89,7 @@ etype_to_type_of_embedding = {
     "etype1": "<Avg Interaction> Embedding",
     "etype2": "<Avg Interaction, Cluster Distribution> Embedding",
     "etype3": "<Avg Interaction, Cluster Distribution, Temporal> Embedding",
-    "etype4": "<User> Embedding",
+    # "etype4": "<User> Embedding",
     # exploration purposes
     "etype5": "<Cluster Distribution> Embedding",
     "etype6": "<Temporal> Embedding",
@@ -134,3 +134,4 @@ print(
 # %%
 
 # %%
+df_temp["cluster_id"].min(), df_temp["cluster_id"].max()
