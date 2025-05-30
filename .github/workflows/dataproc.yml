@@ -31,14 +31,27 @@ jobs:
           # Create a temporary directory to flatten the DAG structure
           mkdir -p /tmp/dags
 
-          # Find all Python files in the src/dags directory and its subdirectories
-          find src/dags -type f -name "*.py" | while read -r dag_file; do
-            # Extract the filename without the path
-            filename=$(basename "$dag_file")
-            echo "Processing $dag_file"
+          # List of DAG directories to process
+          # Add new DAG folders here when needed (comma-separated, no trailing comma)
+          dag_directories=(
+            "src/dags/user_clustering"
+            # "src/dags/another_dag_folder"
+            # "src/dags/yet_another_dag_folder"
+          )
 
-            # Copy to temporary directory
-            cp "$dag_file" "/tmp/dags/$filename"
+          # Process all DAG directories
+          for dag_dir in "${dag_directories[@]}"; do
+            echo "Processing directory: $dag_dir"
+
+            # Find all Python files in the specified directory and its subdirectories
+            find "$dag_dir" -type f -name "*.py" | while read -r dag_file; do
+              # Extract the filename without the path
+              filename=$(basename "$dag_file")
+              echo "Processing $dag_file"
+
+              # Copy to temporary directory
+              cp "$dag_file" "/tmp/dags/$filename"
+            done
           done
 
           # List all files in the temporary directory
@@ -57,5 +70,9 @@ jobs:
 
       - name: Move Init script to GCS
         run: |
-          gcloud storage cp src/dags/init/dataproc_initialization_action.sh \
+          # Update this path if the initialization script location changes
+          init_script_path="src/dags/user_clustering/create_dataproc_cluster/init/dataproc_initialization_action.sh"
+
+          echo "Copying initialization script from $init_script_path to GCS"
+          gcloud storage cp "$init_script_path" \
             gs://stage-yral-ds-dataproc-bucket/scripts/dataproc_initialization_action.sh
