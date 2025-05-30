@@ -35,6 +35,7 @@ jobs:
           # Add new DAG folders here when needed (comma-separated, no trailing comma)
           dag_directories=(
             "src/dags/user_clustering"
+            "src/dags/candidate_generation"
             # "src/dags/another_dag_folder"
             # "src/dags/yet_another_dag_folder"
           )
