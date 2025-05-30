@@ -50,7 +50,7 @@ print(max_cluster_id)
 
 
 def fetch_cluster_data(cluster_id):
-    query = f"SELECT * FROM `stage_test_tables.test_user_cluster_embeddings` WHERE cluster_id = {cluster_id}"
+    query = f"SELECT * FROM `stage_test_tables.test_user_clusters` WHERE cluster_id = {cluster_id}"
     try:
         df = gcp.bigquery.execute_query(query, to_dataframe=True)
         print(f"Successfully fetched cluster {cluster_id}")
