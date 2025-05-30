@@ -90,7 +90,7 @@ df.to_parquet(
     "/Users/sagar/work/yral/recommendation-engine/data-temp/master_dag_output/new_user_emb.parquet"
 )
 # %%
-df = pd.read_parquet(
-    "/Users/sagar/work/yral/recommendation-engine/data-temp/master_dag_output/new_user_emb.parquet"
-)
+# df = pd.read_parquet(
+#     "/Users/sagar/work/yral/recommendation-engine/data-temp/master_dag_output/new_user_emb.parquet"
+# )
 # %%

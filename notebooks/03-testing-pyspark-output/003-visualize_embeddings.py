@@ -1,6 +1,7 @@
 # %%
 import os
 import json
+import random
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -62,6 +63,9 @@ df["etype4"] = df["user_embedding"]
 df["etype5"] = df["cluster_distribution_embedding"]
 df["etype6"] = df["temporal_embedding"]
 
+# Create anonymized user IDs
+df["anonymized_id"] = [f"user{i+1}" for i in range(len(df))]
+
 etype_to_type_of_embedding = {
     "etype1": "<Avg Interaction> Embedding",
     "etype2": "<Avg Interaction, Cluster Distribution> Embedding",
@@ -115,7 +119,7 @@ def visualize_embeddings(
 
     # Create dataframe with t-SNE results
     df_tsne = pd.DataFrame(tsne_results, columns=["tsne_1", "tsne_2"])
-    df_tsne["user_id"] = df["user_id"].values
+    df_tsne["user_id"] = df["anonymized_id"].values
     df_tsne["cluster"] = cluster_labels
 
     # Plot t-SNE projection
@@ -195,7 +199,7 @@ def visualize_embeddings(
 
     # Create dataframe with 3D t-SNE results
     df_tsne_3d = pd.DataFrame(tsne_results_3d, columns=["tsne_1", "tsne_2", "tsne_3"])
-    df_tsne_3d["user_id"] = df["user_id"].values
+    df_tsne_3d["user_id"] = df["anonymized_id"].values
     df_tsne_3d["cluster"] = cluster_labels
 
     # Create 3D interactive plotly visualization
@@ -319,3 +323,48 @@ pd.to_pickle(
 
 # %%
 print("Visualization complete. 3D interactive plots have been saved.")
+# %%
+
+df_video_index = pd.read_parquet(
+    "/Users/sagar/work/yral/recommendation-engine/data-temp/master_dag_output/master_dag_video_index.parquet"
+)
+df_video_index["video_id"] = df_video_index["uri"].apply(
+    lambda x: x.split("/")[-1].split(".")[0]
+)
+# video_ids_list = [
+#     f"'gs://yral-videos/{video_id}.mp4'" for video_id in video_ids
+# ]
+# https://yral.com/hot-or-not/76qol-iiaaa-aaaak-qelkq-cai/451
+df_video_index["url"] = df_video_index.apply(
+    lambda x: f"https://yral.com/hot-or-not/{x['canister_id']}/{x['post_id']}", axis=1
+)
+video_id_to_url_map = df_video_index.set_index("video_id")["url"].to_dict()
+# %%
+df["videos_watched"] = df["engagement_metadata_list"].apply(
+    lambda x: [i["video_id"] for i in x if i is not None]
+)
+# %%
+df["videos_watched_url"] = df["videos_watched"].apply(
+    lambda x: [video_id_to_url_map.get(video_id, None) for video_id in x]
+)
+# %%
+
+df_grp = df.groupby("cluster_id", as_index=False).agg({"videos_watched_url": "sum"})
+df_grp["videos_watched_url"] = df_grp["videos_watched_url"].apply(
+    lambda x: list(set(x))
+)
+# %%
+all_videos_of_cluster = df_grp[df_grp["cluster_id"] == 5]["videos_watched_url"].iloc[0]
+
+print(
+    'open -a "Google Chrome" '
+    + " ".join(
+        [
+            i
+            for i in random.sample(
+                all_videos_of_cluster,
+                30,
+            )
+        ]
+    )
+)
