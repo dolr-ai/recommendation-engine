@@ -207,7 +207,7 @@ with DAG(
                 "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
             },
             "pyspark_job": {
-                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/merge_part_embeddings.py",
+                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/user_clustering/merge_part_embeddings.py",
                 "properties": {
                     # Enable dynamic allocation for YARN-managed resources
                     "spark.dynamicAllocation.enabled": "true",

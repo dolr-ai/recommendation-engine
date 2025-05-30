@@ -146,7 +146,7 @@ with DAG(
                 "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
             },
             "pyspark_job": {
-                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_average_of_video_interactions.py",
+                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/user_clustering/get_average_of_video_interactions.py",
                 "properties": {
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",

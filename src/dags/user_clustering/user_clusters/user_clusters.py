@@ -147,7 +147,7 @@ with DAG(
                 "cluster_name": "{{ var.value.active_dataproc_cluster_name }}"
             },
             "pyspark_job": {
-                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/get_user_clusters.py",
+                "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/user_clustering/get_user_clusters.py",
                 "properties": {
                     # Optimized memory settings based on cluster metrics
                     "spark.driver.memory": "6g",
