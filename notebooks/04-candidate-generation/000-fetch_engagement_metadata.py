@@ -25,21 +25,33 @@ from concurrent.futures import ThreadPoolExecutor
 # utils
 from utils.gcp_utils import GCPUtils
 
-# %%
-# setup configs
-
-DATA_ROOT = "/home/dataproc/recommendation-engine/data_root"
-GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials_stage.json"
-
-with open(GCP_CREDENTIALS_PATH, "r") as f:
-    _ = json.load(f)
-    gcp_credentials_str = json.dumps(_)
-
-gcp = GCPUtils(gcp_credentials=gcp_credentials_str)
-del gcp_credentials_str, _
 
 # %%
-t = gcp.bigquery.execute_query(
+def setup_configs():
+    print(load_dotenv())
+
+    DATA_ROOT = os.getenv("DATA_ROOT", "/home/dataproc/recommendation-engine/data_root")
+    DATA_ROOT = pathlib.Path(DATA_ROOT)
+
+    GCP_CREDENTIALS_PATH = os.getenv(
+        "GCP_CREDENTIALS_PATH",
+        "/home/dataproc/recommendation-engine/credentials_stage.json",
+    )
+
+    with open(GCP_CREDENTIALS_PATH, "r") as f:
+        _ = json.load(f)
+        gcp_credentials_str = json.dumps(_)
+
+    gcp_utils = GCPUtils(gcp_credentials=gcp_credentials_str)
+    del gcp_credentials_str, _
+
+    return DATA_ROOT, gcp_utils
+
+
+DATA_ROOT, gcp_utils = setup_configs()
+
+# %%
+t = gcp_utils.bigquery.execute_query(
     "SELECT MAX(cluster_id) as max_cluster_id FROM `stage_test_tables.test_user_clusters`",
     to_dataframe=True,
 )
@@ -52,7 +64,7 @@ print(max_cluster_id)
 def fetch_cluster_data(cluster_id):
     query = f"SELECT * FROM `stage_test_tables.test_user_clusters` WHERE cluster_id = {cluster_id}"
     try:
-        df = gcp.bigquery.execute_query(query, to_dataframe=True)
+        df = gcp_utils.bigquery.execute_query(query, to_dataframe=True)
         print(f"Successfully fetched cluster {cluster_id}")
         return df
     except Exception as e:
@@ -83,6 +95,5 @@ print(f"Shape of the combined DataFrame: {df.shape}")
 
 
 # %%
-df.to_parquet(
-    "/home/dataproc/recommendation-engine/data_root/master_dag_output/engagement_metadata.parquet"
-)
+(DATA_ROOT / "master_dag_output").mkdir(parents=True, exist_ok=True)
+df.to_parquet(DATA_ROOT / "master_dag_output" / "engagement_metadata.parquet")
