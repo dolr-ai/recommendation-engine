@@ -312,7 +312,62 @@ def check_and_copy_data_root():
         sys.exit(0)
 
 
+def copy_data_to_gcs():
+    """Copy local data_root to GCS"""
+
+    source_path = "/home/dataproc/recommendation-engine/data_root"
+    target_bucket = "stage-yral-ds-dataproc-bucket"
+    target_prefix = "data_dump/data_root"
+
+    if os.path.exists(source_path):
+        # Check if target path exists in GCS
+        cmd_check = f"gsutil ls gs://{target_bucket}/{target_prefix}/ | head -n 1"
+        result_check = subprocess.run(
+            cmd_check, shell=True, capture_output=True, text=True
+        )
+
+        # If target exists in GCS, remove its content
+        if result_check.returncode == 0 and result_check.stdout.strip():
+            logger.info(
+                f"Target path gs://{target_bucket}/{target_prefix}/ exists, removing its content"
+            )
+            cmd_remove = f"gsutil -m rm gs://{target_bucket}/{target_prefix}/**"
+            try:
+                subprocess.run(cmd_remove, shell=True, check=True)
+                logger.info(
+                    f"Successfully removed existing data from gs://{target_bucket}/{target_prefix}/"
+                )
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to remove existing data from GCS: {e}")
+                # exit with success to avoid re-running the DAG
+                sys.exit(0)
+
+        logger.info(
+            f"Copying data from {source_path} to gs://{target_bucket}/{target_prefix}/"
+        )
+
+        # Copy the directory contents to GCS
+        cmd_copy = (
+            f"gsutil -m cp -r {source_path}/* gs://{target_bucket}/{target_prefix}/"
+        )
+
+        try:
+            subprocess.run(cmd_copy, shell=True, check=True)
+            logger.info(
+                f"Successfully copied data to gs://{target_bucket}/{target_prefix}/"
+            )
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to copy data to GCS: {e}")
+            # exit with success to avoid re-running the DAG
+            sys.exit(0)
+    else:
+        logger.warning(
+            f"Source path {source_path} does not exist. Nothing to copy to GCS."
+        )
+
+
 if __name__ == "__main__":
     # todo: remove this after dev testing
-    # check_and_copy_data_root()
     asyncio.run(main())
+    # Copy local data to GCS after main has run successfully
+    copy_data_to_gcs()

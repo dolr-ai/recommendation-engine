@@ -82,7 +82,6 @@ with DAG(
     catchup=False,
     tags=["bigquery", "dataproc", "etl"],
 ) as dag:
-
     start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable
@@ -112,7 +111,7 @@ with DAG(
                 "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/data/pull_data.py",
                 "args": [
                     "--start-date",
-                    "{{ macros.ds_add(ds, -90) }}",
+                    "{{ macros.ds_add(ds, -180) }}",
                     "--end-date",
                     "{{ ds }}",
                     "--user-data-batch-days",
