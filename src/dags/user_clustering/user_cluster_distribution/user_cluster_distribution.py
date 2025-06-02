@@ -110,9 +110,8 @@ with DAG(
     description="User Video Clusters Distribution Calculation Job",
     schedule_interval=None,
     catchup=False,
-    tags=["user", "video", "dataproc", "clustering", "recommendations"],
+    tags=["user_clustering"],
 ) as dag:
-
     start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False

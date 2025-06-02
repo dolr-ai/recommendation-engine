@@ -106,9 +106,8 @@ with DAG(
     description="Delete Dataproc Cluster",
     schedule_interval=None,
     catchup=False,
-    tags=["dataproc", "cluster", "delete"],
+    tags=["user_clustering"],
 ) as dag:
-
     start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False

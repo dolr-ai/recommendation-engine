@@ -145,9 +145,8 @@ with DAG(
     description="Master DAG to orchestrate all recommendation engine DAGs",
     schedule_interval=None,  # Triggered manually
     catchup=False,
-    tags=["master", "recommendations", "orchestration"],
+    tags=["user_clustering"],
 ) as dag:
-
     start = DummyOperator(task_id="start")
 
     # Create Dataproc Cluster

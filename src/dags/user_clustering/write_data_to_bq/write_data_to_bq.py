@@ -109,9 +109,8 @@ with DAG(
     description="Write User Clusters to BigQuery",
     schedule_interval=None,
     catchup=False,
-    tags=["user", "dataproc", "bigquery", "recommendations"],
+    tags=["user_clustering"],
 ) as dag:
-
     start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False

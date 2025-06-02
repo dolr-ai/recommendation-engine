@@ -80,7 +80,7 @@ with DAG(
     description="BigQuery Data Fetch Job",
     schedule_interval=None,
     catchup=False,
-    tags=["bigquery", "dataproc", "etl"],
+    tags=["user_clustering"],
 ) as dag:
     start = DummyOperator(task_id="start", dag=dag)
 

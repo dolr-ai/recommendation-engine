@@ -121,9 +121,8 @@ with DAG(
     description="Create Dataproc Cluster",
     schedule_interval=None,
     catchup=False,
-    tags=["dataproc", "cluster"],
+    tags=["user_clustering"],
 ) as dag:
-
     start = DummyOperator(task_id="start", dag=dag)
 
     # Set the cluster name variable for other DAGs to use
