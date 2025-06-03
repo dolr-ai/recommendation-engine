@@ -27,11 +27,14 @@ from utils.gcp_utils import GCPUtils
 
 
 # %%
-def setup_configs():
-    print(load_dotenv())
+def setup_configs(env_path="./.env"):
+    print(load_dotenv(env_path))
 
     DATA_ROOT = os.getenv("DATA_ROOT", "/home/dataproc/recommendation-engine/data_root")
     DATA_ROOT = pathlib.Path(DATA_ROOT)
+
+    print(os.getenv("GCP_CREDENTIALS_PATH_PROD"))
+    print(os.getenv("GCP_CREDENTIALS_PATH"))
 
     GCP_CREDENTIALS_PATH = os.getenv(
         "GCP_CREDENTIALS_PATH",
@@ -44,11 +47,13 @@ def setup_configs():
 
     gcp_utils = GCPUtils(gcp_credentials=gcp_credentials_str)
     del gcp_credentials_str, _
-
+    print(f"DATA_ROOT: {DATA_ROOT}")
     return DATA_ROOT, gcp_utils
 
 
-DATA_ROOT, gcp_utils = setup_configs()
+DATA_ROOT, gcp_utils = setup_configs(
+    "/Users/sagar/work/yral/recommendation-engine/notebooks/04-candidate-generation/.env"
+)
 
 # %%
 t = gcp_utils.bigquery.execute_query(
@@ -96,4 +101,4 @@ print(f"Shape of the combined DataFrame: {df.shape}")
 
 # %%
 (DATA_ROOT / "master_dag_output").mkdir(parents=True, exist_ok=True)
-df.to_parquet(DATA_ROOT / "master_dag_output" / "engagement_metadata.parquet")
+df.to_parquet(DATA_ROOT / "engagement_metadata_6_months.parquet")

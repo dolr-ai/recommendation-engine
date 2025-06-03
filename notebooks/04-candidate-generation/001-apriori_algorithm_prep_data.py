@@ -82,7 +82,7 @@ print(df["mean_percentage_watched"].describe(np.arange(0, 1, 0.1)))
 
 
 # %%
-target_cluster_id = 2
+target_cluster_id = 1
 filtered_user_ids = (df.groupby("user_id").size() > USER_VIDEO_COUNT_THRESHOLD).index
 df_filtered = df[
     df["user_id"].isin(filtered_user_ids) & (df["cluster_id"] == target_cluster_id)
@@ -93,7 +93,6 @@ df_filtered = df_filtered[
 
 df_filtered = df_filtered.sort_values("last_watched_timestamp", ascending=False)
 
-# %%
 # Calculate time differences between consecutive watches for each user
 df_filtered = df_filtered.sort_values(["user_id", "last_watched_timestamp"])
 
@@ -115,15 +114,6 @@ df_filtered["time_diff"] = df_filtered["time_diff"].fillna(0).astype(int)
 print("Time difference statistics (seconds):")
 print(df_filtered["time_diff"].describe())
 
-# %%
-# df_check = df_filtered[["user_id", "last_watched_timestamp", "time_diff"]]
-# u1 = "zx45b-qmf4t-x4lhs-lbw3n-5azid-sg3yl-ro7gj-cwajb-qw5o4-p2plw-gae"
-# u2 = "7qbpp-bdtxy-focg3-bb3pt-yhbq5-aaly2-yp2zn-luuzx-r4a5u-boeuz-xae"
-# # df_check["user_id"].unique().tolist()
-
-# df_check[df_check["user_id"] == u2]
-
-# %%
 # Define session timeout in seconds (10 minutes)
 SESSION_TIMEOUT = 10 * 60  # 10 minutes in seconds
 
@@ -136,13 +126,11 @@ df_filtered["session_id"] = df_filtered.groupby("user_id")["new_session"].cumsum
 
 # 3. Remove the temporary column
 df_filtered = df_filtered.drop("new_session", axis=1)
-# %%
 df_sessions = df_filtered.groupby(["user_id", "session_id"], as_index=False).agg(
     videos_in_session=("video_id", list), num_videos_in_session=("video_id", "count")
 )
 
 
-# %%
 def create_batches(user_id, session_id, items, batch_size=5, min_batch_size=2):
     if len(items) < min_batch_size:
         return None
@@ -183,14 +171,12 @@ df_sessions["records"] = df_sessions.apply(
 
 df_sessions = df_sessions.dropna(subset=["records"])
 
-# %%
 df_batch_sessions = pd.concat(
     [pd.DataFrame(i) for i in df_sessions["records"].tolist()],
     axis=0,
     ignore_index=True,
 )
 df_batch_sessions
-# %%
 df_batch_sessions["batch_session"].apply(lambda x: len(x)).describe()
 # %%
 from mlxtend.frequent_patterns import apriori, association_rules
