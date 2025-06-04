@@ -9,9 +9,7 @@ import os
 import json
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.providers.google.cloud.operators.bigquery import (
-    BigQueryExecuteQueryOperator,
-)
+from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
 from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
@@ -465,14 +463,17 @@ with DAG(
                 query = generate_cluster_query(cluster_id)
 
                 # Create the BigQuery task
-                task = BigQueryExecuteQueryOperator(
+                task = BigQueryInsertJobOperator(
                     task_id=task_id,
-                    sql=query,
-                    use_legacy_sql=False,
-                    gcp_conn_id=CONNECTION_ID,
+                    configuration={
+                        "query": {
+                            "query": query,
+                            "useLegacySql": False,
+                            "priority": "BATCH",
+                        }
+                    },
                     location=REGION,
-                    priority="BATCH",
-                    write_disposition="WRITE_TRUNCATE",
+                    gcp_conn_id=CONNECTION_ID,
                     dag=dag,
                 )
 
