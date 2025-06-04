@@ -8,13 +8,11 @@ It runs the calculation for each cluster ID found in the test_user_clusters tabl
 import os
 import json
 from datetime import datetime, timedelta
+from google.cloud import bigquery
+from google.oauth2 import service_account
+import pandas as pd
+
 from airflow import DAG
-from airflow.providers.google.cloud.operators.bigquery import (
-    BigQueryInsertJobOperator,
-    BigQueryTableCheckOperator,
-)
-from airflow.providers.google.cloud.sensors.bigquery import BigQueryTableExistenceSensor
-from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils.trigger_rule import TriggerRule
@@ -27,10 +25,10 @@ default_args = {
     "depends_on_past": False,
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 2,  # Increased retries for better resilience
+    "retries": 2,
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
-    "execution_timeout": timedelta(hours=2),  # Add execution timeout
+    "execution_timeout": timedelta(hours=2),
 }
 
 DAG_ID = "cg_modified_iou"
@@ -46,10 +44,6 @@ REGION = "us-central1"
 # Table configuration
 SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters"
 DESTINATION_TABLE = "jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates"
-DESTINATION_TABLE_PARTS = DESTINATION_TABLE.split(".")
-DESTINATION_PROJECT = DESTINATION_TABLE_PARTS[0]
-DESTINATION_DATASET = DESTINATION_TABLE_PARTS[1]
-DESTINATION_TABLE_NAME = DESTINATION_TABLE_PARTS[2]
 
 # Threshold configuration
 WATCH_PERCENTAGE_THRESHOLD_MIN = 0.5
@@ -58,63 +52,49 @@ MIN_REQ_USERS_FOR_VIDEO = 2
 SAMPLE_FACTOR = 1.0
 PERCENTILE_THRESHOLD = 95
 
-# Connection and variable names
-CONNECTION_ID = "bigquery_modified_iou"
+# Status variable name
 MODIFIED_IOU_STATUS_VARIABLE = "cg_modified_iou_completed"
 CLUSTER_IDS_VARIABLE = "modified_iou_cluster_ids"
 
 
-# Create or get connection for BigQuery
-def setup_bigquery_connection(**kwargs):
-    """Create or get a BigQuery connection."""
+# Function to create BigQuery client with GCP credentials
+def get_bigquery_client():
+    """Create and return a BigQuery client using service account credentials."""
     try:
-        # Check if the connection already exists
-        from airflow.hooks.base import BaseHook
+        # Parse the credentials JSON string
+        credentials_info = json.loads(GCP_CREDENTIALS)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info
+        )
 
-        try:
-            BaseHook.get_connection(CONNECTION_ID)
-            print(f"Connection {CONNECTION_ID} already exists")
-        except AirflowException:
-            # Create the connection if it doesn't exist
-            from airflow.models import Connection
-            from airflow import settings
-
-            # Create a session
-            session = settings.Session()
-
-            # Create connection object
-            conn = Connection(
-                conn_id=CONNECTION_ID,
-                conn_type="google_cloud_platform",
-                extra=GCP_CREDENTIALS,  # This contains the service account JSON
-            )
-
-            # Add the connection
-            session.add(conn)
-            session.commit()
-            print(f"Connection {CONNECTION_ID} created")
-
-        return CONNECTION_ID
+        # Create BigQuery client
+        client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
+        return client
     except Exception as e:
-        print(f"Error setting up BigQuery connection: {str(e)}")
-        raise AirflowException(f"Failed to setup BigQuery connection: {str(e)}")
+        print(f"Error creating BigQuery client: {str(e)}")
+        raise AirflowException(f"Failed to create BigQuery client: {str(e)}")
 
 
 # Function to get all cluster IDs from the test_user_clusters table
 def get_cluster_ids(**kwargs):
     """Get all unique cluster IDs from the test_user_clusters table."""
     try:
-        connection_id = kwargs.get("connection_id")
-        bq_hook = BigQueryHook(gcp_conn_id=connection_id)
+        # Create BigQuery client
+        client = get_bigquery_client()
 
+        # SQL query to get unique cluster IDs
         query = f"""
         SELECT DISTINCT cluster_id
         FROM `{SOURCE_TABLE}`
         ORDER BY cluster_id
         """
 
-        results = bq_hook.get_pandas_df(sql=query, dialect="standard")
-        cluster_ids = results["cluster_id"].tolist()
+        # Run the query
+        query_job = client.query(query)
+        results = query_job.result()
+
+        # Convert to list
+        cluster_ids = [row.cluster_id for row in results]
 
         print(f"Found {len(cluster_ids)} unique cluster IDs: {cluster_ids}")
 
@@ -151,15 +131,53 @@ def set_status_completed(**kwargs):
         raise AirflowException(f"Failed to set status variable: {str(e)}")
 
 
-# Function to verify that data was inserted for a specific cluster
-def verify_cluster_data_inserted(cluster_id):
-    """Verify that data was inserted for a specific cluster."""
-    query = f"""
-    SELECT COUNT(*) as row_count
-    FROM `{DESTINATION_TABLE}`
-    WHERE cluster_id_x = {cluster_id}
-    """
-    return query
+# Function to check if destination table exists, create if not
+def ensure_destination_table_exists(**kwargs):
+    """Check if destination table exists, create if not."""
+    try:
+        client = get_bigquery_client()
+
+        # Get table reference
+        table_ref = client.dataset(DESTINATION_TABLE.split(".")[1]).table(
+            DESTINATION_TABLE.split(".")[2]
+        )
+
+        try:
+            # Check if table exists
+            client.get_table(table_ref)
+            print(f"Table {DESTINATION_TABLE} exists")
+        except Exception as e:
+            print(f"Table {DESTINATION_TABLE} does not exist, creating: {str(e)}")
+
+            # Create table schema
+            schema = [
+                bigquery.SchemaField("cluster_id", "INTEGER"),
+                bigquery.SchemaField("video_id_x", "STRING"),
+                bigquery.SchemaField("user_id_list_min_x", "STRING", mode="REPEATED"),
+                bigquery.SchemaField(
+                    "user_id_list_success_x", "STRING", mode="REPEATED"
+                ),
+                bigquery.SchemaField("d", "INTEGER"),
+                bigquery.SchemaField("cluster_id_y", "INTEGER"),
+                bigquery.SchemaField("video_id_y", "STRING"),
+                bigquery.SchemaField("user_id_list_min_y", "STRING", mode="REPEATED"),
+                bigquery.SchemaField(
+                    "user_id_list_success_y", "STRING", mode="REPEATED"
+                ),
+                bigquery.SchemaField("den", "INTEGER"),
+                bigquery.SchemaField("num", "INTEGER"),
+                bigquery.SchemaField("iou_modified", "FLOAT"),
+            ]
+
+            # Create the table
+            table = bigquery.Table(table_ref, schema=schema)
+            client.create_table(table, exists_ok=True)
+            print(f"Table {DESTINATION_TABLE} created")
+
+        return True
+    except Exception as e:
+        print(f"Error ensuring destination table exists: {str(e)}")
+        raise AirflowException(f"Failed to ensure destination table exists: {str(e)}")
 
 
 # Function to generate modified IoU query for a specific cluster
@@ -175,7 +193,7 @@ def generate_cluster_query(cluster_id):
     DELETE FROM
       `{DESTINATION_TABLE}`
     WHERE
-      cluster_id_x = {cluster_id};
+      cluster_id = {cluster_id};
 
 
     -- Insert the results from the modified_iou_intermediate_table.sql calculation
@@ -434,6 +452,95 @@ def generate_cluster_query(cluster_id):
     return query
 
 
+# Function to process a single cluster
+def process_cluster(cluster_id, **kwargs):
+    """Execute the modified IoU query for a specific cluster ID."""
+    try:
+        # Create BigQuery client
+        client = get_bigquery_client()
+
+        # Generate the query for this cluster
+        query = generate_cluster_query(cluster_id)
+
+        print(f"Processing cluster ID: {cluster_id}")
+        print(f"Running query...")
+
+        # Run the query
+        query_job = client.query(query)
+        query_job.result()  # Wait for the query to complete
+
+        print(f"Query completed for cluster ID: {cluster_id}")
+
+        # Verify data was inserted
+        verify_query = f"""
+        SELECT COUNT(*) as row_count
+        FROM `{DESTINATION_TABLE}`
+        WHERE cluster_id = {cluster_id}
+        """
+
+        verify_job = client.query(verify_query)
+        result = list(verify_job.result())[0]
+        row_count = result.row_count
+
+        print(f"Verification: Found {row_count} rows for cluster ID: {cluster_id}")
+
+        if row_count == 0:
+            print(f"Warning: No data was inserted for cluster ID: {cluster_id}")
+
+        return True
+    except Exception as e:
+        print(f"Error processing cluster {cluster_id}: {str(e)}")
+        raise AirflowException(f"Failed to process cluster {cluster_id}: {str(e)}")
+
+
+# Function to verify data in destination table
+def verify_destination_data(**kwargs):
+    """Verify that data exists in the destination table."""
+    try:
+        # Create BigQuery client
+        client = get_bigquery_client()
+
+        # Query to count total rows
+        query = f"""
+        SELECT COUNT(*) as total_rows
+        FROM `{DESTINATION_TABLE}`
+        """
+
+        # Run the query
+        query_job = client.query(query)
+        result = list(query_job.result())[0]
+        total_rows = result.total_rows
+
+        print(f"Verification: Found {total_rows} total rows in {DESTINATION_TABLE}")
+
+        if total_rows == 0:
+            raise AirflowException(f"No data found in {DESTINATION_TABLE}")
+
+        return True
+    except Exception as e:
+        print(f"Error verifying destination data: {str(e)}")
+        raise AirflowException(f"Failed to verify destination data: {str(e)}")
+
+
+# Function to process all clusters
+def process_all_clusters(**kwargs):
+    """Process all clusters one by one."""
+    try:
+        # Get cluster IDs from variable
+        cluster_ids = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
+
+        print(f"Processing {len(cluster_ids)} clusters: {cluster_ids}")
+
+        # Process each cluster
+        for cluster_id in cluster_ids:
+            process_cluster(cluster_id)
+
+        return True
+    except Exception as e:
+        print(f"Error processing all clusters: {str(e)}")
+        raise AirflowException(f"Failed to process all clusters: {str(e)}")
+
+
 # Create the DAG
 with DAG(
     dag_id=DAG_ID,
@@ -451,126 +558,46 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
-    # Setup BigQuery connection
-    setup_connection = PythonOperator(
-        task_id="task-setup_bigquery_connection",
-        python_callable=setup_bigquery_connection,
-    )
-
     # Get unique cluster IDs
     get_clusters = PythonOperator(
         task_id="task-get_cluster_ids",
         python_callable=get_cluster_ids,
-        op_kwargs={
-            "connection_id": "{{ task_instance.xcom_pull(task_ids='task-setup_bigquery_connection') }}"
-        },
     )
 
-    # Verify destination table exists
-    check_destination_table = BigQueryTableExistenceSensor(
-        task_id="task-check_destination_table",
-        project_id=DESTINATION_PROJECT,
-        dataset_id=DESTINATION_DATASET,
-        table_id=DESTINATION_TABLE_NAME,
-        gcp_conn_id=CONNECTION_ID,
+    # Ensure destination table exists
+    ensure_table = PythonOperator(
+        task_id="task-ensure_destination_table",
+        python_callable=ensure_destination_table_exists,
     )
 
-    # Create a dynamic task for each cluster ID
-    # First, we need to retrieve the cluster IDs from the previous task
-    def create_cluster_tasks(**kwargs):
-        """Create a BigQuery task for each cluster ID."""
-        try:
-            ti = kwargs["ti"]
-            cluster_ids = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
-
-            # For each cluster ID, create a task
-            tasks = {}
-            for cluster_id in cluster_ids:
-                # Task group for this cluster
-                process_cluster_id = f"task-process_cluster_{cluster_id}"
-                verify_cluster_id = f"task-verify_cluster_{cluster_id}"
-
-                # Create the query for this cluster
-                query = generate_cluster_query(cluster_id)
-
-                # Create the BigQuery task with a specific job_id for better idempotency
-                job_id = f"modified_iou_cluster_{cluster_id}_{datetime.now().strftime('%Y%m%d')}"
-
-                # Process cluster task - make sure wait_for_completion is True
-                process_task = BigQueryInsertJobOperator(
-                    task_id=process_cluster_id,
-                    configuration={
-                        "query": {
-                            "query": query,
-                            "useLegacySql": False,
-                            "priority": "BATCH",
-                            "createDisposition": "CREATE_IF_NEEDED",
-                            "writeDisposition": "WRITE_TRUNCATE",
-                        }
-                    },
-                    location=REGION,
-                    gcp_conn_id=CONNECTION_ID,
-                    job_id=job_id,
-                    # Important - wait for the query to complete
-                    wait_for_completion=True,
-                    dag=dag,
-                )
-
-                # Verify data was inserted
-                verify_task = BigQueryTableCheckOperator(
-                    task_id=verify_cluster_id,
-                    table=DESTINATION_TABLE,
-                    checks={
-                        f"rows_for_cluster_{cluster_id}": {
-                            "check_statement": f"COUNT(*) > 0 WHERE cluster_id_x = {cluster_id}"
-                        }
-                    },
-                    gcp_conn_id=CONNECTION_ID,
-                    dag=dag,
-                )
-
-                # Set task dependencies
-                check_destination_table >> process_task >> verify_task
-
-                tasks[cluster_id] = (process_task, verify_task)
-
-            return tasks
-        except Exception as e:
-            print(f"Error creating cluster tasks: {str(e)}")
-            raise AirflowException(f"Failed to create cluster tasks: {str(e)}")
-
-    # Final verification task to check all data
-    final_verification = BigQueryTableCheckOperator(
-        task_id="task-final_verification",
-        table=DESTINATION_TABLE,
-        checks={"total_rows": {"check_statement": "COUNT(*) > 0"}},
-        gcp_conn_id=CONNECTION_ID,
-        trigger_rule=TriggerRule.ALL_SUCCESS,
+    # Process all clusters
+    process_clusters = PythonOperator(
+        task_id="task-process_all_clusters",
+        python_callable=process_all_clusters,
     )
 
-    # Set status to completed after all cluster tasks finish
+    # Verify final data
+    verify_data = PythonOperator(
+        task_id="task-verify_data",
+        python_callable=verify_destination_data,
+    )
+
+    # Set status to completed
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
-        trigger_rule=TriggerRule.ALL_SUCCESS,  # Change to ALL_SUCCESS to ensure everything worked
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
-    # Set up initial task dependencies
-    start >> init_status >> setup_connection >> get_clusters >> check_destination_table
-
-    # PythonOperator to execute dynamic task creation
-    def execute_dynamic_tasks(**kwargs):
-        """Execute function to create dynamic tasks."""
-        create_cluster_tasks(**kwargs)
-
-    dynamic_task_creator = PythonOperator(
-        task_id="task-create_dynamic_tasks",
-        python_callable=execute_dynamic_tasks,
-        provide_context=True,
-        dag=dag,
+    # Define task dependencies
+    (
+        start
+        >> init_status
+        >> get_clusters
+        >> ensure_table
+        >> process_clusters
+        >> verify_data
+        >> set_status
+        >> end
     )
-
-    # Set task dependencies for dynamic task creator
-    get_clusters >> dynamic_task_creator >> final_verification >> set_status >> end
