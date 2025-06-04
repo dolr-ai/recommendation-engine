@@ -275,9 +275,12 @@ res_dict[1]["candidates"]["iou_modified"].describe(np.arange(0, 1, 0.1))
 for cluster_id in range(0, df_clusters["cluster_id"].max() + 1):
     query = f"""select * from `jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates` where cluster_id = {cluster_id}"""
     df_res = gcp_utils_stage.bigquery.execute_query(query, to_dataframe=True)
-    print(f"Cluster {cluster_id} has {df_res.shape[0]} candidates")
 
     df_src = res_dict[cluster_id]["candidates"]
+
+    print(f"Source Cluster {cluster_id} has {df_src.shape[0]} candidates")
+    print(f"BigQuery Cluster {cluster_id} has {df_res.shape[0]} candidates")
+
     print(
         f"Cluster {cluster_id} pairs are same or not?",
         # if pairs are same or not?

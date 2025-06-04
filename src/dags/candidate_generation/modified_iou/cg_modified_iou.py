@@ -3,11 +3,13 @@ Modified IoU Candidate Generation DAG
 
 This DAG uses BigQuery to calculate modified IoU scores for video recommendation candidates.
 It runs the calculation for each cluster ID found in the test_user_clusters table.
+
+NOTE: For very small data sets, this percentile calculation might not work as expected.
+Some extremely small clusters with say 2 elements will give 0 candidates
 """
 
 import os
 import json
-import concurrent.futures
 from datetime import datetime, timedelta
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -52,9 +54,6 @@ WATCH_PERCENTAGE_THRESHOLD_SUCCESS = 0.75
 MIN_REQ_USERS_FOR_VIDEO = 2
 SAMPLE_FACTOR = 1.0
 PERCENTILE_THRESHOLD = 95
-
-# Parallel execution configuration
-MAX_WORKERS = 4  # Maximum number of parallel queries
 
 # Status variable name
 MODIFIED_IOU_STATUS_VARIABLE = "cg_modified_iou_completed"
@@ -457,11 +456,8 @@ def generate_cluster_query(cluster_id):
 
 
 # Function to process a single cluster
-def process_cluster(cluster_id):
-    """Execute the modified IoU query for a specific cluster ID and return the results."""
-    start_time = datetime.now()
-    print(f"Starting processing of cluster ID: {cluster_id} at {start_time}")
-
+def process_cluster(cluster_id, **kwargs):
+    """Execute the modified IoU query for a specific cluster ID."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
@@ -469,15 +465,14 @@ def process_cluster(cluster_id):
         # Generate the query for this cluster
         query = generate_cluster_query(cluster_id)
 
+        print(f"Processing cluster ID: {cluster_id}")
+        print(f"Running query...")
+
         # Run the query
         query_job = client.query(query)
         query_job.result()  # Wait for the query to complete
 
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        print(
-            f"✅ Cluster {cluster_id}'s query executed successfully in {duration:.2f} seconds"
-        )
+        print(f"Query completed for cluster ID: {cluster_id}")
 
         # Verify data was inserted
         verify_query = f"""
@@ -488,103 +483,22 @@ def process_cluster(cluster_id):
 
         verify_job = client.query(verify_query)
         result = list(verify_job.result())[0]
-        row_count = result.row_count if hasattr(result, "row_count") else 0
+        row_count = result.row_count
 
-        return {
-            "cluster_id": cluster_id,
-            "status": "success",
-            "row_count": row_count,
-            "duration_seconds": duration,
-            "error": None,
-        }
+        print(f"Verification: Found {row_count} rows for cluster ID: {cluster_id}")
+
+        if row_count == 0:
+            print(f"Warning: No data was inserted for cluster ID: {cluster_id}")
+
+        return True
     except Exception as e:
-        error_msg = str(e)
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        print(f"❌ Error processing cluster {cluster_id}: {error_msg}")
-
-        return {
-            "cluster_id": cluster_id,
-            "status": "error",
-            "row_count": 0,
-            "duration_seconds": duration,
-            "error": error_msg,
-        }
-
-
-# Function to process all clusters in parallel
-def process_all_clusters_parallel(**kwargs):
-    """Process all clusters in parallel using concurrent.futures."""
-    try:
-        # Get cluster IDs from variable
-        cluster_ids = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
-
-        print(
-            f"Processing {len(cluster_ids)} clusters in parallel with max {MAX_WORKERS} workers"
-        )
-
-        results = []
-
-        # Use ThreadPoolExecutor to run queries in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            # Submit all tasks
-            future_to_cluster = {
-                executor.submit(process_cluster, cluster_id): cluster_id
-                for cluster_id in cluster_ids
-            }
-
-            # Process results as they complete
-            for future in concurrent.futures.as_completed(future_to_cluster):
-                cluster_id = future_to_cluster[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    print(f"❌ Unhandled exception for cluster {cluster_id}: {str(e)}")
-                    results.append(
-                        {
-                            "cluster_id": cluster_id,
-                            "status": "error",
-                            "row_count": 0,
-                            "duration_seconds": 0,
-                            "error": str(e),
-                        }
-                    )
-
-        # Store results in variable for later reporting
-        Variable.set("modified_iou_results", json.dumps(results))
-
-        # Check if any clusters failed
-        failed_clusters = [r for r in results if r["status"] == "error"]
-        if failed_clusters:
-            print(f"❌ {len(failed_clusters)} clusters failed processing")
-            for fc in failed_clusters:
-                print(f"  - Cluster {fc['cluster_id']}: {fc['error']}")
-
-            # Only fail the task if all clusters failed
-            if len(failed_clusters) == len(cluster_ids):
-                raise AirflowException(
-                    f"All {len(cluster_ids)} clusters failed processing"
-                )
-
-        # Print success summary
-        successful_clusters = [r for r in results if r["status"] == "success"]
-        print(
-            f"✅ Successfully processed {len(successful_clusters)} out of {len(cluster_ids)} clusters"
-        )
-
-        total_rows = sum(r["row_count"] for r in results)
-        print(f"✅ Total rows inserted: {total_rows}")
-
-        return results
-    except Exception as e:
-        print(f"Error in parallel processing: {str(e)}")
-        raise AirflowException(f"Failed to process clusters in parallel: {str(e)}")
+        print(f"Error processing cluster {cluster_id}: {str(e)}")
+        raise AirflowException(f"Failed to process cluster {cluster_id}: {str(e)}")
 
 
 # Function to verify data in destination table
 def verify_destination_data(**kwargs):
-    """Verify that data exists in the destination table and report results."""
+    """Verify that data exists in the destination table."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
@@ -598,49 +512,36 @@ def verify_destination_data(**kwargs):
         # Run the query
         query_job = client.query(query)
         result = list(query_job.result())[0]
-        total_rows = result.total_rows if hasattr(result, "total_rows") else 0
+        total_rows = result.total_rows
 
         print(f"Verification: Found {total_rows} total rows in {DESTINATION_TABLE}")
 
         if total_rows == 0:
             raise AirflowException(f"No data found in {DESTINATION_TABLE}")
 
-        # Get processing results
-        try:
-            results = Variable.get("modified_iou_results", deserialize_json=True)
-
-            # Calculate statistics
-            successful = [r for r in results if r["status"] == "success"]
-            failed = [r for r in results if r["status"] == "error"]
-
-            # Print detailed report
-            print("\n=== PROCESSING REPORT ===")
-            print(f"Total clusters processed: {len(results)}")
-            print(f"Successful: {len(successful)}")
-            print(f"Failed: {len(failed)}")
-            print(f"Total rows in table: {total_rows}")
-
-            if successful:
-                avg_duration = sum(r["duration_seconds"] for r in successful) / len(
-                    successful
-                )
-                print(f"Average processing time: {avg_duration:.2f} seconds")
-
-            print("=== CLUSTER DETAILS ===")
-            for r in results:
-                status_icon = "✅" if r["status"] == "success" else "❌"
-                print(
-                    f"{status_icon} Cluster {r['cluster_id']}: {r['status']} - {r['row_count']} rows - {r['duration_seconds']:.2f}s"
-                )
-
-            print("======================\n")
-        except Exception as e:
-            print(f"Warning: Could not load detailed results: {e}")
-
         return True
     except Exception as e:
         print(f"Error verifying destination data: {str(e)}")
         raise AirflowException(f"Failed to verify destination data: {str(e)}")
+
+
+# Function to process all clusters
+def process_all_clusters(**kwargs):
+    """Process all clusters one by one."""
+    try:
+        # Get cluster IDs from variable
+        cluster_ids = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
+
+        print(f"Processing {len(cluster_ids)} clusters: {cluster_ids}")
+
+        # Process each cluster
+        for cluster_id in cluster_ids:
+            process_cluster(cluster_id)
+
+        return True
+    except Exception as e:
+        print(f"Error processing all clusters: {str(e)}")
+        raise AirflowException(f"Failed to process all clusters: {str(e)}")
 
 
 # Create the DAG
@@ -672,10 +573,10 @@ with DAG(
         python_callable=ensure_destination_table_exists,
     )
 
-    # Process all clusters in parallel
+    # Process all clusters
     process_clusters = PythonOperator(
-        task_id="task-process_all_clusters_parallel",
-        python_callable=process_all_clusters_parallel,
+        task_id="task-process_all_clusters",
+        python_callable=process_all_clusters,
     )
 
     # Verify final data
