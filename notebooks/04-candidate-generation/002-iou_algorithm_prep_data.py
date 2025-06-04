@@ -217,7 +217,7 @@ def get_modified_iou_score(
 
 
 res_dict = {}
-for i in range(0, df_clusters["cluster_id"].max()):
+for i in range(0, df_clusters["cluster_id"].max() + 1):
     print(f"Cluster {i}")
 
     df_temp = get_modified_iou_score(
@@ -514,7 +514,7 @@ df_res = gcp_utils_stage.bigquery.execute_query(
 df_res
 # %%
 
-df_src = res_dict[1]["candidates"]
+df_src = res_dict[7]["candidates"]
 # %%
 print(df_res.columns)
 print(df_src.columns)
