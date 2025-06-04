@@ -9,7 +9,11 @@ import os
 import json
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
+from airflow.providers.google.cloud.operators.bigquery import (
+    BigQueryInsertJobOperator,
+    BigQueryTableCheckOperator,
+)
+from airflow.providers.google.cloud.sensors.bigquery import BigQueryTableExistenceSensor
 from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
@@ -23,9 +27,10 @@ default_args = {
     "depends_on_past": False,
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 1,
+    "retries": 2,  # Increased retries for better resilience
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
+    "execution_timeout": timedelta(hours=2),  # Add execution timeout
 }
 
 DAG_ID = "cg_modified_iou"
@@ -41,6 +46,10 @@ REGION = "us-central1"
 # Table configuration
 SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters"
 DESTINATION_TABLE = "jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates"
+DESTINATION_TABLE_PARTS = DESTINATION_TABLE.split(".")
+DESTINATION_PROJECT = DESTINATION_TABLE_PARTS[0]
+DESTINATION_DATASET = DESTINATION_TABLE_PARTS[1]
+DESTINATION_TABLE_NAME = DESTINATION_TABLE_PARTS[2]
 
 # Threshold configuration
 WATCH_PERCENTAGE_THRESHOLD_MIN = 0.5
@@ -142,6 +151,17 @@ def set_status_completed(**kwargs):
         raise AirflowException(f"Failed to set status variable: {str(e)}")
 
 
+# Function to verify that data was inserted for a specific cluster
+def verify_cluster_data_inserted(cluster_id):
+    """Verify that data was inserted for a specific cluster."""
+    query = f"""
+    SELECT COUNT(*) as row_count
+    FROM `{DESTINATION_TABLE}`
+    WHERE cluster_id_x = {cluster_id}
+    """
+    return query
+
+
 # Function to generate modified IoU query for a specific cluster
 def generate_cluster_query(cluster_id):
     """Generate the modified IoU query for a specific cluster ID."""
@@ -155,7 +175,7 @@ def generate_cluster_query(cluster_id):
     DELETE FROM
       `{DESTINATION_TABLE}`
     WHERE
-      cluster_id = {cluster_id};
+      cluster_id_x = {cluster_id};
 
 
     -- Insert the results from the modified_iou_intermediate_table.sql calculation
@@ -391,7 +411,7 @@ def generate_cluster_query(cluster_id):
           all_pairs_with_iou
       ) -- Get final candidates (replicates df_cand = df_temp[df_temp["iou_modified"] > df_temp["iou_modified"].quantile(0.95)])
     SELECT
-      cluster_id_x,
+      cluster_id_x as cluster_id,
       video_id_x,
       user_id_list_min_x,
       user_id_list_success_x,
@@ -446,6 +466,15 @@ with DAG(
         },
     )
 
+    # Verify destination table exists
+    check_destination_table = BigQueryTableExistenceSensor(
+        task_id="task-check_destination_table",
+        project_id=DESTINATION_PROJECT,
+        dataset_id=DESTINATION_DATASET,
+        table_id=DESTINATION_TABLE_NAME,
+        gcp_conn_id=CONNECTION_ID,
+    )
+
     # Create a dynamic task for each cluster ID
     # First, we need to retrieve the cluster IDs from the previous task
     def create_cluster_tasks(**kwargs):
@@ -457,47 +486,79 @@ with DAG(
             # For each cluster ID, create a task
             tasks = {}
             for cluster_id in cluster_ids:
-                task_id = f"task-process_cluster_{cluster_id}"
+                # Task group for this cluster
+                process_cluster_id = f"task-process_cluster_{cluster_id}"
+                verify_cluster_id = f"task-verify_cluster_{cluster_id}"
 
                 # Create the query for this cluster
                 query = generate_cluster_query(cluster_id)
 
-                # Create the BigQuery task
-                task = BigQueryInsertJobOperator(
-                    task_id=task_id,
+                # Create the BigQuery task with a specific job_id for better idempotency
+                job_id = f"modified_iou_cluster_{cluster_id}_{datetime.now().strftime('%Y%m%d')}"
+
+                # Process cluster task - make sure wait_for_completion is True
+                process_task = BigQueryInsertJobOperator(
+                    task_id=process_cluster_id,
                     configuration={
                         "query": {
                             "query": query,
                             "useLegacySql": False,
                             "priority": "BATCH",
+                            "createDisposition": "CREATE_IF_NEEDED",
+                            "writeDisposition": "WRITE_TRUNCATE",
                         }
                     },
                     location=REGION,
+                    gcp_conn_id=CONNECTION_ID,
+                    job_id=job_id,
+                    # Important - wait for the query to complete
+                    wait_for_completion=True,
+                    dag=dag,
+                )
+
+                # Verify data was inserted
+                verify_task = BigQueryTableCheckOperator(
+                    task_id=verify_cluster_id,
+                    table=DESTINATION_TABLE,
+                    checks={
+                        f"rows_for_cluster_{cluster_id}": {
+                            "check_statement": f"COUNT(*) > 0 WHERE cluster_id_x = {cluster_id}"
+                        }
+                    },
                     gcp_conn_id=CONNECTION_ID,
                     dag=dag,
                 )
 
                 # Set task dependencies
-                get_clusters >> task
+                check_destination_table >> process_task >> verify_task
 
-                tasks[cluster_id] = task
+                tasks[cluster_id] = (process_task, verify_task)
 
             return tasks
         except Exception as e:
             print(f"Error creating cluster tasks: {str(e)}")
             raise AirflowException(f"Failed to create cluster tasks: {str(e)}")
 
+    # Final verification task to check all data
+    final_verification = BigQueryTableCheckOperator(
+        task_id="task-final_verification",
+        table=DESTINATION_TABLE,
+        checks={"total_rows": {"check_statement": "COUNT(*) > 0"}},
+        gcp_conn_id=CONNECTION_ID,
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+    )
+
     # Set status to completed after all cluster tasks finish
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
-        trigger_rule=TriggerRule.ALL_DONE,  # Run even if some tasks fail
+        trigger_rule=TriggerRule.ALL_SUCCESS,  # Change to ALL_SUCCESS to ensure everything worked
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_DONE)
+    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Set up initial task dependencies
-    start >> init_status >> setup_connection >> get_clusters
+    start >> init_status >> setup_connection >> get_clusters >> check_destination_table
 
     # PythonOperator to execute dynamic task creation
     def execute_dynamic_tasks(**kwargs):
@@ -512,4 +573,4 @@ with DAG(
     )
 
     # Set task dependencies for dynamic task creator
-    get_clusters >> dynamic_task_creator >> set_status >> end
+    get_clusters >> dynamic_task_creator >> final_verification >> set_status >> end
