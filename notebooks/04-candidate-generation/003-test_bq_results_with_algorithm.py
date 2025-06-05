@@ -294,6 +294,33 @@ for cluster_id in range(0, df_clusters["cluster_id"].max() + 1):
         == 0,
     )
 
+    print(
+        f"Cluster {cluster_id} pairs with scores are same or not?",
+        # if pairs are same or not?
+        len(
+            set(
+                (
+                    df_src["video_id_x"]
+                    + "_"
+                    + df_src["video_id_y"]
+                    + "_"
+                    + df_src["iou_modified"].astype(str)
+                ).tolist()
+            ).difference(
+                set(
+                    (
+                        df_res["video_id_x"]
+                        + "_"
+                        + df_res["video_id_y"]
+                        + "_"
+                        + df_res["iou_modified"].astype(str)
+                    ).tolist()
+                )
+            )
+        )
+        == 0,
+    )
+
     plot_histograms = False
     if plot_histograms:
         fig, axes = plt.subplots(
