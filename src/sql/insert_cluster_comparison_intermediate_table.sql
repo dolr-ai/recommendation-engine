@@ -196,8 +196,8 @@ WITH
         ELSE []
       END AS videos_to_be_checked_for_tier_progression,
       -- Length calculations
-      ARRAY_LENGTH(list_videos_watched) AS num_cx,
-      ARRAY_LENGTH(shifted_list_videos_watched) AS num_cy
+      ARRAY_LENGTH(shifted_list_videos_watched) AS num_cx,
+      ARRAY_LENGTH(list_videos_watched) AS num_cy
     FROM
       cluser_quantiles_with_compare
   ) -- Final output in the same order as Python

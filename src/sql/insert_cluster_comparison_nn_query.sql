@@ -74,6 +74,8 @@ WITH
     WHERE
       `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) IS NOT NULL
   ),
+  -- todo: create table in production environment for average embeddings as a dag
+  -- if needed, we can manually process the embeddings of current videos to backfill
   -- Aggregate embeddings by video_id (average multiple embeddings per video)
   video_embeddings AS (
     SELECT
