@@ -73,7 +73,7 @@ WITH query_videos AS (
     bin,
     query_video_id,
     list_videos_watched
-  FROM `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`,
+  FROM `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
   UNNEST(shifted_list_videos_watched) AS query_video_id
   WHERE flag_compare = True  -- Only process rows where comparison is flagged
 ),

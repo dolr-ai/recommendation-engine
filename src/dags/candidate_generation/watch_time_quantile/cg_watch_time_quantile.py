@@ -45,7 +45,7 @@ REGION = "us-central1"
 
 # Table configuration
 SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters"
-INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate"
+INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate"
 DESTINATION_TABLE = (
     "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates"
 )

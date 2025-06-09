@@ -8,7 +8,7 @@ SELECT
   ARRAY_LENGTH(shifted_list_videos_watched) AS num_shifted_videos,
   ARRAY_LENGTH(list_videos_watched) AS num_videos
 FROM
-  `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`
 WHERE
   cluster_id = 0
 ORDER BY
@@ -22,7 +22,7 @@ SELECT
   flag_compare,
   ARRAY_LENGTH(shifted_list_videos_watched) AS num_shifted_videos
 FROM
-  `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`
 WHERE
   flag_compare = TRUE
 ORDER BY
@@ -38,7 +38,7 @@ WITH
       bin,
       query_video_id
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`,
+      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE
@@ -65,7 +65,7 @@ WITH
       bin,
       query_video_id
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`,
+      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE
@@ -120,7 +120,7 @@ WITH
       query_video_id,
       list_videos_watched
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`,
+      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE
@@ -222,7 +222,7 @@ WITH
       bin,
       query_video_id
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`,
+      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE

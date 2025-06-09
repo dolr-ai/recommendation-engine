@@ -1,11 +1,11 @@
 -- First truncate the table to remove existing data
 TRUNCATE TABLE
-  `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`;
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`;
 
 
 -- Then insert data into the table
 INSERT INTO
-  `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate` -- VARIABLES
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate` -- VARIABLES
   -- Hardcoded values - equivalent to n_bins=4 in Python code
 WITH
   VARS AS (

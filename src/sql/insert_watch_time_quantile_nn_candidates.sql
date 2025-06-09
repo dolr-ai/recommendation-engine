@@ -34,7 +34,7 @@ WITH
           bin
       ) AS source_bin
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`
+      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`
     WHERE
       flag_compare = TRUE -- Only process rows where comparison is flagged
   ),
