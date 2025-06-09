@@ -4,6 +4,7 @@ CREATE OR REPLACE TABLE
     cluster_id INT64,
     bin INT64,
     query_video_id STRING,
+    comparison_flow STRING,
     nearest_neighbors ARRAY<STRUCT<candidate_video_id STRING, distance FLOAT64>>
   );
 
@@ -12,18 +13,47 @@ CREATE OR REPLACE TABLE
 INSERT INTO
   `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate_nearest_neighbors`
 WITH
-  query_videos AS (
-    -- Flatten the shifted_list_videos_watched to get individual query video_ids
+  -- First get the intermediate data to understand the bin relationships
+  intermediate_data AS (
     SELECT
       cluster_id,
       bin,
-      query_video_id,
-      list_videos_watched
+      flag_compare,
+      shifted_list_videos_watched,
+      list_videos_watched,
+      -- The shifted_list_videos_watched comes from the previous bin
+      -- The bin where the videos are FROM
+      LAG(bin) OVER (
+        PARTITION BY
+          cluster_id
+        ORDER BY
+          bin
+      ) AS source_bin
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`,
-      UNNEST (shifted_list_videos_watched) AS query_video_id
+      `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate`
     WHERE
       flag_compare = TRUE -- Only process rows where comparison is flagged
+  ),
+  query_videos AS (
+    -- Flatten the shifted_list_videos_watched to get individual query video_ids
+    SELECT
+      idata.cluster_id,
+      idata.bin AS target_bin,
+      -- Current bin is the target (hyperspace)
+      idata.source_bin,
+      -- Source bin is where the query videos come from
+      query_video_id,
+      idata.list_videos_watched,
+      -- Ensure source_bin is not null, use IFNULL to handle the first bin
+      FORMAT(
+        '%d->[%d]->[%d]',
+        idata.cluster_id,
+        IFNULL(idata.source_bin, 0),
+        idata.bin
+      ) AS comparison_flow
+    FROM
+      intermediate_data idata,
+      UNNEST (idata.shifted_list_videos_watched) AS query_video_id
   ),
   -- First, flatten all embeddings with their video_ids
   embedding_elements AS (
@@ -68,9 +98,12 @@ WITH
     -- Get averaged embeddings for query videos
     SELECT
       qv.cluster_id,
-      qv.bin,
+      qv.target_bin AS bin,
+      -- Use target_bin for bin to maintain compatibility
       qv.query_video_id,
       qv.list_videos_watched,
+      qv.comparison_flow,
+      -- Make sure to pass this field along
       ve.avg_embedding AS query_embedding
     FROM
       query_videos qv
@@ -82,6 +115,8 @@ WITH
       qe.cluster_id,
       qe.bin,
       qe.query_video_id,
+      qe.comparison_flow,
+      -- Make sure to pass this field along
       qe.query_embedding,
       ve.video_id AS candidate_video_id,
       ve.avg_embedding AS candidate_embedding
@@ -96,6 +131,8 @@ SELECT
   cluster_id,
   bin,
   query_video_id,
+  comparison_flow,
+  -- Make sure to include this in the final output
   ARRAY_AGG(
     STRUCT (
       candidate_video_id,
@@ -114,6 +151,8 @@ GROUP BY
   cluster_id,
   bin,
   query_video_id,
+  comparison_flow,
+  -- Make sure to include this in the GROUP BY
   query_embedding
 ORDER BY
   cluster_id,
