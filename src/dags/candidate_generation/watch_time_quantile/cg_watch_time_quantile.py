@@ -112,7 +112,7 @@ def create_intermediate_table(**kwargs):
         client = get_bigquery_client()
 
         # SQL query to create the intermediate table
-        query = """
+        query = f"""
         -- Create the table structure first
         CREATE OR REPLACE TABLE
           `{INTERMEDIATE_TABLE}` (
