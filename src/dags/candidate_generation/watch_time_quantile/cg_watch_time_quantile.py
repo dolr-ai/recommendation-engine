@@ -140,45 +140,6 @@ def create_intermediate_table(**kwargs):
         raise AirflowException(f"Failed to create intermediate table: {str(e)}")
 
 
-# Function to ensure destination table exists
-def ensure_destination_table_exists(**kwargs):
-    """Check if destination table exists, create if not."""
-    try:
-        client = get_bigquery_client()
-
-        # Get table reference
-        table_ref = client.dataset(DESTINATION_TABLE.split(".")[1]).table(
-            DESTINATION_TABLE.split(".")[2]
-        )
-
-        try:
-            # Check if table exists
-            client.get_table(table_ref)
-            print(f"Table {DESTINATION_TABLE} exists")
-        except Exception as e:
-            print(f"Table {DESTINATION_TABLE} does not exist, creating: {str(e)}")
-
-            # Create table schema for watch_time_quantile_candidates table
-            schema = [
-                bigquery.SchemaField("cluster_id", "INTEGER"),
-                bigquery.SchemaField("bin", "INTEGER"),
-                bigquery.SchemaField("query_video_id", "STRING"),
-                bigquery.SchemaField("comparison_flow", "STRING"),
-                bigquery.SchemaField("candidate_video_id", "STRING"),
-                bigquery.SchemaField("distance", "FLOAT"),
-            ]
-
-            # Create the table
-            table = bigquery.Table(table_ref, schema=schema)
-            client.create_table(table, exists_ok=True)
-            print(f"Table {DESTINATION_TABLE} created")
-
-        return True
-    except Exception as e:
-        print(f"Error ensuring destination table exists: {str(e)}")
-        raise AirflowException(f"Failed to ensure destination table exists: {str(e)}")
-
-
 # Function to run part 1: generate intermediate table
 def generate_intermediate_table(**kwargs):
     """Execute the first SQL query to generate the intermediate table with watch time quantiles."""
@@ -433,6 +394,8 @@ def check_intermediate_table(**kwargs):
     try:
         client = get_bigquery_client()
 
+        print(f"=== CHECKING INTERMEDIATE TABLE: {INTERMEDIATE_TABLE} ===")
+
         # Check if table exists and print key stats by running a query
         query = f"""
         SELECT
@@ -445,6 +408,7 @@ def check_intermediate_table(**kwargs):
         """
 
         try:
+            print(f"Executing query to check intermediate table data...")
             query_job = client.query(query)
             results = query_job.result()
 
@@ -452,25 +416,36 @@ def check_intermediate_table(**kwargs):
             rows = list(results)
             row_count = len(rows)
 
-            print(f"Found {row_count} rows in intermediate table")
+            print(f"=== INTERMEDIATE TABLE CHECK RESULT: Found {row_count} rows ===")
 
             if row_count == 0:
-                print("Warning: Intermediate table exists but has no data.")
+                print("=== WARNING: Intermediate table exists but has no data! ===")
+                raise AirflowException(
+                    "Intermediate table has no data. Cannot proceed."
+                )
             else:
-                print("Intermediate table contents (cluster_id, bin, num_cx, num_cy):")
-                for row in rows:
+                print("=== INTERMEDIATE TABLE CONTENTS SAMPLE ===")
+                # Print only up to 5 rows as a sample
+                for i, row in enumerate(rows[:5]):
                     print(
-                        f"Cluster: {row.cluster_id}, Bin: {row.bin}, Videos X: {row.num_cx}, Videos Y: {row.num_cy}"
+                        f"Row {i + 1}: Cluster: {row.cluster_id}, Bin: {row.bin}, Videos X: {row.num_cx}, Videos Y: {row.num_cy}"
                     )
+                if row_count > 5:
+                    print(f"... and {row_count - 5} more rows")
+                print("=== END INTERMEDIATE TABLE CONTENTS SAMPLE ===")
 
             return True
         except Exception as e:
-            print(f"Error: Intermediate table doesn't exist or has issues: {str(e)}")
-            return False
+            error_msg = (
+                f"Error: Intermediate table doesn't exist or has issues: {str(e)}"
+            )
+            print(f"=== {error_msg} ===")
+            raise AirflowException(error_msg)
 
     except Exception as e:
-        print(f"Error checking intermediate table: {str(e)}")
-        raise AirflowException(f"Failed to check intermediate table: {str(e)}")
+        error_msg = f"Failed to check intermediate table: {str(e)}"
+        print(f"=== ERROR: {error_msg} ===")
+        raise AirflowException(error_msg)
 
 
 # Function to run part 2: generate candidates using nearest neighbors
@@ -676,23 +651,29 @@ def verify_destination_data(**kwargs):
         # Create BigQuery client
         client = get_bigquery_client()
 
+        print(f"=== VERIFYING DESTINATION TABLE: {DESTINATION_TABLE} ===")
+
         # Query to count total rows
         query = f"""
         SELECT COUNT(*) as total_rows
         FROM `{DESTINATION_TABLE}`
         """
 
+        print("Executing query to count rows in destination table...")
         # Run the query
         query_job = client.query(query)
         result = list(query_job.result())[0]
         total_rows = result.total_rows
 
-        print(f"Verification: Found {total_rows} total rows in {DESTINATION_TABLE}")
+        print(f"=== DESTINATION TABLE VERIFICATION: Found {total_rows} total rows ===")
 
         if total_rows == 0:
-            raise AirflowException(f"No data found in {DESTINATION_TABLE}")
+            error_msg = f"No data found in {DESTINATION_TABLE}"
+            print(f"=== ERROR: {error_msg} ===")
+            raise AirflowException(error_msg)
 
         # Query to get comparison flow counts
+        print("Executing query to get comparison flow statistics...")
         comparison_flow_query = f"""
         SELECT
             comparison_flow,
@@ -706,14 +687,45 @@ def verify_destination_data(**kwargs):
         flow_query_job = client.query(comparison_flow_query)
         flow_results = flow_query_job.result()
 
-        print("Comparison flow counts:")
-        for row in flow_results:
+        print("=== COMPARISON FLOW STATISTICS ===")
+        flow_rows = list(flow_results)
+        for row in flow_rows:
             print(f"Flow: {row.comparison_flow}, Count: {row.cmpf_count}")
+        print("=== END COMPARISON FLOW STATISTICS ===")
 
+        # Sample some data
+        print("Executing query to sample destination table data...")
+        sample_query = f"""
+        SELECT
+            cluster_id,
+            bin,
+            query_video_id,
+            comparison_flow,
+            candidate_video_id,
+            distance
+        FROM `{DESTINATION_TABLE}`
+        ORDER BY cluster_id, bin, query_video_id, distance
+        LIMIT 5
+        """
+
+        sample_job = client.query(sample_query)
+        sample_results = sample_job.result()
+
+        print("=== DESTINATION TABLE SAMPLE ===")
+        sample_rows = list(sample_results)
+        for i, row in enumerate(sample_rows):
+            print(
+                f"Row {i + 1}: Cluster: {row.cluster_id}, Bin: {row.bin}, Query: {row.query_video_id}, "
+                + f"Candidate: {row.candidate_video_id}, Distance: {row.distance}"
+            )
+        print("=== END DESTINATION TABLE SAMPLE ===")
+
+        print(f"=== VERIFICATION COMPLETED SUCCESSFULLY ===")
         return True
     except Exception as e:
-        print(f"Error verifying destination data: {str(e)}")
-        raise AirflowException(f"Failed to verify destination data: {str(e)}")
+        error_msg = f"Failed to verify destination data: {str(e)}"
+        print(f"=== ERROR: {error_msg} ===")
+        raise AirflowException(error_msg)
 
 
 # Create the DAG
@@ -739,16 +751,10 @@ with DAG(
         python_callable=create_intermediate_table,
     )
 
-    # Check intermediate table exists before proceeding
+    # Check intermediate table data
     check_intermediate = PythonOperator(
         task_id="task-check_intermediate_table",
         python_callable=check_intermediate_table,
-    )
-
-    # Ensure destination table exists
-    ensure_destination_table = PythonOperator(
-        task_id="task-ensure_destination_table",
-        python_callable=ensure_destination_table_exists,
     )
 
     # Part 1: Generate intermediate table
@@ -782,9 +788,8 @@ with DAG(
         start
         >> init_status
         >> create_intermediate_table  # Create table structure first
-        >> check_intermediate  # Verify table exists before proceeding
-        >> ensure_destination_table
         >> generate_intermediate  # Part 1: Generate data
+        >> check_intermediate  # Verify table has data after generation
         >> generate_nn_candidates  # Part 2: Calculate nearest neighbors
         >> verify_data
         >> set_status
