@@ -101,7 +101,7 @@ SELECT
   bin,
   COUNT(*) AS video_count
 FROM
-  `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate_nearest_neighbors`
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates`
 GROUP BY
   cluster_id,
   bin

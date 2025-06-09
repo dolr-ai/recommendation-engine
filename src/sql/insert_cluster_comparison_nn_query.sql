@@ -1,17 +1,21 @@
--- Create table for nearest neighbors results
+-- todo: extract variables at the top of this file
+-- n_nearest_neighbors = 10
+-- cosine_similarity_threshold = 0.336
+-- Create table for nearest neighbors results - flattened structure
 CREATE OR REPLACE TABLE
-  `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate_nearest_neighbors` (
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates` (
     cluster_id INT64,
     bin INT64,
     query_video_id STRING,
     comparison_flow STRING,
-    nearest_neighbors ARRAY<STRUCT<candidate_video_id STRING, distance FLOAT64>>
+    candidate_video_id STRING,
+    distance FLOAT64
   );
 
 
--- Insert nearest neighbors results
+-- Insert nearest neighbors results (flattened at the end for efficiency)
 INSERT INTO
-  `jay-dhanwant-experiments.stage_test_tables.user_cluster_watch_time_comparison_intermediate_nearest_neighbors`
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates`
 WITH
   -- First get the intermediate data to understand the bin relationships
   intermediate_data AS (
@@ -126,35 +130,53 @@ WITH
       JOIN video_embeddings ve ON watched_video_id = ve.video_id
     WHERE
       qe.query_video_id != ve.video_id -- Exclude self-matches
-  ) -- Perform vector similarity search
+  ),
+  -- Create the array structure first for efficiency
+  array_results AS (
+    SELECT
+      cluster_id,
+      bin,
+      query_video_id,
+      comparison_flow,
+      ARRAY_AGG(
+        STRUCT (
+          candidate_video_id,
+          ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') AS distance
+        )
+        ORDER BY
+          ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') ASC
+        LIMIT
+          10 -- Get top 10 nearest neighbors
+      ) AS nearest_neighbors
+    FROM
+      search_space_videos
+    WHERE
+      ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') < 0.336 -- Only include videos with cosine similarity > 0.664
+    GROUP BY
+      cluster_id,
+      bin,
+      query_video_id,
+      comparison_flow,
+      query_embedding
+  ) -- Flatten the array results to get individual rows
 SELECT
-  cluster_id,
-  bin,
-  query_video_id,
-  comparison_flow,
-  -- Make sure to include this in the final output
-  ARRAY_AGG(
-    STRUCT (
-      candidate_video_id,
-      ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') AS distance
-    )
-    ORDER BY
-      ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') ASC
-    LIMIT
-      10 -- Get top 10 nearest neighbors
-  ) AS nearest_neighbors
+  ar.cluster_id,
+  ar.bin,
+  ar.query_video_id,
+  ar.comparison_flow,
+  nn.candidate_video_id,
+  nn.distance
 FROM
-  search_space_videos
-WHERE
-  ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') < 0.336 -- Only include videos with cosine similarity > 0.664
-GROUP BY
-  cluster_id,
-  bin,
-  query_video_id,
-  comparison_flow,
-  -- Make sure to include this in the GROUP BY
-  query_embedding
+  array_results ar
+  CROSS JOIN UNNEST (ar.nearest_neighbors) nn
 ORDER BY
-  cluster_id,
-  bin,
-  query_video_id;
+  ar.cluster_id,
+  ar.bin,
+  ar.query_video_id,
+  nn.distance;
+
+
+-- note for final table's cross join:
+-- one item of query_video_id will have multiple nearest_neighbors
+-- so we need to cross join to get all the nearest_neighbors
+-- hence it will be 1 cross N nearest_neighbors will have N rows per query_video_id
