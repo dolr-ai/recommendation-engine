@@ -211,3 +211,27 @@ print(f"   - Empty neighbors: {empty_neighbors}")
 
 print("2. Check if query videos exist in the embedding table")
 print("3. Check if search space (list_videos_watched) has enough candidates")
+# %%
+
+# Analyze distance distribution in your data
+all_distances = []
+for neighbors in df_nn["nearest_neighbors"]:
+    distances = [n["distance"] for n in neighbors]
+    all_distances.extend(distances)
+
+
+print("Distance distribution:")
+print(f"Min: {np.min(all_distances):.3f}")
+print(f"25th percentile: {np.percentile(all_distances, 25):.3f}")
+print(f"Median: {np.percentile(all_distances, 50):.3f}")
+print(f"75th percentile: {np.percentile(all_distances, 75):.3f}")
+print(f"Max: {np.max(all_distances):.3f}")
+
+# Convert to similarity
+similarities = [1 - d for d in all_distances]
+print(f"\nSimilarity distribution:")
+print(f"Max similarity: {np.max(similarities):.3f}")
+print(f"75th percentile: {np.percentile(similarities, 75):.3f}")
+print(f"Median: {np.percentile(similarities, 50):.3f}")
+print(f"25th percentile: {np.percentile(similarities, 25):.3f}")
+print(f"Min similarity: {np.min(similarities):.3f}")
