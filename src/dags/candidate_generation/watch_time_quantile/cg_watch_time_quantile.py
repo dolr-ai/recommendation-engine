@@ -106,14 +106,20 @@ def set_status_completed(**kwargs):
 
 
 # Function to create intermediate table structure
-def create_intermediate_table(**kwargs):
-    """Create the intermediate table structure if it doesn't exist."""
+# Function to create and populate the intermediate table
+def generate_intermediate_table(**kwargs):
+    """Create and populate the intermediate table with watch time quantiles."""
     try:
+        # Create BigQuery client
         client = get_bigquery_client()
 
-        # SQL query to create the intermediate table
+        print(
+            f"=== CREATING AND POPULATING INTERMEDIATE TABLE: {INTERMEDIATE_TABLE} ==="
+        )
+
+        # SQL query: Create and generate the intermediate comparison table
         query = f"""
-        -- Create the table structure first
+        -- First create or replace the table structure
         CREATE OR REPLACE TABLE
           `{INTERMEDIATE_TABLE}` (
             cluster_id INT64,
@@ -127,32 +133,6 @@ def create_intermediate_table(**kwargs):
             num_cx INT64,
             num_cy INT64
           );
-        """
-
-        print(f"Creating intermediate table structure: {INTERMEDIATE_TABLE}")
-        query_job = client.query(query)
-        query_job.result()  # Wait for the query to complete
-        print(f"Table {INTERMEDIATE_TABLE} created successfully")
-
-        return True
-    except Exception as e:
-        print(f"Error creating intermediate table: {str(e)}")
-        raise AirflowException(f"Failed to create intermediate table: {str(e)}")
-
-
-# Function to run part 1: generate intermediate table
-def generate_intermediate_table(**kwargs):
-    """Execute the first SQL query to generate the intermediate table with watch time quantiles."""
-    try:
-        # Create BigQuery client
-        client = get_bigquery_client()
-
-        # First SQL query: Generate the intermediate comparison table
-        query = f"""
-        -- First truncate the table to remove existing data
-        TRUNCATE TABLE
-          `{INTERMEDIATE_TABLE}`;
-
 
         -- Then insert data into the table
         INSERT INTO
@@ -361,11 +341,11 @@ def generate_intermediate_table(**kwargs):
           bin;
         """
 
-        print("Running query to generate intermediate table...")
+        print("Running query to create and populate intermediate table...")
         # Run the query
         query_job = client.query(query)
         query_job.result()  # Wait for the query to complete
-        print("Intermediate table generation completed")
+        print("=== INTERMEDIATE TABLE CREATION AND POPULATION COMPLETED ===")
 
         # Verify intermediate data was inserted
         verify_query = f"""
@@ -373,19 +353,23 @@ def generate_intermediate_table(**kwargs):
         FROM `{INTERMEDIATE_TABLE}`
         """
 
+        print("Verifying data was inserted correctly...")
         verify_job = client.query(verify_query)
         result = list(verify_job.result())[0]
         row_count = result.row_count
 
-        print(f"Verification: Found {row_count} rows in intermediate table")
+        print(f"=== VERIFICATION: Found {row_count} rows in intermediate table ===")
 
         if row_count == 0:
-            raise AirflowException(f"No data was inserted into {INTERMEDIATE_TABLE}")
+            error_msg = f"No data was inserted into {INTERMEDIATE_TABLE}"
+            print(f"=== ERROR: {error_msg} ===")
+            raise AirflowException(error_msg)
 
         return True
     except Exception as e:
-        print(f"Error generating intermediate table: {str(e)}")
-        raise AirflowException(f"Failed to generate intermediate table: {str(e)}")
+        error_msg = f"Failed to create and populate intermediate table: {str(e)}"
+        print(f"=== ERROR: {error_msg} ===")
+        raise AirflowException(error_msg)
 
 
 # Function to check if intermediate table exists and has data
@@ -745,22 +729,16 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
-    # Create intermediate table structure
-    create_intermediate_table = PythonOperator(
-        task_id="task-create_intermediate_table",
-        python_callable=create_intermediate_table,
+    # Create and populate intermediate table
+    generate_intermediate = PythonOperator(
+        task_id="task-generate_intermediate_table",
+        python_callable=generate_intermediate_table,
     )
 
     # Check intermediate table data
     check_intermediate = PythonOperator(
         task_id="task-check_intermediate_table",
         python_callable=check_intermediate_table,
-    )
-
-    # Part 1: Generate intermediate table
-    generate_intermediate = PythonOperator(
-        task_id="task-generate_intermediate_table",
-        python_callable=generate_intermediate_table,
     )
 
     # Part 2: Generate candidates
@@ -783,14 +761,13 @@ with DAG(
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
-    # Define task dependencies - ensure Part 1 runs before Part 2
+    # Define task dependencies
     (
         start
         >> init_status
-        >> create_intermediate_table  # Create table structure first
-        >> generate_intermediate  # Part 1: Generate data
+        >> generate_intermediate  # Create and populate intermediate table
         >> check_intermediate  # Verify table has data after generation
-        >> generate_nn_candidates  # Part 2: Calculate nearest neighbors
+        >> generate_nn_candidates  # Calculate nearest neighbors
         >> verify_data
         >> set_status
         >> end
