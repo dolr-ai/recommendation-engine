@@ -59,6 +59,10 @@ COSINE_DISTANCE_THRESHOLD = (
     1 - COSINE_SIMILARITY_THRESHOLD
 )  # query below uses cosine distance hence additional threshold
 
+# Video count thresholds
+MIN_LIST_VIDEOS_WATCHED = 100  # Minimum number of videos in current bin
+MIN_SHIFTED_LIST_VIDEOS_WATCHED = 100  # Minimum number of videos in previous bin
+
 # Status variable name
 WATCH_TIME_QUANTILE_STATUS_VARIABLE = "cg_watch_time_quantile_completed"
 
@@ -457,6 +461,22 @@ def generate_candidates(**kwargs):
         INSERT INTO
           `{DESTINATION_TABLE}`
         WITH
+          variables AS (
+            SELECT
+              {N_NEAREST_NEIGHBORS} AS n_nearest_neighbors,
+              -- Number of nearest neighbors to retrieve
+              {COSINE_DISTANCE_THRESHOLD} AS cosine_distance_threshold,
+              -- Threshold for cosine distance (lower means more similar)
+              0.25 AS top_percentile,
+              -- Sample from top 25 percentile
+              100 AS sample_size,
+              -- Sample size from top percentile (min items in search space)
+              {MIN_LIST_VIDEOS_WATCHED} AS min_list_videos_watched,
+              -- Minimum number of videos in current bin (min query items)
+              -- shifted_list_videos_watched = list_videos_watched.shift(1)
+              -- i.e shift down by one bin
+              {MIN_SHIFTED_LIST_VIDEOS_WATCHED} AS min_shifted_list_videos_watched -- Minimum number of videos in previous bin
+          ),
           -- First get the intermediate data to understand the bin relationships
           intermediate_data AS (
             SELECT
@@ -477,6 +497,8 @@ def generate_candidates(**kwargs):
               `{INTERMEDIATE_TABLE}`
             WHERE
               flag_compare = TRUE -- Only process rows where comparison is flagged
+              AND ARRAY_LENGTH(list_videos_watched) > (SELECT min_list_videos_watched FROM variables) -- Ensure sufficient videos in current bin
+              AND ARRAY_LENGTH(shifted_list_videos_watched) > (SELECT min_shifted_list_videos_watched FROM variables) -- Ensure sufficient videos in previous bin
           ),
           query_videos AS (
             -- Flatten the shifted_list_videos_watched to get individual query video_ids
@@ -514,6 +536,8 @@ def generate_candidates(**kwargs):
             WHERE
               `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) IS NOT NULL
           ),
+          -- todo: create table in production environment for average embeddings as a dag
+          -- if needed, we can manually process the embeddings of current videos to backfill
           -- Aggregate embeddings by video_id (average multiple embeddings per video)
           video_embeddings AS (
             SELECT
@@ -563,57 +587,99 @@ def generate_candidates(**kwargs):
               -- Make sure to pass this field along
               qe.query_embedding,
               ve.video_id AS candidate_video_id,
-              ve.avg_embedding AS candidate_embedding
+              ve.avg_embedding AS candidate_embedding,
+              ML.DISTANCE (qe.query_embedding, ve.avg_embedding, 'COSINE') AS distance
             FROM
               query_embeddings qe,
               UNNEST (qe.list_videos_watched) AS watched_video_id
               JOIN video_embeddings ve ON watched_video_id = ve.video_id
             WHERE
               qe.query_video_id != ve.video_id -- Exclude self-matches
+              AND ML.DISTANCE (qe.query_embedding, ve.avg_embedding, 'COSINE') < (
+                SELECT
+                  cosine_distance_threshold
+                FROM
+                  variables
+              ) -- Apply cosine threshold
           ),
-          -- Create the array structure first for efficiency
-          array_results AS (
+          -- Get top nearest neighbors for each query
+          top_neighbors AS (
             SELECT
               cluster_id,
               bin,
               query_video_id,
               comparison_flow,
-              ARRAY_AGG(
-                STRUCT (
-                  candidate_video_id,
-                  ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') AS distance
-                )
+              candidate_video_id,
+              distance,
+              -- Calculate percentile rank for each candidate within its query group
+              PERCENT_RANK() OVER (
+                PARTITION BY
+                  cluster_id,
+                  bin,
+                  query_video_id
                 ORDER BY
-                  ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') ASC
-                LIMIT
-                  {N_NEAREST_NEIGHBORS} -- Get top N nearest neighbors
-              ) AS nearest_neighbors
+                  distance ASC
+              ) AS percentile_rank
             FROM
               search_space_videos
-            WHERE
-              ML.DISTANCE (query_embedding, candidate_embedding, 'COSINE') < {COSINE_DISTANCE_THRESHOLD} -- Only include videos below threshold
-            GROUP BY
+          ),
+          -- Sample from top percentile
+          sampled_candidates AS (
+            SELECT
               cluster_id,
               bin,
               query_video_id,
               comparison_flow,
-              query_embedding
-          ) -- Flatten the array results to get individual rows
+              candidate_video_id,
+              distance
+            FROM
+              top_neighbors
+            WHERE
+              -- Only include candidates in the top percentile
+              percentile_rank <= (
+                SELECT
+                  top_percentile
+                FROM
+                  variables
+              ) -- Use RAND() to randomly sample
+            ORDER BY
+              cluster_id,
+              bin,
+              query_video_id,
+              RAND()
+          ) -- Final selection with sampling
         SELECT
-          ar.cluster_id,
-          ar.bin,
-          ar.query_video_id,
-          ar.comparison_flow,
-          nn.candidate_video_id,
-          nn.distance
+          cluster_id,
+          bin,
+          query_video_id,
+          comparison_flow,
+          candidate_video_id,
+          distance
         FROM
-          array_results ar
-          CROSS JOIN UNNEST (ar.nearest_neighbors) nn
+          sampled_candidates -- Sample size per query
+        QUALIFY
+          ROW_NUMBER() OVER (
+            PARTITION BY
+              cluster_id,
+              bin,
+              query_video_id
+            ORDER BY
+              RAND()
+          ) <= (
+            SELECT
+              sample_size
+            FROM
+              variables
+          )
         ORDER BY
-          ar.cluster_id,
-          ar.bin,
-          ar.query_video_id,
-          nn.distance;
+          cluster_id,
+          bin,
+          query_video_id,
+          distance;
+
+
+        -- note: We now get 100 nearest neighbors, filter by cosine threshold,
+        -- then sample randomly from the top 25 percentile of the results
         """
 
         print("Running query to generate candidates using nearest neighbors...")
@@ -656,12 +722,16 @@ def verify_destination_data(**kwargs):
             print(f"=== ERROR: {error_msg} ===")
             raise AirflowException(error_msg)
 
-        # Query to get comparison flow counts
-        print("Executing query to get comparison flow statistics...")
+        # Query to get comparison flow counts with candidate metrics
+        print(
+            "Executing query to get comparison flow statistics with candidate counts..."
+        )
         comparison_flow_query = f"""
         SELECT
             comparison_flow,
-            COUNT(comparison_flow) as cmpf_count
+            COUNT(comparison_flow) as cmpf_count,
+            COUNT(candidate_video_id) as candidate_count,
+            COUNT(DISTINCT candidate_video_id) as unique_candidate_count
         FROM `{DESTINATION_TABLE}`
         GROUP BY comparison_flow
         ORDER BY comparison_flow
@@ -674,8 +744,33 @@ def verify_destination_data(**kwargs):
         print("=== COMPARISON FLOW STATISTICS ===")
         flow_rows = list(flow_results)
         for row in flow_rows:
-            print(f"Flow: {row.comparison_flow}, Count: {row.cmpf_count}")
+            print(
+                f"Flow: {row.comparison_flow}, Total: {row.cmpf_count}, "
+                + f"Candidates: {row.candidate_count}, Unique Candidates: {row.unique_candidate_count}"
+            )
         print("=== END COMPARISON FLOW STATISTICS ===")
+
+        # Get overall candidate metrics
+        print("Executing query to get overall candidate metrics...")
+        candidate_metrics_query = f"""
+        SELECT
+            COUNT(candidate_video_id) as total_candidates,
+            COUNT(DISTINCT candidate_video_id) as total_unique_candidates
+        FROM `{DESTINATION_TABLE}`
+        """
+
+        # Run the candidate metrics query
+        candidate_metrics_job = client.query(candidate_metrics_query)
+        candidate_metrics_result = list(candidate_metrics_job.result())[0]
+
+        print("=== OVERALL CANDIDATE METRICS ===")
+        print(
+            f"Total candidate recommendations: {candidate_metrics_result.total_candidates}"
+        )
+        print(
+            f"Total unique candidate videos: {candidate_metrics_result.total_unique_candidates}"
+        )
+        print("=== END OVERALL CANDIDATE METRICS ===")
 
         # Sample some data
         print("Executing query to sample destination table data...")
