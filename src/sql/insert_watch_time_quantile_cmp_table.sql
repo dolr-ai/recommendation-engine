@@ -1,6 +1,17 @@
--- First truncate the table to remove existing data
-TRUNCATE TABLE
-  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`;
+-- First create or replace the table structure
+CREATE OR REPLACE TABLE
+  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate` (
+    cluster_id INT64,
+    bin INT64,
+    list_videos_watched ARRAY<STRING>,
+    flag_same_cluster BOOL,
+    flag_same_bin BOOL,
+    shifted_list_videos_watched ARRAY<STRING>,
+    flag_compare BOOL,
+    videos_to_be_checked_for_tier_progression ARRAY<STRING>,
+    num_cx INT64,
+    num_cy INT64
+  );
 
 
 -- Then insert data into the table
@@ -8,9 +19,11 @@ INSERT INTO
   `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate` -- VARIABLES
   -- Hardcoded values - equivalent to n_bins=4 in Python code
 WITH
-  VARS AS (
+  variables AS (
     SELECT
-      4 AS n_bins
+      4 AS n_bins,
+      100 AS min_list_videos_watched,
+      100 AS min_shifted_list_videos_watched
   ),
   -- Read data from the clusters table
   clusters AS (
@@ -69,7 +82,7 @@ WITH
           cluster_id
         ORDER BY
           total_time_watched_seconds
-      ) - 1 AS bin
+      ) -1 AS bin
     FROM
       user_cluster_time
   ),
@@ -112,9 +125,8 @@ WITH
     FROM
       cluser_quantiles_agg_raw
   ),
-  -- Add flags exactly as pandas implementation
-  -- The key is using shift(1) which translates to LAG in SQL
-  cluser_quantiles_with_flags AS (
+  -- First get the shifted data using LAG
+  cluser_quantiles_with_lag AS (
     SELECT
       cluster_id,
       bin,
@@ -136,7 +148,7 @@ WITH
         ) = bin,
         FALSE
       ) AS flag_same_bin,
-      -- Get previous row's videos
+      -- Get previous row's videos (just the array, no unnesting yet)
       IFNULL(
         LAG(list_videos_watched) OVER (
           ORDER BY
@@ -144,9 +156,27 @@ WITH
             bin
         ),
         []
-      ) AS shifted_list_videos_watched
+      ) AS shifted_videos_raw
     FROM
       cluser_quantiles_agg
+  ),
+  -- Now deduplicate the shifted videos in a separate step
+  cluser_quantiles_with_flags AS (
+    SELECT
+      cluster_id,
+      bin,
+      list_videos_watched,
+      flag_same_cluster,
+      flag_same_bin,
+      -- Now deduplicate the shifted videos
+      ARRAY (
+        SELECT DISTINCT
+          video_id
+        FROM
+          UNNEST (shifted_videos_raw) AS video_id
+      ) AS shifted_list_videos_watched
+    FROM
+      cluser_quantiles_with_lag
   ),
   -- Calculate flag_compare exactly as in the Python function
   cluser_quantiles_with_compare AS (
@@ -162,9 +192,8 @@ WITH
     FROM
       cluser_quantiles_with_flags
   ),
-  -- Add videos_to_be_checked_for_tier_progression
-  -- Exactly matching Python's set difference operation
-  final_result AS (
+  -- Prepare a CTE to extract videos that are in the shifted list but not in the current list
+  videos_not_in_current AS (
     SELECT
       cluster_id,
       bin,
@@ -173,33 +202,71 @@ WITH
       flag_same_bin,
       shifted_list_videos_watched,
       flag_compare,
-      -- Match Python's list(set(row["shifted_list_videos_watched"]).difference(set(row["list_videos_watched"])))
+      -- For each row, create a filtered array of videos that aren't in the current list
+      ARRAY (
+        SELECT
+          v
+        FROM
+          UNNEST (shifted_list_videos_watched) AS v
+        WHERE
+          v NOT IN (
+            SELECT
+              v2
+            FROM
+              UNNEST (list_videos_watched) AS v2
+          )
+      ) AS progression_videos
+    FROM
+      cluser_quantiles_with_compare
+    WHERE
+      flag_compare = TRUE
+  ),
+  -- Add videos_to_be_checked_for_tier_progression
+  -- Exactly matching Python's set difference operation
+  final_result AS (
+    SELECT
+      c.cluster_id,
+      c.bin,
+      c.list_videos_watched,
+      c.flag_same_cluster,
+      c.flag_same_bin,
+      c.shifted_list_videos_watched,
+      c.flag_compare,
+      -- Use the pre-computed array if this is a row with flag_compare = TRUE
       CASE
-        WHEN flag_compare = TRUE THEN (
+        WHEN c.flag_compare = TRUE THEN (
           SELECT
-            ARRAY_AGG(v)
+            progression_videos
           FROM
-            (
-              SELECT
-                v
-              FROM
-                UNNEST (shifted_list_videos_watched) AS v
-              WHERE
-                v NOT IN (
-                  SELECT
-                    video_id
-                  FROM
-                    UNNEST (list_videos_watched) AS video_id
-                )
-            )
+            videos_not_in_current v
+          WHERE
+            v.cluster_id = c.cluster_id
+            AND v.bin = c.bin
         )
         ELSE []
       END AS videos_to_be_checked_for_tier_progression,
       -- Length calculations
-      ARRAY_LENGTH(shifted_list_videos_watched) AS num_cx,
-      ARRAY_LENGTH(list_videos_watched) AS num_cy
+      ARRAY_LENGTH(c.shifted_list_videos_watched) AS num_cx,
+      ARRAY_LENGTH(c.list_videos_watched) AS num_cy
     FROM
-      cluser_quantiles_with_compare
+      cluser_quantiles_with_compare c -- Filter here to ensure sufficient videos in both lists
+    WHERE
+      (c.flag_compare IS NULL)
+      OR (
+        c.flag_compare = TRUE
+        AND ARRAY_LENGTH(c.list_videos_watched) > (
+          SELECT
+            min_list_videos_watched
+          FROM
+            variables
+        )
+        AND ARRAY_LENGTH(c.shifted_list_videos_watched) > (
+          SELECT
+            min_shifted_list_videos_watched
+          FROM
+            variables
+        )
+      )
   ) -- Final output in the same order as Python
 SELECT
   *
