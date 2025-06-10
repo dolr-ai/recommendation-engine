@@ -64,8 +64,8 @@ MIN_LIST_VIDEOS_WATCHED = 100  # Minimum number of videos in current bin
 MIN_SHIFTED_LIST_VIDEOS_WATCHED = 100  # Minimum number of videos in previous bin
 
 # Candidate generation parameters
-TOP_PERCENTILE = 0.25  # Sample from top 25 percentile
-SAMPLE_SIZE = 100  # Sample size from top percentile (min items in search space)
+TOP_PERCENTILE = 0.15  # Sample from top 15 percentile (reduced from 25%)
+SAMPLE_SIZE = 30  # Sample size from top percentile (reduced from 100)
 
 # Status variable name
 WATCH_TIME_QUANTILE_STATUS_VARIABLE = "cg_watch_time_quantile_completed"
@@ -377,6 +377,9 @@ def generate_intermediate_table(**kwargs):
         """
 
         print("Running query to create and populate intermediate table...")
+        print("=== QUERY START ===")
+        print(query)
+        print("=== QUERY END ===")
         # Run the query
         query_job = client.query(query)
         query_job.result()  # Wait for the query to complete
@@ -389,6 +392,9 @@ def generate_intermediate_table(**kwargs):
         """
 
         print("Verifying data was inserted correctly...")
+        print("=== VERIFICATION QUERY ===")
+        print(verify_query)
+        print("=== END VERIFICATION QUERY ===")
         verify_job = client.query(verify_query)
         result = list(verify_job.result())[0]
         row_count = result.row_count
@@ -428,6 +434,9 @@ def check_intermediate_table(**kwargs):
 
         try:
             print(f"Executing query to check intermediate table data...")
+            print("=== INTERMEDIATE TABLE CHECK QUERY ===")
+            print(query)
+            print("=== END INTERMEDIATE TABLE CHECK QUERY ===")
             query_job = client.query(query)
             results = query_job.result()
 
@@ -524,7 +533,7 @@ def generate_candidates(**kwargs):
             WHERE
               flag_compare = TRUE -- Only process rows where comparison is flagged
           ),
-          query_videos AS (
+          query_videos_raw AS (
             -- Flatten the shifted_list_videos_watched to get individual query video_ids
             SELECT
               idata.cluster_id,
@@ -544,6 +553,16 @@ def generate_candidates(**kwargs):
             FROM
               intermediate_data idata,
               UNNEST (idata.shifted_list_videos_watched) AS query_video_id
+          ),
+          -- Sample query videos to reduce comparisons
+          query_videos AS (
+            SELECT *
+            FROM query_videos_raw
+            -- Add randomization to sample more evenly
+            QUALIFY ROW_NUMBER() OVER (
+              PARTITION BY cluster_id, target_bin
+              ORDER BY RAND()
+            ) <= 300 -- Limit query videos per cluster-bin combination
           ),
           -- First, flatten all embeddings with their video_ids
           embedding_elements AS (
@@ -601,25 +620,42 @@ def generate_candidates(**kwargs):
               query_videos qv
               JOIN video_embeddings ve ON qv.query_video_id = ve.video_id
           ),
-          search_space_videos AS (
-            -- Get averaged embeddings for videos in list_videos_watched (search space X)
+          -- First sample the watched videos to reduce search space
+          sampled_watched_videos AS (
             SELECT
               qe.cluster_id,
               qe.bin,
               qe.query_video_id,
               qe.comparison_flow,
-              -- Make sure to pass this field along
               qe.query_embedding,
-              ve.video_id AS candidate_video_id,
-              ve.avg_embedding AS candidate_embedding,
-              ML.DISTANCE (qe.query_embedding, ve.avg_embedding, 'COSINE') AS distance
+              watched_video_id
             FROM
               query_embeddings qe,
               UNNEST (qe.list_videos_watched) AS watched_video_id
-              JOIN video_embeddings ve ON watched_video_id = ve.video_id
+            -- Add a randomized sample per query video
+            QUALIFY ROW_NUMBER() OVER (
+              PARTITION BY qe.cluster_id, qe.bin, qe.query_video_id
+              ORDER BY RAND()
+            ) <= 200 -- Limit target videos per query
+          ),
+          search_space_videos AS (
+            -- Get averaged embeddings for videos in list_videos_watched (search space X)
+            SELECT
+              sw.cluster_id,
+              sw.bin,
+              sw.query_video_id,
+              sw.comparison_flow,
+              -- Make sure to pass this field along
+              sw.query_embedding,
+              ve.video_id AS candidate_video_id,
+              ve.avg_embedding AS candidate_embedding,
+              ML.DISTANCE (sw.query_embedding, ve.avg_embedding, 'COSINE') AS distance
+            FROM
+              sampled_watched_videos sw
+              JOIN video_embeddings ve ON sw.watched_video_id = ve.video_id
             WHERE
-              qe.query_video_id != ve.video_id -- Exclude self-matches
-              AND ML.DISTANCE (qe.query_embedding, ve.avg_embedding, 'COSINE') < (
+              sw.query_video_id != ve.video_id -- Exclude self-matches
+              AND ML.DISTANCE (sw.query_embedding, ve.avg_embedding, 'COSINE') < (
                 SELECT
                   cosine_distance_threshold
                 FROM
@@ -707,6 +743,9 @@ def generate_candidates(**kwargs):
         """
 
         print("Running query to generate candidates using nearest neighbors...")
+        print("=== CANDIDATES QUERY START ===")
+        print(query)
+        print("=== CANDIDATES QUERY END ===")
         # Run the query
         query_job = client.query(query)
         query_job.result()  # Wait for the query to complete
@@ -734,6 +773,9 @@ def verify_destination_data(**kwargs):
         """
 
         print("Executing query to count rows in destination table...")
+        print("=== COUNT QUERY ===")
+        print(query)
+        print("=== END COUNT QUERY ===")
         # Run the query
         query_job = client.query(query)
         result = list(query_job.result())[0]
@@ -765,6 +807,10 @@ def verify_destination_data(**kwargs):
         ORDER BY comparison_flow
         """
 
+        print("=== FLOW STATS QUERY ===")
+        print(comparison_flow_query)
+        print("=== END FLOW STATS QUERY ===")
+
         # Run the comparison flow query
         flow_query_job = client.query(comparison_flow_query)
         flow_results = flow_query_job.result()
@@ -794,6 +840,10 @@ def verify_destination_data(**kwargs):
         ORDER BY cluster_id
         """
 
+        print("=== CLUSTER STATS QUERY ===")
+        print(cluster_stats_query)
+        print("=== END CLUSTER STATS QUERY ===")
+
         # Run the cluster statistics query
         cluster_stats_job = client.query(cluster_stats_query)
         cluster_stats_results = cluster_stats_job.result()
@@ -821,6 +871,10 @@ def verify_destination_data(**kwargs):
             COUNT(DISTINCT candidate_video_id) / COUNT(candidate_video_id) * 100 as candidate_uniqueness_pct
         FROM `{DESTINATION_TABLE}`
         """
+
+        print("=== OVERALL METRICS QUERY ===")
+        print(candidate_metrics_query)
+        print("=== END OVERALL METRICS QUERY ===")
 
         # Run the candidate metrics query
         candidate_metrics_job = client.query(candidate_metrics_query)
@@ -852,6 +906,10 @@ def verify_destination_data(**kwargs):
         ORDER BY cluster_id, bin, query_video_id, distance
         LIMIT 5
         """
+
+        print("=== SAMPLE QUERY ===")
+        print(sample_query)
+        print("=== END SAMPLE QUERY ===")
 
         sample_job = client.query(sample_query)
         sample_results = sample_job.result()
