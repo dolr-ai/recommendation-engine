@@ -63,6 +63,10 @@ COSINE_DISTANCE_THRESHOLD = (
 MIN_LIST_VIDEOS_WATCHED = 100  # Minimum number of videos in current bin
 MIN_SHIFTED_LIST_VIDEOS_WATCHED = 100  # Minimum number of videos in previous bin
 
+# Candidate generation parameters
+TOP_PERCENTILE = 0.25  # Sample from top 25 percentile
+SAMPLE_SIZE = 100  # Sample size from top percentile (min items in search space)
+
 # Status variable name
 WATCH_TIME_QUANTILE_STATUS_VARIABLE = "cg_watch_time_quantile_completed"
 
@@ -143,9 +147,11 @@ def generate_intermediate_table(**kwargs):
           `{INTERMEDIATE_TABLE}` -- VARIABLES
           -- Hardcoded values - equivalent to n_bins=4 in Python code
         WITH
-          VARS AS (
+          variables AS (
             SELECT
-              {N_BINS} AS n_bins
+              {N_BINS} AS n_bins,
+              {MIN_LIST_VIDEOS_WATCHED} AS min_list_videos_watched,
+              {MIN_SHIFTED_LIST_VIDEOS_WATCHED} AS min_shifted_list_videos_watched
           ),
           -- Read data from the clusters table
           clusters AS (
@@ -271,14 +277,19 @@ def generate_intermediate_table(**kwargs):
                 ) = bin,
                 FALSE
               ) AS flag_same_bin,
-              -- Get previous row's videos
-              IFNULL(
-                LAG(list_videos_watched) OVER (
-                  ORDER BY
-                    cluster_id,
-                    bin
-                ),
-                []
+              -- Get previous row's videos and deduplicate them
+              ARRAY(
+                SELECT DISTINCT video_id
+                FROM UNNEST(
+                  IFNULL(
+                    LAG(list_videos_watched) OVER (
+                      ORDER BY
+                        cluster_id,
+                        bin
+                    ),
+                    []
+                  )
+                ) AS video_id
               ) AS shifted_list_videos_watched
             FROM
               cluser_quantiles_agg
@@ -335,6 +346,11 @@ def generate_intermediate_table(**kwargs):
               ARRAY_LENGTH(list_videos_watched) AS num_cy
             FROM
               cluser_quantiles_with_compare
+            -- Filter here to ensure sufficient videos in both lists
+            WHERE (flag_compare IS NULL) OR
+                 (flag_compare = TRUE AND
+                  ARRAY_LENGTH(list_videos_watched) > (SELECT min_list_videos_watched FROM variables) AND
+                  ARRAY_LENGTH(shifted_list_videos_watched) > (SELECT min_shifted_list_videos_watched FROM variables))
           ) -- Final output in the same order as Python
         SELECT
           *
@@ -467,15 +483,10 @@ def generate_candidates(**kwargs):
               -- Number of nearest neighbors to retrieve
               {COSINE_DISTANCE_THRESHOLD} AS cosine_distance_threshold,
               -- Threshold for cosine distance (lower means more similar)
-              0.25 AS top_percentile,
-              -- Sample from top 25 percentile
-              100 AS sample_size,
+              {TOP_PERCENTILE} AS top_percentile,
+              -- Sample from top percentile
+              {SAMPLE_SIZE} AS sample_size
               -- Sample size from top percentile (min items in search space)
-              {MIN_LIST_VIDEOS_WATCHED} AS min_list_videos_watched,
-              -- Minimum number of videos in current bin (min query items)
-              -- shifted_list_videos_watched = list_videos_watched.shift(1)
-              -- i.e shift down by one bin
-              {MIN_SHIFTED_LIST_VIDEOS_WATCHED} AS min_shifted_list_videos_watched -- Minimum number of videos in previous bin
           ),
           -- First get the intermediate data to understand the bin relationships
           intermediate_data AS (
@@ -497,8 +508,6 @@ def generate_candidates(**kwargs):
               `{INTERMEDIATE_TABLE}`
             WHERE
               flag_compare = TRUE -- Only process rows where comparison is flagged
-              AND ARRAY_LENGTH(list_videos_watched) > (SELECT min_list_videos_watched FROM variables) -- Ensure sufficient videos in current bin
-              AND ARRAY_LENGTH(shifted_list_videos_watched) > (SELECT min_shifted_list_videos_watched FROM variables) -- Ensure sufficient videos in previous bin
           ),
           query_videos AS (
             -- Flatten the shifted_list_videos_watched to get individual query video_ids
@@ -730,8 +739,12 @@ def verify_destination_data(**kwargs):
         SELECT
             comparison_flow,
             COUNT(comparison_flow) as cmpf_count,
+            COUNT(query_video_id) as qvid_count,
+            COUNT(DISTINCT query_video_id) as unique_qvid_count,
             COUNT(candidate_video_id) as candidate_count,
-            COUNT(DISTINCT candidate_video_id) as unique_candidate_count
+            COUNT(DISTINCT candidate_video_id) as unique_candidate_count,
+            COUNT(DISTINCT query_video_id) / COUNT(query_video_id) * 100 as qvid_uniqueness_pct,
+            COUNT(DISTINCT candidate_video_id) / COUNT(candidate_video_id) * 100 as candidate_uniqueness_pct
         FROM `{DESTINATION_TABLE}`
         GROUP BY comparison_flow
         ORDER BY comparison_flow
@@ -746,16 +759,51 @@ def verify_destination_data(**kwargs):
         for row in flow_rows:
             print(
                 f"Flow: {row.comparison_flow}, Total: {row.cmpf_count}, "
-                + f"Candidates: {row.candidate_count}, Unique Candidates: {row.unique_candidate_count}"
+                + f"Query Videos: {row.qvid_count} (Unique: {row.unique_qvid_count}, {row.qvid_uniqueness_pct:.1f}%), "
+                + f"Candidates: {row.candidate_count} (Unique: {row.unique_candidate_count}, {row.candidate_uniqueness_pct:.1f}%)"
             )
         print("=== END COMPARISON FLOW STATISTICS ===")
+
+        # Get per-cluster statistics
+        print("Executing query to get per-cluster statistics...")
+        cluster_stats_query = f"""
+        SELECT
+            cluster_id,
+            COUNT(*) as total_rows,
+            COUNT(DISTINCT query_video_id) as unique_qvids,
+            COUNT(DISTINCT candidate_video_id) as unique_candidates,
+            COUNT(DISTINCT bin) as num_bins,
+            COUNT(DISTINCT CONCAT(bin, '-', query_video_id)) as unique_bin_qvid_pairs
+        FROM `{DESTINATION_TABLE}`
+        GROUP BY cluster_id
+        ORDER BY cluster_id
+        """
+
+        # Run the cluster statistics query
+        cluster_stats_job = client.query(cluster_stats_query)
+        cluster_stats_results = cluster_stats_job.result()
+
+        print("=== PER-CLUSTER STATISTICS ===")
+        cluster_rows = list(cluster_stats_results)
+        for row in cluster_rows:
+            print(
+                f"Cluster {row.cluster_id}: Rows: {row.total_rows}, "
+                + f"Unique Query Videos: {row.unique_qvids}, Unique Candidates: {row.unique_candidates}, "
+                + f"Bins: {row.num_bins}, Unique Bin-Query Pairs: {row.unique_bin_qvid_pairs}"
+            )
+        print("=== END PER-CLUSTER STATISTICS ===")
 
         # Get overall candidate metrics
         print("Executing query to get overall candidate metrics...")
         candidate_metrics_query = f"""
         SELECT
+            COUNT(query_video_id) as total_qvids,
+            COUNT(DISTINCT query_video_id) as unique_qvids,
+            COUNT(DISTINCT CONCAT(CAST(cluster_id AS STRING), '-', CAST(bin AS STRING), '-', query_video_id)) as unique_cluster_bin_qvid_combos,
             COUNT(candidate_video_id) as total_candidates,
-            COUNT(DISTINCT candidate_video_id) as total_unique_candidates
+            COUNT(DISTINCT candidate_video_id) as total_unique_candidates,
+            COUNT(DISTINCT query_video_id) / COUNT(query_video_id) * 100 as qvid_uniqueness_pct,
+            COUNT(DISTINCT candidate_video_id) / COUNT(candidate_video_id) * 100 as candidate_uniqueness_pct
         FROM `{DESTINATION_TABLE}`
         """
 
@@ -765,10 +813,13 @@ def verify_destination_data(**kwargs):
 
         print("=== OVERALL CANDIDATE METRICS ===")
         print(
-            f"Total candidate recommendations: {candidate_metrics_result.total_candidates}"
+            f"Total query videos: {candidate_metrics_result.total_qvids} (Unique: {candidate_metrics_result.unique_qvids}, {candidate_metrics_result.qvid_uniqueness_pct:.1f}%)"
         )
         print(
-            f"Total unique candidate videos: {candidate_metrics_result.total_unique_candidates}"
+            f"Unique cluster-bin-query combinations: {candidate_metrics_result.unique_cluster_bin_qvid_combos}"
+        )
+        print(
+            f"Total candidate recommendations: {candidate_metrics_result.total_candidates} (Unique: {candidate_metrics_result.total_unique_candidates}, {candidate_metrics_result.candidate_uniqueness_pct:.1f}%)"
         )
         print("=== END OVERALL CANDIDATE METRICS ===")
 
