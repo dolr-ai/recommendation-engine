@@ -1,85 +1,14 @@
-# %%
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 import redis
-from google.auth import default
 from google.auth.transport.requests import Request
 
-import os
-import json
-from IPython.display import display
-import pandas as pd
-import asyncio
-import random
-import concurrent.futures
-import itertools
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-from datetime import datetime, timezone, timedelta
-from dotenv import load_dotenv
-import pathlib
-from tqdm import tqdm
-
-# valkey
-import redis
-from google.auth.transport.requests import Request
-from typing import Optional, Dict, Any, List, Union
-
-# utils
-from utils.gcp_utils import GCPUtils, GCPCore
-from utils.common_utils import path_exists, time_execution, get_logger
+from utils.gcp_utils import GCPCore
+from utils.common_utils import time_execution, get_logger
 
 logger = get_logger()
 
-
-# %%
-# setup configs
-def setup_configs(env_path="./.env", if_enable_prod=False, if_enable_stage=True):
-    print(load_dotenv(env_path))
-
-    DATA_ROOT = os.getenv("DATA_ROOT", "/home/dataproc/recommendation-engine/data_root")
-    DATA_ROOT = pathlib.Path(DATA_ROOT)
-
-    print(os.getenv("GCP_CREDENTIALS_PATH_PROD"))
-    print(os.getenv("GCP_CREDENTIALS_PATH_STAGE"))
-
-    gcp_utils_stage = None
-    gcp_utils_prod = None
-
-    if if_enable_stage:
-        GCP_CREDENTIALS_PATH_STAGE = os.getenv(
-            "GCP_CREDENTIALS_PATH_STAGE",
-            "/home/dataproc/recommendation-engine/credentials_stage.json",
-        )
-        with open(GCP_CREDENTIALS_PATH_STAGE, "r") as f:
-            _ = json.load(f)
-            gcp_credentials_str_stage = json.dumps(_)
-        gcp_utils_stage = GCPUtils(gcp_credentials=gcp_credentials_str_stage)
-        del gcp_credentials_str_stage
-
-    if if_enable_prod:
-        GCP_CREDENTIALS_PATH_PROD = os.getenv(
-            "GCP_CREDENTIALS_PATH_PROD",
-            "/home/dataproc/recommendation-engine/credentials_prod.json",
-        )
-        with open(GCP_CREDENTIALS_PATH_PROD, "r") as f:
-            _ = json.load(f)
-            gcp_credentials_str_prod = json.dumps(_)
-        gcp_utils_prod = GCPUtils(gcp_credentials=gcp_credentials_str_prod)
-        del gcp_credentials_str_prod
-
-    print(f"DATA_ROOT: {DATA_ROOT}")
-    return DATA_ROOT, gcp_utils_stage, gcp_utils_prod
-
-
-DATA_ROOT, gcp_utils_stage, gcp_utils_prod = setup_configs(
-    "/root/recommendation-engine/notebooks/05-valkey-store/.env",
-    if_enable_prod=False,
-    if_enable_stage=True,
-)
-
-
-# %%
 
 class ValkeyService:
     """Basic Valkey (Redis-compatible) service class for GCP Memorystore with TLS support"""
@@ -349,23 +278,89 @@ class ValkeyService:
             logger.error(f"Failed to create pipeline for {self.instance_id}: {e}")
             raise
 
+    @time_execution
+    def batch_upload(
+        self,
+        data: List[Dict[str, str]],
+        key_field: str = "key",
+        value_field: str = "value",
+        expire_seconds: Optional[int] = None,
+        batch_size: int = 100,
+    ) -> Dict[str, Any]:
+        """
+        Batch upload key-value pairs to Valkey with optional expiration
 
-# Create Valkey service instance
-valkey_service = ValkeyService(
-    core=gcp_utils_stage.core,
-    host="10.128.15.206",
-    port=6379,
-    instance_id="candidate-valkey-instance",
-    ssl_enabled=True,  # TLS enabled
-)
+        Args:
+            data: List of dictionaries containing key-value pairs
+            key_field: Field name in dict containing the key
+            value_field: Field name in dict containing the value
+            expire_seconds: Optional expiration time in seconds
+            batch_size: Number of operations per batch
 
-# Test the connection
-print("Testing connection:", valkey_service.verify_connection())
+        Returns:
+            Dict with stats about the operation
+        """
+        stats = {"total": len(data), "successful": 0, "failed": 0, "time_ms": 0}
 
-# Use it
-valkey_service.set("hello", "world")
-print("Value:", valkey_service.get("hello"))
-#%%
-valkey_service.client.delete("test:final")
-#%%
-valkey_service.client.get("test:final")
+        if not data:
+            logger.warning("No data provided for batch upload")
+            return stats
+
+        start_time = datetime.now()
+
+        try:
+            # Process in batches to avoid overwhelming the connection
+            for i in range(0, len(data), batch_size):
+                batch = data[i : i + batch_size]
+                pipe = self.pipeline()
+
+                # Add each key-value pair to the pipeline
+                for item in batch:
+                    try:
+                        key = item.get(key_field)
+                        value = item.get(value_field)
+
+                        if key is None or value is None:
+                            logger.warning(
+                                f"Skipping item missing key or value: {item}"
+                            )
+                            stats["failed"] += 1
+                            continue
+
+                        pipe.set(key, value)
+
+                        # Set expiration if specified
+                        if expire_seconds:
+                            pipe.expire(key, expire_seconds)
+                    except Exception as e:
+                        logger.error(f"Error adding item to pipeline: {e}")
+                        stats["failed"] += 1
+
+                # Execute the pipeline
+                try:
+                    results = pipe.execute()
+                    # Each successful set operation returns True
+                    success_count = sum(1 for r in results if r is True)
+
+                    if expire_seconds:
+                        # When expire is used, every other result is for expire operation
+                        stats["successful"] += success_count // 2
+                    else:
+                        stats["successful"] += success_count
+
+                except Exception as e:
+                    logger.error(f"Error executing pipeline: {e}")
+                    stats["failed"] += len(batch)
+
+                logger.info(
+                    f"Processed {min(i + batch_size, len(data))}/{len(data)} items"
+                )
+
+        except Exception as e:
+            logger.error(f"Batch upload failed: {e}")
+            stats["failed"] = len(data) - stats["successful"]
+
+        stats["time_ms"] = (datetime.now() - start_time).total_seconds() * 1000
+        logger.info(f"Batch upload completed: {stats}")
+
+        return stats
