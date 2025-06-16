@@ -63,7 +63,7 @@ def setup_configs(env_path="./.env", if_enable_prod=False, if_enable_stage=True)
 
 
 DATA_ROOT, gcp_utils_stage, gcp_utils_prod = setup_configs(
-    "/Users/sagar/work/yral/recommendation-engine/notebooks/05-valkey-store/.env",
+    "/root/recommendation-engine/notebooks/05-valkey-store/.env",
     if_enable_prod=False,
     if_enable_stage=True,
 )
@@ -186,7 +186,7 @@ valkey_service = ValkeyService(
     socket_timeout=15,  # Increased timeout
     socket_connect_timeout=15,
 )
-
+#%%
 # Test the connection
 print("Testing Valkey connection...")
 connection_success = valkey_service.verify_connection()
@@ -200,7 +200,7 @@ if connection_success:
     stats = valkey_service.batch_upload(
         data=all_populate_dict,
         key_field="key",
-        value_field="values",
+        value_field="value",
         expire_seconds=expire_seconds,
         batch_size=100,
     )
