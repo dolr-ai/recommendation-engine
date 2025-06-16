@@ -70,12 +70,14 @@ class CandidatePopulator(ABC):
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
         gcp_credentials = os.getenv("GCP_CREDENTIALS")
-        print(f"GCP_CREDENTIALS environment variable is {'set' if gcp_credentials else 'NOT set'}")
+        print(
+            f"GCP_CREDENTIALS environment variable is {'set' if gcp_credentials else 'NOT set'}"
+        )
 
         # Print all environment variables to help debug
         print("Available environment variables:")
         for key in sorted(os.environ.keys()):
-            if 'GCP' in key:
+            if "GCP" in key:
                 print(f"  {key}: {'[SET]' if os.environ.get(key) else '[EMPTY]'}")
 
         if not gcp_credentials:
@@ -88,8 +90,7 @@ class CandidatePopulator(ABC):
     def _init_valkey_service(self):
         """Initialize the Valkey service."""
         self.valkey_service = ValkeyService(
-            core=self.gcp_utils.core,
-            **self.config["valkey"]
+            core=self.gcp_utils.core, **self.config["valkey"]
         )
 
     @abstractmethod
@@ -190,6 +191,7 @@ class CandidatePopulator(ABC):
             actual_value = self.valkey_service.get(key)
             ttl = self.valkey_service.ttl(key)
             is_same = expected_value == actual_value
+            assert is_same, f"Expected {expected_value} but got {actual_value}"
 
             logger.info(f"Key: {key}")
             logger.info(f"Expected: {expected_value}")
@@ -205,7 +207,7 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
     def __init__(
         self,
         table_name: str = "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates",
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize Watch Time Quantile candidate populator.
@@ -217,8 +219,13 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
         super().__init__(**kwargs)
         self.table_name = table_name
 
-    def format_key(self, cluster_id: Union[int, str], bin_id: Union[int, str],
-                  query_video_id: str, candidate_type: str = "watch_time_quantile_bin_candidate") -> str:
+    def format_key(
+        self,
+        cluster_id: Union[int, str],
+        bin_id: Union[int, str],
+        query_video_id: str,
+        candidate_type: str = "watch_time_quantile_bin_candidate",
+    ) -> str:
         """Format key for Watch Time Quantile candidates."""
         return f"{cluster_id}:{bin_id}:{query_video_id}:{candidate_type}"
 
@@ -259,8 +266,11 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
         """
 
         df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
+        df["value"] = df["value"].apply(lambda x: str(list(set(x))))
 
-        logger.info(f"Retrieved {len(df)} rows from watch_time_quantile_candidates table (grouped)")
+        logger.info(
+            f"Retrieved {len(df)} rows from watch_time_quantile_candidates table (grouped)"
+        )
 
         # Convert values array to string
         df["value"] = df["value"].astype(str)
@@ -275,7 +285,7 @@ class ModifiedIoUCandidate(CandidatePopulator):
     def __init__(
         self,
         table_name: str = "jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates",
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize Modified IoU candidate populator.
@@ -287,8 +297,12 @@ class ModifiedIoUCandidate(CandidatePopulator):
         super().__init__(**kwargs)
         self.table_name = table_name
 
-    def format_key(self, cluster_id: Union[int, str], video_id_x: str,
-                  candidate_type: str = "modified_iou_candidate") -> str:
+    def format_key(
+        self,
+        cluster_id: Union[int, str],
+        video_id_x: str,
+        candidate_type: str = "modified_iou_candidate",
+    ) -> str:
         """Format key for Modified IoU candidates."""
         return f"{cluster_id}:{video_id_x}:{candidate_type}"
 
@@ -326,8 +340,11 @@ class ModifiedIoUCandidate(CandidatePopulator):
         """
 
         df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
+        df["value"] = df["value"].apply(lambda x: str(list(set(x))))
 
-        logger.info(f"Retrieved {len(df)} rows from modified_iou_candidates table (grouped)")
+        logger.info(
+            f"Retrieved {len(df)} rows from modified_iou_candidates table (grouped)"
+        )
 
         # Convert values array to string
         df["value"] = df["value"].astype(str)
