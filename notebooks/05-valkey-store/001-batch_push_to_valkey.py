@@ -76,7 +76,7 @@ select * from `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_ca
 """
 df_cand = gcp_utils_stage.bigquery.execute_query(query)
 df_cand
-#%%
+# %%
 df_cand.head()
 # %%
 df_req = df_cand[["cluster_id", "bin", "query_video_id", "candidate_video_id"]]
@@ -92,15 +92,15 @@ df_req["key"] = (
 )
 df_req["value"] = df_req["candidate_video_id"].astype(str)
 df_req
-#%%
-df_req['key'].value_counts().describe(np.arange(0,1,0.1))
-#%%
-df_req_grp = df_req.groupby('key', as_index=False).agg(values=('value', set))
-df_req_grp['values'] = df_req_grp['values'].astype(str)
-df_req_grp['values'].apply(len).describe()
+# %%
+df_req["key"].value_counts().describe(np.arange(0, 1, 0.1))
+# %%
+df_req_grp = df_req.groupby("key", as_index=False).agg(values=("value", set))
+df_req_grp["values"] = df_req_grp["values"].astype(str)
+df_req_grp["values"].apply(len).describe()
 
 populate_dict = df_req_grp[["key", "values"]].to_dict(orient="records")
-#%%
+# %%
 
 # %%
 
@@ -172,8 +172,10 @@ else:
     )
 
 # %%
-#%%
+# %%
 valkey_service.client.flushall()
-#%%
+# %%
 # valkey_service.client.keys("*")
-valkey_service.client.get("3:2:f3523e1d6c36431898da189e9e7b7ffa:watch_time_quantile_bin_candidate")
+valkey_service.client.get(
+    "3:2:f3523e1d6c36431898da189e9e7b7ffa:watch_time_quantile_bin_candidate"
+)
