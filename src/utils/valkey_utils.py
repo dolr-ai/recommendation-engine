@@ -2,10 +2,20 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 import redis
+
+import numpy as np
+import json
+import ast
+from typing import List, Dict, Any, Optional
+from redis.commands.search.field import VectorField, TextField, TagField
+from redis.commands.search.index_definition import IndexDefinition, IndexType
+from redis.commands.search.query import Query
+from tqdm import tqdm
 from google.auth.transport.requests import Request
 
-from utils.gcp_utils import GCPCore
-from utils.common_utils import time_execution, get_logger
+from .gcp_utils import GCPCore
+from .common_utils import time_execution, get_logger
+
 
 logger = get_logger()
 
@@ -362,5 +372,303 @@ class ValkeyService:
 
         stats["time_ms"] = (datetime.now() - start_time).total_seconds() * 1000
         logger.info(f"Batch upload completed: {stats}")
+
+        return stats
+
+
+class ValkeyVectorService:
+    """Service for storing and retrieving vector embeddings in Valkey"""
+
+    def __init__(
+        self,
+        core: GCPCore,
+        host: str,
+        port: int = 6379,
+        instance_id: Optional[str] = None,
+        socket_timeout: int = 10,
+        socket_connect_timeout: int = 10,
+        ssl_enabled: bool = True,
+        vector_dim: int = None,  # Make vector dimensions configurable
+    ):
+        """
+        Initialize ValkeyVectorService with connection parameters
+
+        Args:
+            core: GCP Core instance for authentication
+            host: Valkey host address
+            port: Valkey port
+            instance_id: Optional instance ID
+            socket_timeout: Socket timeout in seconds
+            socket_connect_timeout: Connection timeout in seconds
+            ssl_enabled: Whether to use SSL/TLS
+            vector_dim: Vector dimensions (will be determined from data if None)
+        """
+        # Create base Valkey service for connection management
+        self.valkey_service = ValkeyService(
+            core=core,
+            host=host,
+            port=port,
+            instance_id=instance_id,
+            socket_timeout=socket_timeout,
+            socket_connect_timeout=socket_connect_timeout,
+            ssl_enabled=ssl_enabled,
+            decode_responses=False,  # Important: Don't decode binary responses
+        )
+        self.vector_dim = vector_dim  # Store vector dimensions
+
+    def get_client(self):
+        """Get Redis client with vector search capabilities"""
+        return self.valkey_service.get_client()
+
+    def create_vector_index(
+        self, index_name: str = "video_embeddings", vector_dim: int = None
+    ) -> bool:
+        """
+        Create a Redis vector similarity index
+
+        Args:
+            index_name: Name of the index to create
+            vector_dim: Vector dimensions (overrides class setting if provided)
+        """
+        client = self.get_client()
+
+        # Use provided dimension or class dimension
+        dim = vector_dim if vector_dim is not None else self.vector_dim
+        if dim is None:
+            logger.error(
+                "Vector dimension not specified. Please provide vector_dim parameter."
+            )
+            return False
+
+        try:
+            # Drop existing index if it exists
+            try:
+                client.ft(index_name).dropindex()
+                logger.info(f"Dropped existing index: {index_name}")
+            except Exception as e:
+                logger.info(f"No existing index to drop: {e}")
+
+            # Define schema for hash with vector field
+            # Using HNSW algorithm which is better for larger datasets
+            schema = (
+                TagField("video_id"),
+                VectorField(
+                    "embedding",
+                    "HNSW",  # Using HNSW algorithm for better performance
+                    {
+                        "TYPE": "FLOAT32",
+                        "DIM": dim,  # Use configured dimensions
+                        "DISTANCE_METRIC": "COSINE",
+                        "INITIAL_CAP": 1000,
+                        "M": 40,  # Higher M means higher recall but slower indexing
+                        "EF_CONSTRUCTION": 250,  # Higher EF_CONSTRUCTION means higher recall but slower indexing
+                        "EF_RUNTIME": 20,  # Higher EF_RUNTIME means higher recall but slower search
+                    },
+                ),
+            )
+
+            # Create the index
+            client.ft(index_name).create_index(
+                schema,
+                definition=IndexDefinition(
+                    prefix=["video:"], index_type=IndexType.HASH
+                ),
+            )
+            logger.info(f"Created vector index: {index_name} with dimension {dim}")
+            return True
+        except Exception as e:
+            logger.error(f"Error creating vector index: {e}")
+            return False
+
+    def store_video_embedding(
+        self,
+        video_id: str,
+        embedding: List[float],
+        index_name: str = "video_embeddings",
+    ) -> bool:
+        """Store video embedding using Redis hash"""
+        client = self.get_client()
+
+        try:
+            # Ensure embedding is the right format
+            if isinstance(embedding, np.ndarray):
+                embedding = embedding.astype(np.float32)
+            else:
+                embedding = np.array(embedding, dtype=np.float32)
+
+            # Store as hash
+            key = f"video:{video_id}"
+            mapping = {"video_id": video_id, "embedding": embedding.tobytes()}
+
+            client.hset(key, mapping=mapping)
+            return True
+        except Exception as e:
+            logger.error(f"Error storing embedding for {video_id}: {e}")
+            return False
+
+    def find_similar_videos(
+        self,
+        query_vector: List[float],
+        top_k: int = 10,
+        index_name: str = "video_embeddings",
+    ) -> List[Dict]:
+        """Find similar videos using Redis vector similarity search"""
+        client = self.get_client()
+
+        try:
+            # Convert query vector to numpy array with proper dtype
+            if isinstance(query_vector, np.ndarray):
+                # Make sure it's float32 for Redis vector search
+                query_vector = query_vector.astype(np.float32)
+            else:
+                # Convert list to numpy array with float32 dtype
+                query_vector = np.array(query_vector, dtype=np.float32)
+
+            # Build vector search query based on Redis documentation
+            # Using the KNN syntax from Redis docs without SORTBY
+            # Use LIMIT to ensure we can get more results
+            # According to Redis docs, we need to specify directly in the query string
+            query_string = f"*=>[KNN {top_k} @embedding $query_vector AS vector_score]"
+
+            # Use dialect 2 and explicitly set LIMIT to top_k
+            query = (
+                Query(query_string)
+                .return_fields("video_id", "vector_score")
+                .paging(0, top_k)  # Explicitly set the limit
+                .dialect(2)
+            )
+
+            # Perform vector similarity search with the proper parameter name
+            logger.info(f"Executing vector search with top_k={top_k}")
+            try:
+                results = client.ft(index_name).search(
+                    query, {"query_vector": query_vector.tobytes()}
+                )
+                logger.info(f"Search returned {len(results.docs)} results")
+            except Exception as e:
+                logger.error(f"Search failed with error: {e}")
+                raise
+
+            # Process results
+            processed_results = []
+            for doc in results.docs:
+                # Handle binary data if needed
+                video_id = doc.video_id
+                if isinstance(video_id, bytes):
+                    video_id = video_id.decode("utf-8")
+
+                # Get vector score (distance) and convert to similarity
+                vector_score = getattr(doc, "vector_score", None)
+                if vector_score is not None:
+                    similarity_score = 1 - float(vector_score)
+                else:
+                    similarity_score = 0.0
+
+                processed_results.append(
+                    {
+                        "video_id": video_id,
+                        "similarity_score": similarity_score,
+                    }
+                )
+
+            if not processed_results:
+                logger.warning(
+                    f"No similar videos found for query in index {index_name}"
+                )
+
+            return processed_results
+
+        except Exception as e:
+            logger.error(f"Error performing vector search: {e}")
+            return []
+
+    def drop_vector_index(
+        self, index_name: str = "video_embeddings", keep_docs: bool = True
+    ) -> bool:
+        """
+        Drop a vector index
+
+        Args:
+            index_name: Name of the index to drop
+            keep_docs: Whether to keep the documents (default: True)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        client = self.get_client()
+
+        try:
+            # Drop the index but keep the documents by default
+            client.ft(index_name).dropindex(delete_documents=not keep_docs)
+            logger.info(
+                f"Successfully dropped index: {index_name} (keep_docs={keep_docs})"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error dropping index {index_name}: {e}")
+            return False
+
+    def clear_vector_data(self, prefix: str = "video:") -> bool:
+        """
+        Clear all vector data with the given prefix
+
+        Args:
+            prefix: Key prefix to match (default: "video:")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        client = self.get_client()
+
+        try:
+            # Get all keys matching the prefix
+            keys = client.keys(f"{prefix}*")
+            logger.info(f"Found {len(keys)} keys with prefix {prefix}")
+
+            if keys:
+                # Delete all matching keys
+                deleted = client.delete(*keys)
+                logger.info(f"Deleted {deleted} keys with prefix {prefix}")
+
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing vector data: {e}")
+            return False
+
+    def batch_store_embeddings(
+        self,
+        embeddings_dict: Dict[str, List[float]],
+        index_name: str = "video_embeddings",
+    ) -> Dict[str, int]:
+        """Batch store video embeddings"""
+        stats = {"successful": 0, "failed": 0, "total": len(embeddings_dict)}
+
+        # Use pipeline for better performance
+        pipe = self.get_client().pipeline(transaction=False)
+
+        try:
+            for video_id, embedding in tqdm(
+                embeddings_dict.items(), desc="Storing embeddings"
+            ):
+                # Ensure embedding is the right format
+                if isinstance(embedding, np.ndarray):
+                    embedding = embedding.astype(np.float32)
+                else:
+                    embedding = np.array(embedding, dtype=np.float32)
+
+                # Prepare hash data
+                key = f"video:{video_id}"
+                mapping = {"video_id": video_id, "embedding": embedding.tobytes()}
+
+                # Add to pipeline
+                pipe.hset(key, mapping=mapping)
+                stats["successful"] += 1
+
+            # Execute pipeline
+            pipe.execute()
+
+        except Exception as e:
+            logger.error(f"Error in batch store: {e}")
+            stats["failed"] = len(embeddings_dict) - stats["successful"]
 
         return stats

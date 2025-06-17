@@ -19,7 +19,7 @@ from tqdm import tqdm
 # utils
 from utils.gcp_utils import GCPUtils
 from utils.common_utils import path_exists
-from utils.valkey_utils import ValkeyService
+from utils.valkey_utils import ValkeyService, ValkeyVectorService
 
 
 # %%
@@ -94,6 +94,7 @@ def get_watch_time_quantile_candidates():
         `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates`
     )
     SELECT
+      SPLIT(key, ':')[OFFSET(2)] as query_video_id,
       key,
       ARRAY_AGG(value) AS value
     FROM
@@ -103,6 +104,9 @@ def get_watch_time_quantile_candidates():
     """
     df_watch_time_quantile = gcp_utils_stage.bigquery.execute_query(
         query, to_dataframe=True
+    )
+    df_watch_time_quantile["value"] = df_watch_time_quantile["value"].apply(
+        lambda x: list(set(x))
     )
     print(
         f"Retrieved {len(df_watch_time_quantile)} rows from watch_time_quantile_candidates table (grouped)"
@@ -131,6 +135,7 @@ def get_modified_iou_candidates():
         `jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates`
     )
     SELECT
+      SPLIT(key, ':')[OFFSET(1)] as query_video_id,
       key,
       ARRAY_AGG(value) AS value
     FROM
@@ -139,10 +144,33 @@ def get_modified_iou_candidates():
       key
     """
     df_modified_iou = gcp_utils_stage.bigquery.execute_query(query, to_dataframe=True)
+    df_modified_iou["value"] = df_modified_iou["value"].apply(lambda x: list(set(x)))
     print(
         f"Retrieved {len(df_modified_iou)} rows from modified_iou_candidates table (grouped)"
     )
     return df_modified_iou
+
+
+# %%
+def get_vectors_for_candidates(all_items):
+    # Convert list of video IDs to a SQL-friendly format
+    video_ids_str = ", ".join([f'"{str(vid).replace('"', '""')}"' for vid in all_items])
+
+    # Use the pre-computed average embeddings table
+    query = f"""
+    SELECT
+        video_id,
+        avg_embedding
+    FROM
+        `jay-dhanwant-experiments.stage_tables.video_embedding_average`
+    WHERE
+        video_id IN ({video_ids_str})
+    """
+
+    # Execute query and convert to dataframe
+    df_embeddings = gcp_utils_stage.bigquery.execute_query(query, to_dataframe=True)
+
+    return df_embeddings
 
 
 # %%
@@ -156,10 +184,7 @@ display(df_watch_time_quantile.head())
 
 print("\nModified IoU Candidates - Sample:")
 display(df_modified_iou.head())
-# %%
-# df_watch_time_quantile["value"].apply(lambda x: list(set(x))).apply(len).describe()
-# df_modified_iou["value"].apply(lambda x: list(set(x))).apply(len).describe()
-# %%
+
 # Convert values array to string to push the data to valkey
 df_watch_time_quantile["value"] = df_watch_time_quantile["value"].astype(str)
 df_modified_iou["value"] = df_modified_iou["value"].astype(str)
@@ -175,7 +200,27 @@ print(f"\nTotal records to populate: {len(all_populate_dict)}")
 print(f"Watch Time Quantile records: {len(wtq_populate_dict)}")
 print(f"Modified IoU records: {len(iou_populate_dict)}")
 # %%
+df_all = pd.concat([df_modified_iou, df_watch_time_quantile], axis=0, ignore_index=True)
 
+# %%
+df_all["value"] = df_all["value"].apply(lambda x: eval(x))
+# %%
+all_items = tuple(
+    set(
+        (df_all["query_video_id"].tolist())
+        + np.hstack(df_all["value"].tolist()).tolist()
+    )
+)
+print(f"Total items: {len(all_items)}")
+# %%
+# df_emb = get_vectors_for_candidates(all_items)
+# df_emb.to_pickle("df_emb.pkl")
+# df_emb = pd.read_pickle("df_emb.pkl")
+# %%
+# len(all_items), df_emb.shape[0]
+# %%
+set(all_items).difference(set(df_emb["video_id"].tolist()))
+# %%
 # Create a ValkeyService instance
 valkey_service = ValkeyService(
     core=gcp_utils_stage.core,
@@ -186,7 +231,27 @@ valkey_service = ValkeyService(
     socket_timeout=15,  # Increased timeout
     socket_connect_timeout=15,
 )
-#%%
+# %%
+# Initialize the vector service
+vector_service = ValkeyVectorService(
+    core=gcp_utils_stage.core,
+    host="10.128.15.206",
+    port=6379,
+    ssl_enabled=True,
+    socket_timeout=15,
+    socket_connect_timeout=15,
+)
+
+# Create the vector index
+vector_service.create_vector_index()
+
+# %%
+# Store all embeddings from dict_emb
+print(f"Storing {len(dict_emb)} video embeddings...")
+stats = vector_service.batch_store_embeddings(dict_emb)
+print(f"Storage stats: {stats}")
+
+# %%
 # Test the connection
 print("Testing Valkey connection...")
 connection_success = valkey_service.verify_connection()
