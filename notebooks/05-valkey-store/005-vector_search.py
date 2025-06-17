@@ -164,3 +164,8 @@ def get_similar_videos(video_id: str, top_k: int = 5):
 
 get_similar_videos("2d1d05b4162a490585289be8bd798c65", top_k=100)
 # %%
+# delete index and keys
+# vector_service.drop_vector_index(index_name="video_embeddings")
+
+# vector_service.clear_vector_data()
+# vector_service.optimize_memory(prefix="video_id:")

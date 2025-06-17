@@ -262,10 +262,27 @@ class ValkeyService:
             raise
 
     def flushdb(self) -> bool:
-        """Clear all keys in the current database"""
+        """Clear all keys in the current database and optimize memory"""
         try:
             client = self.get_client()
-            return client.flushdb()
+            result = client.flushdb()
+
+            # Force memory optimization
+            try:
+                # Try to run MEMORY PURGE command if available (Redis 4.0+)
+                client.execute_command("MEMORY PURGE")
+                logger.info("Executed MEMORY PURGE command")
+            except Exception as e:
+                logger.warning(f"MEMORY PURGE command not available: {e}")
+
+            # Request garbage collection
+            try:
+                client.execute_command("FLUSHALL ASYNC")
+                logger.info("Executed FLUSHALL ASYNC command")
+            except Exception as e:
+                logger.warning(f"FLUSHALL ASYNC command failed: {e}")
+
+            return result
         except Exception as e:
             logger.error(f"Failed to flush database {self.instance_id}: {e}")
             raise
@@ -376,7 +393,7 @@ class ValkeyService:
         return stats
 
 
-class ValkeyVectorService:
+class ValkeyVectorService(ValkeyService):
     """Service for storing and retrieving vector embeddings in Valkey"""
 
     def __init__(
@@ -389,6 +406,7 @@ class ValkeyVectorService:
         socket_connect_timeout: int = 10,
         ssl_enabled: bool = True,
         vector_dim: int = None,  # Make vector dimensions configurable
+        **kwargs,
     ):
         """
         Initialize ValkeyVectorService with connection parameters
@@ -402,9 +420,10 @@ class ValkeyVectorService:
             socket_connect_timeout: Connection timeout in seconds
             ssl_enabled: Whether to use SSL/TLS
             vector_dim: Vector dimensions (will be determined from data if None)
+            **kwargs: Additional parameters to pass to parent class
         """
-        # Create base Valkey service for connection management
-        self.valkey_service = ValkeyService(
+        # Initialize the parent ValkeyService class
+        super().__init__(
             core=core,
             host=host,
             port=port,
@@ -413,12 +432,46 @@ class ValkeyVectorService:
             socket_connect_timeout=socket_connect_timeout,
             ssl_enabled=ssl_enabled,
             decode_responses=False,  # Important: Don't decode binary responses
+            **kwargs,
         )
         self.vector_dim = vector_dim  # Store vector dimensions
 
-    def get_client(self):
-        """Get Redis client with vector search capabilities"""
-        return self.valkey_service.get_client()
+    def optimize_memory(self, prefix: str = "video_id:") -> bool:
+        """Run memory optimization commands"""
+        try:
+            # Try various memory optimization commands
+            try:
+                # Memory purge (Redis 4.0+)
+                self.get_client().execute_command("MEMORY PURGE")
+                logger.info("Memory purge executed")
+            except Exception as e:
+                logger.warning(f"Memory purge not available: {e}")
+
+            # Get memory stats before optimization
+            try:
+                before_stats = self.get_client().info("memory")
+                logger.info(
+                    f"Memory before optimization: {before_stats.get('used_memory_human', 'unknown')}"
+                )
+            except Exception:
+                pass
+
+            # Try to free up memory
+            self.clear_vector_data(prefix=prefix)
+
+            # Get memory stats after optimization
+            try:
+                after_stats = self.get_client().info("memory")
+                logger.info(
+                    f"Memory after optimization: {after_stats.get('used_memory_human', 'unknown')}"
+                )
+            except Exception:
+                pass
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to optimize memory: {e}")
+            return False
 
     def create_vector_index(
         self, index_name: str = "video_embeddings", vector_dim: int = None
@@ -430,8 +483,6 @@ class ValkeyVectorService:
             index_name: Name of the index to create
             vector_dim: Vector dimensions (overrides class setting if provided)
         """
-        client = self.get_client()
-
         # Use provided dimension or class dimension
         dim = vector_dim if vector_dim is not None else self.vector_dim
         if dim is None:
@@ -443,7 +494,7 @@ class ValkeyVectorService:
         try:
             # Drop existing index if it exists
             try:
-                client.ft(index_name).dropindex()
+                self.get_client().ft(index_name).dropindex()
                 logger.info(f"Dropped existing index: {index_name}")
             except Exception as e:
                 logger.info(f"No existing index to drop: {e}")
@@ -468,10 +519,10 @@ class ValkeyVectorService:
             )
 
             # Create the index
-            client.ft(index_name).create_index(
+            self.get_client().ft(index_name).create_index(
                 schema,
                 definition=IndexDefinition(
-                    prefix=["video:"], index_type=IndexType.HASH
+                    prefix=["video_id:"], index_type=IndexType.HASH
                 ),
             )
             logger.info(f"Created vector index: {index_name} with dimension {dim}")
@@ -487,8 +538,6 @@ class ValkeyVectorService:
         index_name: str = "video_embeddings",
     ) -> bool:
         """Store video embedding using Redis hash"""
-        client = self.get_client()
-
         try:
             # Ensure embedding is the right format
             if isinstance(embedding, np.ndarray):
@@ -497,10 +546,10 @@ class ValkeyVectorService:
                 embedding = np.array(embedding, dtype=np.float32)
 
             # Store as hash
-            key = f"video:{video_id}"
+            key = f"video_id:{video_id}"
             mapping = {"video_id": video_id, "embedding": embedding.tobytes()}
 
-            client.hset(key, mapping=mapping)
+            self.get_client().hset(key, mapping=mapping)
             return True
         except Exception as e:
             logger.error(f"Error storing embedding for {video_id}: {e}")
@@ -513,8 +562,6 @@ class ValkeyVectorService:
         index_name: str = "video_embeddings",
     ) -> List[Dict]:
         """Find similar videos using Redis vector similarity search"""
-        client = self.get_client()
-
         try:
             # Convert query vector to numpy array with proper dtype
             if isinstance(query_vector, np.ndarray):
@@ -541,8 +588,10 @@ class ValkeyVectorService:
             # Perform vector similarity search with the proper parameter name
             logger.info(f"Executing vector search with top_k={top_k}")
             try:
-                results = client.ft(index_name).search(
-                    query, {"query_vector": query_vector.tobytes()}
+                results = (
+                    self.get_client()
+                    .ft(index_name)
+                    .search(query, {"query_vector": query_vector.tobytes()})
                 )
                 logger.info(f"Search returned {len(results.docs)} results")
             except Exception as e:
@@ -591,43 +640,48 @@ class ValkeyVectorService:
         Args:
             index_name: Name of the index to drop
             keep_docs: Whether to keep the documents (default: True)
+                       Note: This parameter is ignored in older Redis versions
 
         Returns:
             True if successful, False otherwise
         """
-        client = self.get_client()
-
         try:
-            # Drop the index but keep the documents by default
-            client.ft(index_name).dropindex(delete_documents=not keep_docs)
-            logger.info(
-                f"Successfully dropped index: {index_name} (keep_docs={keep_docs})"
-            )
+            # Try the simple dropindex command without parameters first
+            # This is compatible with older Redis versions
+            self.get_client().ft(index_name).dropindex()
+            logger.info(f"Successfully dropped index: {index_name}")
+
+            # If keep_docs is False, we need to manually delete the documents
+            if not keep_docs:
+                # Get all keys with the prefix
+                keys = self.get_client().keys(f"video_id:*")
+                if keys:
+                    deleted = self.get_client().delete(*keys)
+                    logger.info(f"Deleted {deleted} documents")
+
             return True
         except Exception as e:
             logger.error(f"Error dropping index {index_name}: {e}")
             return False
 
-    def clear_vector_data(self, prefix: str = "video:") -> bool:
+    def clear_vector_data(self, prefix: str) -> bool:
         """
         Clear all vector data with the given prefix
 
         Args:
-            prefix: Key prefix to match (default: "video:")
+            prefix: Key prefix to match (e.g: "video_id:")
 
         Returns:
             True if successful, False otherwise
         """
-        client = self.get_client()
-
         try:
             # Get all keys matching the prefix
-            keys = client.keys(f"{prefix}*")
+            keys = self.get_client().keys(f"{prefix}*")
             logger.info(f"Found {len(keys)} keys with prefix {prefix}")
 
             if keys:
                 # Delete all matching keys
-                deleted = client.delete(*keys)
+                deleted = self.get_client().delete(*keys)
                 logger.info(f"Deleted {deleted} keys with prefix {prefix}")
 
             return True
@@ -657,7 +711,7 @@ class ValkeyVectorService:
                     embedding = np.array(embedding, dtype=np.float32)
 
                 # Prepare hash data
-                key = f"video:{video_id}"
+                key = f"video_id:{video_id}"
                 mapping = {"video_id": video_id, "embedding": embedding.tobytes()}
 
                 # Add to pipeline

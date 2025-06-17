@@ -215,7 +215,7 @@ print(f"Total items: {len(all_items)}")
 # %%
 # df_emb = get_vectors_for_candidates(all_items)
 # df_emb.to_pickle("df_emb.pkl")
-# df_emb = pd.read_pickle("df_emb.pkl")
+df_emb = pd.read_pickle("df_emb.pkl")
 # %%
 # len(all_items), df_emb.shape[0]
 # %%
@@ -232,24 +232,8 @@ valkey_service = ValkeyService(
     socket_connect_timeout=15,
 )
 # %%
-# Initialize the vector service
-vector_service = ValkeyVectorService(
-    core=gcp_utils_stage.core,
-    host="10.128.15.206",
-    port=6379,
-    ssl_enabled=True,
-    socket_timeout=15,
-    socket_connect_timeout=15,
-)
-
-# Create the vector index
-vector_service.create_vector_index()
-
-# %%
-# Store all embeddings from dict_emb
-print(f"Storing {len(dict_emb)} video embeddings...")
-stats = vector_service.batch_store_embeddings(dict_emb)
-print(f"Storage stats: {stats}")
+# dir(valkey_service.client)
+# valkey_service.flushdb()
 
 # %%
 # Test the connection
