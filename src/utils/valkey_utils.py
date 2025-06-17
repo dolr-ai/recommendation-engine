@@ -406,6 +406,7 @@ class ValkeyVectorService(ValkeyService):
         socket_connect_timeout: int = 10,
         ssl_enabled: bool = True,
         vector_dim: int = None,  # Make vector dimensions configurable
+        prefix: str = "video_id:",  # Default prefix for keys
         **kwargs,
     ):
         """
@@ -420,6 +421,7 @@ class ValkeyVectorService(ValkeyService):
             socket_connect_timeout: Connection timeout in seconds
             ssl_enabled: Whether to use SSL/TLS
             vector_dim: Vector dimensions (will be determined from data if None)
+            prefix: Key prefix for storing vectors (default: "video_id:")
             **kwargs: Additional parameters to pass to parent class
         """
         # Initialize the parent ValkeyService class
@@ -435,46 +437,13 @@ class ValkeyVectorService(ValkeyService):
             **kwargs,
         )
         self.vector_dim = vector_dim  # Store vector dimensions
-
-    def optimize_memory(self, prefix: str = "video_id:") -> bool:
-        """Run memory optimization commands"""
-        try:
-            # Try various memory optimization commands
-            try:
-                # Memory purge (Redis 4.0+)
-                self.get_client().execute_command("MEMORY PURGE")
-                logger.info("Memory purge executed")
-            except Exception as e:
-                logger.warning(f"Memory purge not available: {e}")
-
-            # Get memory stats before optimization
-            try:
-                before_stats = self.get_client().info("memory")
-                logger.info(
-                    f"Memory before optimization: {before_stats.get('used_memory_human', 'unknown')}"
-                )
-            except Exception:
-                pass
-
-            # Try to free up memory
-            self.clear_vector_data(prefix=prefix)
-
-            # Get memory stats after optimization
-            try:
-                after_stats = self.get_client().info("memory")
-                logger.info(
-                    f"Memory after optimization: {after_stats.get('used_memory_human', 'unknown')}"
-                )
-            except Exception:
-                pass
-
-            return True
-        except Exception as e:
-            logger.error(f"Failed to optimize memory: {e}")
-            return False
+        self.prefix = prefix  # Store key prefix
 
     def create_vector_index(
-        self, index_name: str = "video_embeddings", vector_dim: int = None
+        self,
+        index_name: str = "video_embeddings",
+        vector_dim: int = None,
+        id_field: str = "video_id",
     ) -> bool:
         """
         Create a Redis vector similarity index
@@ -482,6 +451,7 @@ class ValkeyVectorService(ValkeyService):
         Args:
             index_name: Name of the index to create
             vector_dim: Vector dimensions (overrides class setting if provided)
+            id_field: Name of the ID field in the hash (default: "video_id")
         """
         # Use provided dimension or class dimension
         dim = vector_dim if vector_dim is not None else self.vector_dim
@@ -502,7 +472,7 @@ class ValkeyVectorService(ValkeyService):
             # Define schema for hash with vector field
             # Using HNSW algorithm which is better for larger datasets
             schema = (
-                TagField("video_id"),
+                TagField(id_field),
                 VectorField(
                     "embedding",
                     "HNSW",  # Using HNSW algorithm for better performance
@@ -522,37 +492,15 @@ class ValkeyVectorService(ValkeyService):
             self.get_client().ft(index_name).create_index(
                 schema,
                 definition=IndexDefinition(
-                    prefix=["video_id:"], index_type=IndexType.HASH
+                    prefix=[self.prefix], index_type=IndexType.HASH
                 ),
             )
-            logger.info(f"Created vector index: {index_name} with dimension {dim}")
+            logger.info(
+                f"Created vector index: {index_name} with dimension {dim} and prefix {self.prefix}"
+            )
             return True
         except Exception as e:
             logger.error(f"Error creating vector index: {e}")
-            return False
-
-    def store_video_embedding(
-        self,
-        video_id: str,
-        embedding: List[float],
-        index_name: str = "video_embeddings",
-    ) -> bool:
-        """Store video embedding using Redis hash"""
-        try:
-            # Ensure embedding is the right format
-            if isinstance(embedding, np.ndarray):
-                embedding = embedding.astype(np.float32)
-            else:
-                embedding = np.array(embedding, dtype=np.float32)
-
-            # Store as hash
-            key = f"video_id:{video_id}"
-            mapping = {"video_id": video_id, "embedding": embedding.tobytes()}
-
-            self.get_client().hset(key, mapping=mapping)
-            return True
-        except Exception as e:
-            logger.error(f"Error storing embedding for {video_id}: {e}")
             return False
 
     def find_similar_videos(
@@ -560,6 +508,7 @@ class ValkeyVectorService(ValkeyService):
         query_vector: List[float],
         top_k: int = 10,
         index_name: str = "video_embeddings",
+        id_field: str = "video_id",
     ) -> List[Dict]:
         """Find similar videos using Redis vector similarity search"""
         try:
@@ -580,49 +529,44 @@ class ValkeyVectorService(ValkeyService):
             # Use dialect 2 and explicitly set LIMIT to top_k
             query = (
                 Query(query_string)
-                .return_fields("video_id", "vector_score")
+                .return_fields(id_field, "vector_score")
                 .paging(0, top_k)  # Explicitly set the limit
                 .dialect(2)
             )
 
             # Perform vector similarity search with the proper parameter name
             logger.info(f"Executing vector search with top_k={top_k}")
-            try:
-                results = (
-                    self.get_client()
-                    .ft(index_name)
-                    .search(query, {"query_vector": query_vector.tobytes()})
-                )
-                logger.info(f"Search returned {len(results.docs)} results")
-            except Exception as e:
-                logger.error(f"Search failed with error: {e}")
-                raise
+            results = (
+                self.get_client()
+                .ft(index_name)
+                .search(query, {"query_vector": query_vector.tobytes()})
+            )
+            logger.info(f"Search returned {len(results.docs)} results")
 
             # Process results
             processed_results = []
             for doc in results.docs:
                 # Handle binary data if needed
-                video_id = doc.video_id
-                if isinstance(video_id, bytes):
-                    video_id = video_id.decode("utf-8")
+                item_id = getattr(doc, id_field)
+                if isinstance(item_id, bytes):
+                    item_id = item_id.decode("utf-8")
 
                 # Get vector score (distance) and convert to similarity
                 vector_score = getattr(doc, "vector_score", None)
-                if vector_score is not None:
-                    similarity_score = 1 - float(vector_score)
-                else:
-                    similarity_score = 0.0
+                similarity_score = (
+                    1 - float(vector_score) if vector_score is not None else 0.0
+                )
 
                 processed_results.append(
                     {
-                        "video_id": video_id,
+                        id_field: item_id,
                         "similarity_score": similarity_score,
                     }
                 )
 
             if not processed_results:
                 logger.warning(
-                    f"No similar videos found for query in index {index_name}"
+                    f"No similar items found for query in index {index_name}"
                 )
 
             return processed_results
@@ -640,68 +584,104 @@ class ValkeyVectorService(ValkeyService):
         Args:
             index_name: Name of the index to drop
             keep_docs: Whether to keep the documents (default: True)
-                       Note: This parameter is ignored in older Redis versions
 
         Returns:
             True if successful, False otherwise
         """
         try:
-            # Try the simple dropindex command without parameters first
-            # This is compatible with older Redis versions
             self.get_client().ft(index_name).dropindex()
             logger.info(f"Successfully dropped index: {index_name}")
 
             # If keep_docs is False, we need to manually delete the documents
             if not keep_docs:
-                # Get all keys with the prefix
-                keys = self.get_client().keys(f"video_id:*")
-                if keys:
-                    deleted = self.get_client().delete(*keys)
-                    logger.info(f"Deleted {deleted} documents")
+                self.clear_vector_data(self.prefix)
 
             return True
         except Exception as e:
             logger.error(f"Error dropping index {index_name}: {e}")
             return False
 
-    def clear_vector_data(self, prefix: str) -> bool:
+    def clear_vector_data(self, prefix: str = None) -> bool:
         """
         Clear all vector data with the given prefix
 
         Args:
-            prefix: Key prefix to match (e.g: "video_id:")
+            prefix: Key prefix to match (defaults to self.prefix if None)
 
         Returns:
             True if successful, False otherwise
         """
         try:
+            # Use provided prefix or instance prefix
+            key_prefix = prefix if prefix is not None else self.prefix
+
             # Get all keys matching the prefix
-            keys = self.get_client().keys(f"{prefix}*")
-            logger.info(f"Found {len(keys)} keys with prefix {prefix}")
+            keys = self.get_client().keys(f"{key_prefix}*")
+            logger.info(f"Found {len(keys)} keys with prefix {key_prefix}")
 
             if keys:
                 # Delete all matching keys
                 deleted = self.get_client().delete(*keys)
-                logger.info(f"Deleted {deleted} keys with prefix {prefix}")
+                logger.info(f"Deleted {deleted} keys with prefix {key_prefix}")
 
             return True
         except Exception as e:
             logger.error(f"Error clearing vector data: {e}")
             return False
 
+    def optimize_memory(self) -> bool:
+        """Run memory optimization commands"""
+        try:
+            # Try to run memory purge command
+            try:
+                self.get_client().execute_command("MEMORY PURGE")
+                logger.info("Memory purge executed")
+            except Exception as e:
+                logger.warning(f"Memory purge not available: {e}")
+
+            # Log memory usage before and after
+            before_stats = self.get_client().info("memory")
+            logger.info(
+                f"Memory before optimization: {before_stats.get('used_memory_human', 'unknown')}"
+            )
+
+            # Clear vector data to free memory
+            self.clear_vector_data()
+
+            after_stats = self.get_client().info("memory")
+            logger.info(
+                f"Memory after optimization: {after_stats.get('used_memory_human', 'unknown')}"
+            )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to optimize memory: {e}")
+            return False
+
     def batch_store_embeddings(
         self,
         embeddings_dict: Dict[str, List[float]],
         index_name: str = "video_embeddings",
+        id_field: str = "video_id",
     ) -> Dict[str, int]:
-        """Batch store video embeddings"""
+        """
+        Batch store vector embeddings
+
+        Args:
+            embeddings_dict: Dictionary mapping IDs to embedding vectors
+            index_name: Name of the index to use
+            id_field: Name of the ID field in the hash
+
+        Returns:
+            Dictionary with operation statistics
+        """
         stats = {"successful": 0, "failed": 0, "total": len(embeddings_dict)}
 
         # Use pipeline for better performance
         pipe = self.get_client().pipeline(transaction=False)
 
         try:
-            for video_id, embedding in tqdm(
+            for item_id, embedding in tqdm(
                 embeddings_dict.items(), desc="Storing embeddings"
             ):
                 # Ensure embedding is the right format
@@ -711,8 +691,8 @@ class ValkeyVectorService(ValkeyService):
                     embedding = np.array(embedding, dtype=np.float32)
 
                 # Prepare hash data
-                key = f"video_id:{video_id}"
-                mapping = {"video_id": video_id, "embedding": embedding.tobytes()}
+                key = f"{self.prefix}{item_id}"
+                mapping = {id_field: item_id, "embedding": embedding.tobytes()}
 
                 # Add to pipeline
                 pipe.hset(key, mapping=mapping)

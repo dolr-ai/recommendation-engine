@@ -58,11 +58,12 @@ vector_service = ValkeyVectorService(
     socket_timeout=15,
     socket_connect_timeout=15,
     vector_dim=shape_of_embedding,  # Use the actual embedding dimension from data
+    prefix="video_id:",  # Use custom prefix for this application
 )
 
 # Create the vector index
 print("\nCreating vector index...")
-vector_service.create_vector_index()
+vector_service.create_vector_index(id_field="video_id")
 
 # Verify the index was created
 try:
@@ -75,7 +76,7 @@ except Exception as e:
 # %%
 # Store all embeddings from dict_emb
 print(f"\nStoring {len(dict_emb)} video embeddings...")
-stats = vector_service.batch_store_embeddings(dict_emb)
+stats = vector_service.batch_store_embeddings(dict_emb, id_field="video_id")
 print(f"Storage stats: {stats}")
 
 # Verify some random keys were stored
@@ -83,7 +84,7 @@ print("\nVerifying storage...")
 client = vector_service.get_client()
 sample_keys = list(dict_emb.keys())[:3]
 for key in sample_keys:
-    redis_key = f"video:{key}"
+    redis_key = f"video_id:{key}"
     exists = client.exists(redis_key)
     print(f"\nKey {redis_key} exists: {exists}")
     if exists:
@@ -116,7 +117,7 @@ def test_similarity_search(test_videos, top_k=5):
 
         # Force conversion to float32 before search
         results = vector_service.find_similar_videos(
-            query_vector=query_embedding, top_k=top_k
+            query_vector=query_embedding, top_k=top_k, id_field="video_id"
         )
 
         if not results:
@@ -153,7 +154,7 @@ def get_similar_videos(video_id: str, top_k: int = 5):
 
     # Force conversion to float32 before search
     results = vector_service.find_similar_videos(
-        query_vector=query_embedding, top_k=top_k
+        query_vector=query_embedding, top_k=top_k, id_field="video_id"
     )
 
     if not results:
@@ -162,10 +163,19 @@ def get_similar_videos(video_id: str, top_k: int = 5):
     return results
 
 
-get_similar_videos("2d1d05b4162a490585289be8bd798c65", top_k=100)
+res = get_similar_videos("2d1d05b4162a490585289be8bd798c65", top_k=10)
 # %%
 # delete index and keys
-# vector_service.drop_vector_index(index_name="video_embeddings")
+# vector_service.drop_vector_index(index_name="video_embeddings", keep_docs=False)
+# vector_service.clear_vector_data(prefix="video_id:")
+# vector_service.optimize_memory()
+# %%
+[i["video_id"] for i in res]
 
-# vector_service.clear_vector_data()
-# vector_service.optimize_memory(prefix="video_id:")
+query = f"""
+SELECT
+  video_id,
+  `jay-dhanwant-experiments.stage_test_tables.video_id_to_url`(video_id) as yral_url
+FROM UNNEST({[i["video_id"] for i in res]}) AS video_id;
+"""
+print(query)
