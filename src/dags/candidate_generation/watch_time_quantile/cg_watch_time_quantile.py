@@ -46,6 +46,9 @@ REGION = "us-central1"
 # Table configuration
 SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters"
 INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate"
+USER_BINS_TABLE = (
+    "jay-dhanwant-experiments.stage_test_tables.user_watch_time_quantile_bins"
+)
 DESTINATION_TABLE = (
     "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates"
 )
@@ -121,6 +124,110 @@ def generate_intermediate_table(**kwargs):
         # Create BigQuery client
         client = get_bigquery_client()
 
+        # First, create and populate the user bins table
+        print(f"=== CREATING AND POPULATING USER BINS TABLE: {USER_BINS_TABLE} ===")
+
+        # SQL query: Create and populate the user bins table
+        user_bins_query = f"""
+        -- Create or replace the user bins table
+        CREATE OR REPLACE TABLE
+          `{USER_BINS_TABLE}` (
+            cluster_id INT64,
+            percentile_25 FLOAT64,
+            percentile_50 FLOAT64,
+            percentile_75 FLOAT64,
+            percentile_100 FLOAT64,
+            user_count INT64
+          );
+
+        -- Insert data into the user bins table
+        INSERT INTO
+          `{USER_BINS_TABLE}`
+        WITH
+          -- Read data from the clusters table
+          clusters AS (
+            SELECT
+              cluster_id,
+              user_id,
+              video_id,
+              mean_percentage_watched
+            FROM
+              `{SOURCE_TABLE}`
+          ),
+          -- Get approx seconds watched per user
+          clusters_with_time AS (
+            SELECT
+              *,
+              mean_percentage_watched * 60 AS time_watched_seconds_approx
+            FROM
+              clusters
+          ),
+          -- Aggregate time watched per user and cluster
+          user_cluster_time AS (
+            SELECT
+              cluster_id,
+              user_id,
+              SUM(time_watched_seconds_approx) AS total_time_watched_seconds
+            FROM
+              clusters_with_time
+            GROUP BY
+              cluster_id,
+              user_id
+          ),
+          -- Calculate quantiles for each cluster
+          user_watch_time_quantile_bin_thresholds AS (
+            SELECT
+              cluster_id,
+              APPROX_QUANTILES(total_time_watched_seconds, 100)[OFFSET(25)] AS percentile_25,
+              APPROX_QUANTILES(total_time_watched_seconds, 100)[OFFSET(50)] AS percentile_50,
+              APPROX_QUANTILES(total_time_watched_seconds, 100)[OFFSET(75)] AS percentile_75,
+              APPROX_QUANTILES(total_time_watched_seconds, 100)[OFFSET(100)] AS percentile_100,
+              COUNT(user_id) AS user_count
+            FROM
+              user_cluster_time
+            GROUP BY
+              cluster_id
+          )
+        -- Final output
+        SELECT
+          *
+        FROM
+          user_watch_time_quantile_bin_thresholds
+        ORDER BY
+          cluster_id;
+        """
+
+        print("Running query to create and populate user bins table...")
+        print("=== USER BINS QUERY START ===")
+        print(user_bins_query)
+        print("=== USER BINS QUERY END ===")
+
+        # Run the user bins query
+        user_bins_job = client.query(user_bins_query)
+        user_bins_job.result()  # Wait for the query to complete
+        print("=== USER BINS TABLE CREATION AND POPULATION COMPLETED ===")
+
+        # Verify user bins data was inserted
+        verify_user_bins_query = f"""
+        SELECT COUNT(*) as row_count
+        FROM `{USER_BINS_TABLE}`
+        """
+
+        print("Verifying data was inserted into user bins table...")
+        verify_user_bins_job = client.query(verify_user_bins_query)
+        user_bins_result = list(verify_user_bins_job.result())[0]
+        user_bins_row_count = user_bins_result.row_count
+
+        print(
+            f"=== VERIFICATION: Found {user_bins_row_count} rows in user bins table ==="
+        )
+
+        if user_bins_row_count == 0:
+            error_msg = f"No data was inserted into {USER_BINS_TABLE}"
+            print(f"=== ERROR: {error_msg} ===")
+            raise AirflowException(error_msg)
+
+        # Next, create and populate the intermediate table for comparison between bins
         print(
             f"=== CREATING AND POPULATING INTERMEDIATE TABLE: {INTERMEDIATE_TABLE} ==="
         )
@@ -476,6 +583,70 @@ def check_intermediate_table(**kwargs):
         raise AirflowException(error_msg)
 
 
+# Function to check if user bins table exists and has data
+def check_user_bins_table(**kwargs):
+    """Check if the user bins table exists and has data. If not, processing cannot continue."""
+    try:
+        client = get_bigquery_client()
+
+        print(f"=== CHECKING USER BINS TABLE: {USER_BINS_TABLE} ===")
+
+        # Check if table exists and print key stats by running a query
+        query = f"""
+        SELECT
+            cluster_id,
+            percentile_25,
+            percentile_50,
+            percentile_75,
+            percentile_100,
+            user_count
+        FROM `{USER_BINS_TABLE}`
+        ORDER BY cluster_id
+        """
+
+        try:
+            print(f"Executing query to check user bins table data...")
+            print("=== USER BINS TABLE CHECK QUERY ===")
+            print(query)
+            print("=== END USER BINS TABLE CHECK QUERY ===")
+            query_job = client.query(query)
+            results = query_job.result()
+
+            # Convert to list to check if empty
+            rows = list(results)
+            row_count = len(rows)
+
+            print(f"=== USER BINS TABLE CHECK RESULT: Found {row_count} rows ===")
+
+            if row_count == 0:
+                print("=== WARNING: User bins table exists but has no data! ===")
+                raise AirflowException("User bins table has no data. Cannot proceed.")
+            else:
+                print("=== USER BINS TABLE CONTENTS SAMPLE ===")
+                # Print only up to 5 rows as a sample
+                for i, row in enumerate(rows[:5]):
+                    print(
+                        f"Row {i + 1}: Cluster: {row.cluster_id}, "
+                        f"P25: {row.percentile_25:.2f}, P50: {row.percentile_50:.2f}, "
+                        f"P75: {row.percentile_75:.2f}, P100: {row.percentile_100:.2f}, "
+                        f"Users: {row.user_count}"
+                    )
+                if row_count > 5:
+                    print(f"... and {row_count - 5} more rows")
+                print("=== END USER BINS TABLE CONTENTS SAMPLE ===")
+
+            return True
+        except Exception as e:
+            error_msg = f"Error: User bins table doesn't exist or has issues: {str(e)}"
+            print(f"=== {error_msg} ===")
+            raise AirflowException(error_msg)
+
+    except Exception as e:
+        error_msg = f"Failed to check user bins table: {str(e)}"
+        print(f"=== ERROR: {error_msg} ===")
+        raise AirflowException(error_msg)
+
+
 # Function to run part 2: generate candidates using nearest neighbors
 def generate_candidates(**kwargs):
     """Execute the second SQL query to generate candidate videos using nearest neighbors."""
@@ -545,7 +716,7 @@ def generate_candidates(**kwargs):
               idata.list_videos_watched,
               -- Ensure source_bin is not null, use IFNULL to handle the first bin
               FORMAT(
-                '%d->[%d]->[%d]',
+                'cluster_%d->bin_%d->bin_%d',
                 idata.cluster_id,
                 IFNULL(idata.source_bin, 0),
                 idata.bin
@@ -960,6 +1131,12 @@ with DAG(
         python_callable=check_intermediate_table,
     )
 
+    # Check user bins table data
+    check_user_bins = PythonOperator(
+        task_id="task-check_user_bins_table",
+        python_callable=check_user_bins_table,
+    )
+
     # Part 2: Generate candidates
     generate_nn_candidates = PythonOperator(
         task_id="task-generate_nn_candidates",
@@ -986,6 +1163,7 @@ with DAG(
         >> init_status
         >> generate_intermediate  # Create and populate intermediate table
         >> check_intermediate  # Verify table has data after generation
+        >> check_user_bins  # Verify user bins table has data
         >> generate_nn_candidates  # Calculate nearest neighbors
         >> verify_data
         >> set_status
