@@ -8,7 +8,7 @@ This script is used to get metadata for the candidates from the candidate cache.
 import os
 import json
 import pandas as pd
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
 from abc import ABC, abstractmethod
 import pathlib
 from tqdm import tqdm
@@ -245,24 +245,91 @@ class UserWatchTimeQuantileBinsFetcher(MetadataFetcher):
         return [key.split(":")[1] for key in keys]
 
 
+class UserWatchTimeFetcher(MetadataFetcher):
+    """
+    Fetcher for User Watch Time metadata.
+    """
+
+    def parse_metadata_value(self, value: str) -> Dict[str, Any]:
+        """
+        Parse a User Watch Time metadata value string into a dictionary.
+
+        Args:
+            value: String representation of a JSON object containing user data
+
+        Returns:
+            Dictionary with user data
+        """
+        if not value:
+            return {}
+
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            raise ValueError(f"Invalid User Watch Time value format: {value}")
+
+    def format_key(self, user_id: str) -> str:
+        """
+        Format a key for retrieving User Watch Time metadata.
+
+        Args:
+            user_id: The user ID
+
+        Returns:
+            Formatted key string
+        """
+        return f"meta:{user_id}:user_watch_time"
+
+    def get_user_cluster_and_watch_time(self, user_id: str) -> Tuple[str, float]:
+        """
+        Get the cluster_id and watch_time for a specific user.
+
+        Args:
+            user_id: The user ID
+
+        Returns:
+            Tuple of (cluster_id, watch_time) or (None, 0.0) if not found
+        """
+        key = self.format_key(user_id)
+        value = self.get_value(key)
+
+        if not value:
+            logger.warning(f"No watch time data found for user {user_id}")
+            return None, 0.0
+
+        data = self.parse_metadata_value(value)
+
+        # Since a user can only belong to one cluster, we expect the data
+        # to have a single key-value pair for the cluster_id and watch_time
+        if data and len(data) > 0:
+            # Get the first (and only) cluster_id and watch_time
+            cluster_id = list(data.keys())[0]
+            watch_time = data[cluster_id]
+            return cluster_id, watch_time
+        else:
+            logger.warning(f"Invalid data format for user {user_id}")
+            return None, 0.0
+
+
 # Example usage
 if __name__ == "__main__":
-    # Create fetcher with default config
+    # Create fetchers with default config
     bins_fetcher = UserWatchTimeQuantileBinsFetcher()
+    user_watch_time_fetcher = UserWatchTimeFetcher()
 
-    # Get all available clusters
-    clusters = bins_fetcher.get_all_clusters()
-    logger.info(f"Available clusters: {clusters}")
+    # Example: Get cluster_id and watch_time for a specific user
+    test_user = "user_id"  # Replace with an actual user ID
+    cluster_id, watch_time = user_watch_time_fetcher.get_user_cluster_and_watch_time(
+        test_user
+    )
 
-    # Example: Get bins for cluster 1
-    cluster_id = "1"
-    bins_data = bins_fetcher.get_quantile_bins(cluster_id)
-    logger.info(f"Bins data for cluster {cluster_id}: {bins_data}")
-
-    # Example: Determine bin for different watch times
-    test_watch_times = [10, 100, 500, 2000]
-    for watch_time in test_watch_times:
-        bin_id = bins_fetcher.determine_bin(cluster_id, watch_time)
+    if cluster_id:
         logger.info(
-            f"Watch time {watch_time} belongs to bin {bin_id} for cluster {cluster_id}"
+            f"User {test_user} belongs to cluster {cluster_id} with watch time {watch_time}"
         )
+
+        # Determine bin for this user's watch time
+        bin_id = bins_fetcher.determine_bin(cluster_id, watch_time)
+        logger.info(f"User {test_user} belongs to bin {bin_id} in cluster {cluster_id}")
+    else:
+        logger.warning(f"No cluster found for user {test_user}")

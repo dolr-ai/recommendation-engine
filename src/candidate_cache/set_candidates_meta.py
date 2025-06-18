@@ -288,11 +288,90 @@ class UserWatchTimeQuantileBins(MetadataPopulator):
         return result
 
 
+class UserWatchTimeMetadata(MetadataPopulator):
+    """Implementation for User Watch Time metadata."""
+
+    def __init__(
+        self,
+        table_name: str = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters",
+        **kwargs,
+    ):
+        """
+        Initialize User Watch Time metadata populator.
+
+        Args:
+            table_name: BigQuery table name for user watch time data
+            **kwargs: Additional arguments passed to parent class
+        """
+        super().__init__(**kwargs)
+        self.table_name = table_name
+
+    def format_key(
+        self,
+        user_id: str,
+        metadata_type: str = "user_watch_time",
+    ) -> str:
+        """Format key for User Watch Time metadata."""
+        return f"meta:{user_id}:{metadata_type}"
+
+    def format_value(
+        self,
+        cluster_watch_times: Dict[str, float],
+    ) -> str:
+        """Format value for User Watch Time metadata."""
+        return json.dumps(cluster_watch_times)
+
+    def get_metadata(self) -> List[Dict[str, str]]:
+        """Fetch User Watch Time metadata from BigQuery."""
+        query = f"""
+        SELECT
+            cluster_id,
+            user_id,
+            SUM(mean_percentage_watched) * 60 as total_watch_time
+        FROM
+            `{self.table_name}`
+        GROUP BY
+            cluster_id, user_id
+        """
+
+        df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
+        logger.info(f"Retrieved {len(df)} rows of user watch time data")
+
+        # Group by user_id and create a dictionary of cluster_id -> watch_time
+        user_data = {}
+        for _, row in df.iterrows():
+            user_id = row["user_id"]
+            cluster_id = str(row["cluster_id"])
+            watch_time = float(row["total_watch_time"])
+
+            if user_id not in user_data:
+                user_data[user_id] = {}
+
+            user_data[user_id][cluster_id] = watch_time
+
+        # Convert to list of dictionaries with 'key' and 'value' fields
+        result = []
+        for user_id, cluster_watch_times in user_data.items():
+            key = self.format_key(user_id=user_id)
+            value = self.format_value(cluster_watch_times=cluster_watch_times)
+            result.append({"key": key, "value": value})
+
+        logger.info(f"Prepared metadata for {len(result)} users")
+        return result
+
+
 # Example usage
 if __name__ == "__main__":
     # Create metadata populator for user watch time quantile bins
     user_bins_populator = UserWatchTimeQuantileBins()
 
     # Populate Valkey with user watch time quantile bins metadata
-    stats = user_bins_populator.populate_valkey()
-    print(f"Upload complete with stats: {stats}")
+    bins_stats = user_bins_populator.populate_valkey()
+    print(f"Bins upload complete with stats: {bins_stats}")
+
+    # Create metadata populator for user watch times
+    user_watch_time_populator = UserWatchTimeMetadata()
+
+    # Populate Valkey with user watch time metadata
+    watch_time_stats = user_watch_time_populator.populate_valkey()
+    print(f"User watch time upload complete with stats: {watch_time_stats}")
