@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from utils.gcp_utils import GCPUtils
 from utils.common_utils import path_exists
 from utils.valkey_utils import ValkeyService
-from get_set_candidates.get_candidates_valkey import (
+from candidate_cache.get_candidates import (
     ModifiedIoUCandidateFetcher,
     WatchTimeQuantileCandidateFetcher,
 )

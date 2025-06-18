@@ -19,8 +19,13 @@ SELECT
   cp.percentile_100,
   cp.user_count,
   CASE
+    -- todo:
     -- check if these bins fit the logic
     -- will you compare with higher bin or lower bin when you get it?
+    -- if you get bin = 3 what will you do? this is the highest bin
+    -- will you compare with all the bins out there? or will you skip it?
+    -- you will also need to store this metadata in redis for service to use it
+    -- have a good structure of keys to identify them plus you can also refresh them easily
     WHEN uwt.total_watch_time <= cp.percentile_25 THEN 0
     WHEN uwt.total_watch_time <= cp.percentile_50 THEN 1
     WHEN uwt.total_watch_time <= cp.percentile_75 THEN 2

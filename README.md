@@ -24,3 +24,6 @@ uv pip install -e .
 DATA_ROOT="path/to/store/data"
 GCP_CREDENTIALS_PATH="path/to/gcp/credentials.json"
 ```
+
+### how to run scripts?
+
