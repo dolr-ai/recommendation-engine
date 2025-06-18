@@ -312,7 +312,6 @@ class ValkeyService:
         key_field: str = "key",
         value_field: str = "value",
         expire_seconds: Optional[int] = None,
-        batch_size: int = 100,
     ) -> Dict[str, Any]:
         """
         Batch upload key-value pairs to Valkey with optional expiration
@@ -322,7 +321,6 @@ class ValkeyService:
             key_field: Field name in dict containing the key
             value_field: Field name in dict containing the value
             expire_seconds: Optional expiration time in seconds
-            batch_size: Number of operations per batch
 
         Returns:
             Dict with stats about the operation
@@ -336,52 +334,47 @@ class ValkeyService:
         start_time = datetime.now()
 
         try:
-            # Process in batches to avoid overwhelming the connection
-            for i in range(0, len(data), batch_size):
-                batch = data[i : i + batch_size]
-                pipe = self.pipeline()
+            # Use pipeline for all operations
+            pipe = self.pipeline()
 
-                # Add each key-value pair to the pipeline
-                for item in batch:
-                    try:
-                        key = item.get(key_field)
-                        value = item.get(value_field)
-
-                        if key is None or value is None:
-                            logger.warning(
-                                f"Skipping item missing key or value: {item}"
-                            )
-                            stats["failed"] += 1
-                            continue
-
-                        pipe.set(key, value)
-
-                        # Set expiration if specified
-                        if expire_seconds:
-                            pipe.expire(key, expire_seconds)
-                    except Exception as e:
-                        logger.error(f"Error adding item to pipeline: {e}")
-                        stats["failed"] += 1
-
-                # Execute the pipeline
+            # Add each key-value pair to the pipeline
+            for item in data:
                 try:
-                    results = pipe.execute()
-                    # Each successful set operation returns True
-                    success_count = sum(1 for r in results if r is True)
+                    key = item.get(key_field)
+                    value = item.get(value_field)
 
+                    if key is None or value is None:
+                        logger.warning(f"Skipping item missing key or value: {item}")
+                        stats["failed"] += 1
+                        continue
+
+                    pipe.set(key, value)
+
+                    # Set expiration if specified
                     if expire_seconds:
-                        # When expire is used, every other result is for expire operation
-                        stats["successful"] += success_count // 2
-                    else:
-                        stats["successful"] += success_count
-
+                        pipe.expire(key, expire_seconds)
                 except Exception as e:
-                    logger.error(f"Error executing pipeline: {e}")
-                    stats["failed"] += len(batch)
+                    logger.error(f"Error adding item to pipeline: {e}")
+                    stats["failed"] += 1
 
-                logger.info(
-                    f"Processed {min(i + batch_size, len(data))}/{len(data)} items"
-                )
+            # Execute the pipeline
+            try:
+                results = pipe.execute()
+                # Each successful set operation returns True
+                success_count = sum(1 for r in results if r is True)
+
+                if expire_seconds:
+                    # When expire is used, every other result is for expire operation
+                    # avoid counting twice for the same key
+                    stats["successful"] += success_count // 2
+                else:
+                    stats["successful"] += success_count
+
+            except Exception as e:
+                logger.error(f"Error executing pipeline: {e}")
+                stats["failed"] += len(data)
+
+            logger.info(f"Processed {len(data)} items")
 
         except Exception as e:
             logger.error(f"Batch upload failed: {e}")
@@ -629,35 +622,6 @@ class ValkeyVectorService(ValkeyService):
             logger.error(f"Error clearing vector data: {e}")
             return False
 
-    def optimize_memory(self) -> bool:
-        """Run memory optimization commands"""
-        try:
-            # Try to run memory purge command
-            try:
-                self.get_client().execute_command("MEMORY PURGE")
-                logger.info("Memory purge executed")
-            except Exception as e:
-                logger.warning(f"Memory purge not available: {e}")
-
-            # Log memory usage before and after
-            before_stats = self.get_client().info("memory")
-            logger.info(
-                f"Memory before optimization: {before_stats.get('used_memory_human', 'unknown')}"
-            )
-
-            # Clear vector data to free memory
-            self.clear_vector_data()
-
-            after_stats = self.get_client().info("memory")
-            logger.info(
-                f"Memory after optimization: {after_stats.get('used_memory_human', 'unknown')}"
-            )
-
-            return True
-        except Exception as e:
-            logger.error(f"Failed to optimize memory: {e}")
-            return False
-
     def batch_store_embeddings(
         self,
         embeddings_dict: Dict[str, List[float]],
@@ -692,7 +656,7 @@ class ValkeyVectorService(ValkeyService):
 
                 # Prepare hash data
                 key = f"{self.prefix}{item_id}"
-                mapping = {id_field: item_id, "embedding": embedding.tobytes()}
+                mapping = {id_field: item_id, index_name: embedding.tobytes()}
 
                 # Add to pipeline
                 pipe.hset(key, mapping=mapping)
