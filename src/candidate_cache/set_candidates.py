@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
         "socket_connect_timeout": 15,
     },
     # todo: configure this as per CRON jobs
-    "expire_seconds": 86400,  # 1 day
+    "expire_seconds": 86400 * 7,
     "verify_sample_size": 5,
     # todo: add vector index as config
     "vector_index_name": "video_embeddings",

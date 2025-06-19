@@ -192,7 +192,8 @@ class UserWatchTimeQuantileBinsFetcher(MetadataFetcher):
             logger.warning(
                 f"No watch time quantile bins found for cluster {cluster_id}"
             )
-            return {}
+            # in case cluster was not processed / is very small
+            return -1
 
     def determine_bin(self, cluster_id: Union[int, str], watch_time: float) -> int:
         """
@@ -209,21 +210,31 @@ class UserWatchTimeQuantileBinsFetcher(MetadataFetcher):
             watch_time: The user's watch time
 
         Returns:
-            Bin ID (0-3) or -1 if bins data not found
+            Bin ID (0-3) or -1 if bins data not found or error occurs
         """
-        bins_data = self.get_quantile_bins(cluster_id)
+        try:
+            # If watch_time is -1, set bin to 0 irrespective of the cluster
+            if watch_time == -1:
+                return 0
 
-        if not bins_data:
+            bins_data = self.get_quantile_bins(cluster_id)
+
+            if not bins_data:
+                return -1
+
+            if watch_time <= bins_data.get("percentile_25", float("inf")):
+                return 0
+            elif watch_time <= bins_data.get("percentile_50", float("inf")):
+                return 1
+            elif watch_time <= bins_data.get("percentile_75", float("inf")):
+                return 2
+            else:
+                return 3
+        except Exception as e:
+            logger.error(
+                f"Error determining bin for cluster {cluster_id} and watch time {watch_time}: {e}"
+            )
             return -1
-
-        if watch_time <= bins_data.get("percentile_25", float("inf")):
-            return 0
-        elif watch_time <= bins_data.get("percentile_50", float("inf")):
-            return 1
-        elif watch_time <= bins_data.get("percentile_75", float("inf")):
-            return 2
-        else:
-            return 3
 
     def get_all_clusters(self) -> List[str]:
         """
@@ -271,7 +282,9 @@ class UserClusterWatchTimeFetcher(MetadataFetcher):
         """
         return f"meta:{user_id}:user_watch_time"
 
-    def get_user_cluster_and_watch_time(self, user_id: str) -> Tuple[str, float]:
+    def get_user_cluster_and_watch_time(
+        self, user_id: str
+    ) -> Tuple[Union[str, int], float]:
         """
         Get the cluster_id and watch_time for a specific user.
 
@@ -279,27 +292,33 @@ class UserClusterWatchTimeFetcher(MetadataFetcher):
             user_id: The user ID
 
         Returns:
-            Tuple of (cluster_id, watch_time) or (None, 0.0) if not found
+            Tuple of (cluster_id, watch_time) or (-1, -1) if not found or error occurs
         """
-        key = self.format_key(user_id)
-        value = self.get_value(key)
+        try:
+            key = self.format_key(user_id)
+            value = self.get_value(key)
 
-        if not value:
-            logger.warning(f"No watch time data found for user {user_id}")
-            return None, 0.0
+            if not value:
+                logger.warning(f"No watch time data found for user {user_id}")
+                return -1, -1
 
-        data = self.parse_metadata_value(value)
+            data = self.parse_metadata_value(value)
 
-        # Since a user can only belong to one cluster, we expect the data
-        # to have a single key-value pair for the cluster_id and watch_time
-        if data and len(data) > 0:
-            # Get the first (and only) cluster_id and watch_time
-            cluster_id = list(data.keys())[0]
-            watch_time = data[cluster_id]
-            return cluster_id, watch_time
-        else:
-            logger.warning(f"Invalid data format for user {user_id}")
-            return None, 0.0
+            # Since a user can only belong to one cluster, we expect the data
+            # to have a single key-value pair for the cluster_id and watch_time
+            if data and len(data) > 0:
+                # Get the first (and only) cluster_id and watch_time
+                cluster_id = list(data.keys())[0]
+                watch_time = data[cluster_id]
+                return cluster_id, watch_time
+            else:
+                logger.warning(f"Invalid data format for user {user_id}")
+                return -1, -1
+        except Exception as e:
+            logger.error(
+                f"Error getting cluster and watch time for user {user_id}: {e}"
+            )
+            return -1, -1
 
 
 # Example usage
@@ -314,7 +333,7 @@ if __name__ == "__main__":
         test_user
     )
 
-    if cluster_id:
+    if cluster_id != -1:
         logger.debug(
             f"User {test_user} belongs to cluster {cluster_id} with watch time {watch_time}"
         )
