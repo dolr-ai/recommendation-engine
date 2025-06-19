@@ -94,7 +94,7 @@ def get_batch_embeddings(video_ids):
 
         # Create keys for all items
         keys = [f"{vector_service.prefix}{video_id}" for video_id in video_ids]
-
+        print(keys)
         # Check which keys exist in Redis
         pipe = client.pipeline()
         for key in keys:
@@ -112,7 +112,7 @@ def get_batch_embeddings(video_ids):
         # Get embeddings in batch using pipeline
         pipe = client.pipeline()
         for key in existing_keys:
-            pipe.hget(key, "embedding")
+            pipe.hget(key, "video_embeddings")
         embedding_binaries = pipe.execute()
 
         # Convert binary data to numpy arrays
