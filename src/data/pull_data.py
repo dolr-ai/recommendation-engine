@@ -12,7 +12,7 @@ from tqdm import tqdm
 from utils.common_utils import path_exists, get_logger
 from utils.gcp_utils import GCPUtils
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 DATA_ROOT = pathlib.Path("/home/dataproc/recommendation-engine/data_root")
 GCP_CREDENTIALS_PATH = "/home/dataproc/recommendation-engine/credentials.json"

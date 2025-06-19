@@ -17,7 +17,7 @@ from .gcp_utils import GCPCore
 from .common_utils import time_execution, get_logger
 
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 
 class ValkeyService:
@@ -132,7 +132,7 @@ class ValkeyService:
             return self.client
         except:
             # Reconnect if connection is stale
-            logger.info(
+            logger.debug(
                 f"Reconnecting to Valkey {self.instance_id} due to stale connection"
             )
             return self.connect()
@@ -458,9 +458,9 @@ class ValkeyVectorService(ValkeyService):
             # Drop existing index if it exists
             try:
                 self.get_client().ft(index_name).dropindex()
-                logger.info(f"Dropped existing index: {index_name}")
+                logger.debug(f"Dropped existing index: {index_name}")
             except Exception as e:
-                logger.info(f"No existing index to drop: {e}")
+                logger.debug(f"No existing index to drop: {e}")
 
             # Define schema for hash with vector field
             # Using HNSW algorithm which is better for larger datasets
@@ -488,7 +488,7 @@ class ValkeyVectorService(ValkeyService):
                     prefix=[self.prefix], index_type=IndexType.HASH
                 ),
             )
-            logger.info(
+            logger.debug(
                 f"Created vector index: {index_name} with dimension {dim} and prefix {self.prefix}"
             )
             return True
@@ -528,13 +528,13 @@ class ValkeyVectorService(ValkeyService):
             )
 
             # Perform vector similarity search with the proper parameter name
-            logger.info(f"Executing vector search with top_k={top_k}")
+            logger.debug(f"Executing vector search with top_k={top_k}")
             results = (
                 self.get_client()
                 .ft(index_name)
                 .search(query, {"query_vector": query_vector.tobytes()})
             )
-            logger.info(f"Search returned {len(results.docs)} results")
+            logger.debug(f"Search returned {len(results.docs)} results")
 
             # Process results
             processed_results = []
@@ -583,7 +583,7 @@ class ValkeyVectorService(ValkeyService):
         """
         try:
             self.get_client().ft(index_name).dropindex()
-            logger.info(f"Successfully dropped index: {index_name}")
+            logger.debug(f"Successfully dropped index: {index_name}")
 
             # If keep_docs is False, we need to manually delete the documents
             if not keep_docs:
@@ -592,6 +592,25 @@ class ValkeyVectorService(ValkeyService):
             return True
         except Exception as e:
             logger.error(f"Error dropping index {index_name}: {e}")
+            return False
+
+    def check_index_exists(self, index_name: str) -> bool:
+        """
+        Check if a vector index exists
+
+        Args:
+            index_name: Name of the index to check
+
+        Returns:
+            True if index exists, False otherwise
+        """
+        try:
+            # Try to get index info - will raise exception if index doesn't exist
+            self.get_client().ft(index_name).info()
+            logger.debug(f"Index {index_name} exists")
+            return True
+        except Exception as e:
+            logger.debug(f"Index {index_name} does not exist: {e}")
             return False
 
     def clear_vector_data(self, prefix: str = None) -> bool:
@@ -610,12 +629,12 @@ class ValkeyVectorService(ValkeyService):
 
             # Get all keys matching the prefix
             keys = self.get_client().keys(f"{key_prefix}*")
-            logger.info(f"Found {len(keys)} keys with prefix {key_prefix}")
+            logger.debug(f"Found {len(keys)} keys with prefix {key_prefix}")
 
             if keys:
                 # Delete all matching keys
                 deleted = self.get_client().delete(*keys)
-                logger.info(f"Deleted {deleted} keys with prefix {key_prefix}")
+                logger.debug(f"Deleted {deleted} keys with prefix {key_prefix}")
 
             return True
         except Exception as e:

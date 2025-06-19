@@ -29,7 +29,7 @@ from typing import Optional, Dict, Any, List, Union
 from utils.gcp_utils import GCPUtils, GCPCore
 from utils.common_utils import path_exists, time_execution, get_logger
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 
 # %%
@@ -80,6 +80,7 @@ DATA_ROOT, gcp_utils_stage, gcp_utils_prod = setup_configs(
 
 
 # %%
+
 
 class ValkeyService:
     """Basic Valkey (Redis-compatible) service class for GCP Memorystore with TLS support"""
@@ -365,7 +366,7 @@ print("Testing connection:", valkey_service.verify_connection())
 # Use it
 valkey_service.set("hello", "world")
 print("Value:", valkey_service.get("hello"))
-#%%
+# %%
 valkey_service.client.delete("test:final")
-#%%
+# %%
 valkey_service.client.get("test:final")

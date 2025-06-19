@@ -19,7 +19,7 @@ from utils.gcp_utils import GCPUtils
 from utils.common_utils import get_logger
 from utils.valkey_utils import ValkeyService, ValkeyVectorService
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 
 # Default configuration

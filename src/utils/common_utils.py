@@ -10,8 +10,14 @@ from typing import Union
 log_level_str = os.environ.get("LOG_LEVEL", "INFO")
 log_level = getattr(logging, log_level_str, logging.INFO)
 
-logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+
+def get_logger(name: str):
+    logging.basicConfig(
+        level=log_level,
+        format="[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s",
+    )
+    logger = logging.getLogger(name)
+    return logger
 
 
 def time_execution(func):
@@ -19,6 +25,7 @@ def time_execution(func):
     Decorator to time the execution of a function.
     Prints execution time but returns only the original result.
     """
+    logger = get_logger(__name__)
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -29,10 +36,6 @@ def time_execution(func):
         return result
 
     return wrapper
-
-
-def get_logger():
-    return logger
 
 
 def path_exists(path: Union[pathlib.Path, str]) -> bool:

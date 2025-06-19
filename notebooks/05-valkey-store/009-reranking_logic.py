@@ -94,6 +94,7 @@ def get_batch_embeddings(video_ids):
 
         # Create keys for all items
         keys = [f"{vector_service.prefix}{video_id}" for video_id in video_ids]
+
         # Check which keys exist in Redis
         pipe = client.pipeline()
         for key in keys:
@@ -103,6 +104,15 @@ def get_batch_embeddings(video_ids):
         # Filter out keys that don't exist
         existing_keys = [key for key, exists in zip(keys, existing_keys_mask) if exists]
         existing_ids = [key.replace(vector_service.prefix, "") for key in existing_keys]
+
+        # Print videos that don't have embeddings
+        missing_ids = set(video_ids) - set(existing_ids)
+        if missing_ids:
+            print(f"Missing embeddings for {len(missing_ids)} videos:")
+            for missing_id in list(missing_ids)[:10]:  # Print first 10 for brevity
+                print(f"  - {missing_id}")
+            if len(missing_ids) > 10:
+                print(f"  ... and {len(missing_ids) - 10} more")
 
         if not existing_keys:
             print("No valid embeddings found")
@@ -167,6 +177,13 @@ def check_similarity_with_vector_index(
             print("No valid embeddings found in search space")
             return {}
 
+        # Print how many search space items are missing embeddings
+        missing_search_space = len(search_space_items) - len(search_space_embeddings)
+        if missing_search_space > 0:
+            print(
+                f"Note: {missing_search_space} search space items are missing embeddings"
+            )
+
         print(
             f"Successfully loaded {len(search_space_embeddings)} embeddings out of {len(search_space_items)} items"
         )
@@ -175,9 +192,8 @@ def check_similarity_with_vector_index(
         try:
             # Try to drop the index if it exists
             client.ft(temp_index_name).dropindex()
-            print(f"Dropped existing index: {temp_index_name}")
         except:
-            print(f"No existing index to drop: {temp_index_name}")
+            pass
 
         # Create the vector index
         temp_vector_service.create_vector_index(
@@ -207,7 +223,7 @@ def check_similarity_with_vector_index(
         print(f"Stored {len(custom_mapping)} embeddings in temporary index")
 
         # Step 5: Get query embeddings in batch
-        print(f"Fetching embeddings for {len(query_items)} query items")
+        print(f"Fetching embeddings for {len(set(query_items))} query items")
         query_embeddings = get_batch_embeddings(query_items)
 
         if not query_embeddings:
@@ -231,7 +247,7 @@ def check_similarity_with_vector_index(
 
             # Store results
             results[query_id] = similar_items
-            print(f"Found {len(similar_items)} similar items for query {query_id}")
+            # print(f"Found {len(similar_items)} similar items for query {query_id}")
 
         # Step 7: Clean up - drop temporary index and delete keys
         temp_vector_service.drop_vector_index(

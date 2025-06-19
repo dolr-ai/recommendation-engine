@@ -4,7 +4,7 @@ import subprocess
 
 from common_utils import get_logger
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 
 def check_nvidia_smi():

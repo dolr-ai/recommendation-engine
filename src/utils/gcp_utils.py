@@ -17,7 +17,7 @@ from google.cloud import bigquery, storage
 from google.oauth2 import service_account
 from .common_utils import time_execution, get_logger
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 
 class GCPCore:
