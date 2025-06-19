@@ -23,6 +23,11 @@ from candidate_cache.get_candidates_meta import (
     UserWatchTimeQuantileBinsFetcher,
 )
 
+# %%
+NUM_USERS_PER_CLUSTER_BIN = 10
+HISTORY_LATEST_N_VIDEOS_PER_USER = 100
+MIN_VIDEOS_PER_USER_FOR_SAMPLING = 50
+
 
 # %%
 # Setup configs
@@ -89,14 +94,16 @@ order by user_id,last_watched_timestamp desc
 df_history = gcp_utils_stage.bigquery.execute_query(query, to_dataframe=True)
 
 df_counts_and_watch_time = (
-    df_history.groupby(["user_id", "cluster_id"])
-    .agg({"video_id": "count", "mean_percentage_watched": "sum"})
-    .reset_index()
+    df_history.groupby(["user_id", "cluster_id"], as_index=False)
+    .agg(
+        count_num_videos=("video_id", "count"),
+        mean_percentage_watched=("mean_percentage_watched", "sum"),
+    )
+    .reset_index(drop=True)
 )
 df_counts_and_watch_time["watch_time_seconds"] = (
     df_counts_and_watch_time["mean_percentage_watched"] * 60
 )
-df_counts_and_watch_time.rename(columns={"video_id": "count_num_videos"}, inplace=True)
 df_counts_and_watch_time
 
 # %%
@@ -106,17 +113,16 @@ user_watch_time_fetcher = UserClusterWatchTimeFetcher()
 bins_fetcher = UserWatchTimeQuantileBinsFetcher()
 # %%
 
-
-df_counts_and_watch_time[["cluster_id", "watch_time"]] = (
-    df_counts_and_watch_time["user_id"]
-    .apply(lambda x: user_watch_time_fetcher.get_user_cluster_and_watch_time(x))
-    .to_list()
-)
+# redundant for now (during real time we will need this)
+# df_counts_and_watch_time[["cluster_id", "watch_time"]] = (
+#     df_counts_and_watch_time["user_id"]
+#     .apply(lambda x: user_watch_time_fetcher.get_user_cluster_and_watch_time(x))
+#     .to_list()
+# )
 df_counts_and_watch_time["bin_id"] = df_counts_and_watch_time.apply(
-    lambda x: bins_fetcher.determine_bin(x["cluster_id"], x["watch_time"]), axis=1
+    lambda x: bins_fetcher.determine_bin(x["cluster_id"], x["watch_time_seconds"]),
+    axis=1,
 )
-# %%
-df_counts_and_watch_time[df_counts_and_watch_time["cluster_id"] == "-1"]
 
 
 # %%
@@ -163,8 +169,16 @@ def sample_users_by_bin_cluster(df, n_samples=5, random_state=None):
 
 # %%
 # Sample 10 users from each cluster_id/bin_id combination
+# NOTE: sampled only if >50 videos for a user
+df_users_for_sampling = df_counts_and_watch_time[
+    df_counts_and_watch_time["count_num_videos"] > MIN_VIDEOS_PER_USER_FOR_SAMPLING
+].copy()
+df_users_for_sampling
+# %%
 all_sampled_users = sample_users_by_bin_cluster(
-    df_counts_and_watch_time, n_samples=10, random_state=4727
+    df_users_for_sampling,
+    n_samples=NUM_USERS_PER_CLUSTER_BIN,
+    random_state=4727,
 )
 df_user_samples = pd.DataFrame(
     all_sampled_users.items(), columns=["cluster_id_bin_id", "user_ids"]
@@ -172,31 +186,26 @@ df_user_samples = pd.DataFrame(
 
 
 # %%
-test_users = df_user_samples["user_ids"].iloc[0]
+test_users = np.unique(np.hstack(df_user_samples["user_ids"].tolist())).tolist()
 df_history = df_history.sort_values(
     by="last_watched_timestamp", ascending=False
 )  # latest time stamp first
 
-# get latest 10 videos for each user
+# get latest N videos for each user who meets the criteria > N video impressions
 df_history_filtered = (
     df_history[df_history["user_id"].isin(test_users)]
-    .groupby(["user_id", "cluster_id"])
-    .head(10)
+    .groupby(["user_id", "cluster_id"], as_index=False)
+    .head(HISTORY_LATEST_N_VIDEOS_PER_USER)
 )
+
+user_video_counts = df_history_filtered.groupby("user_id").size()
+print("----")
+print(user_video_counts)
 # %%
-# Process all users from df_user_samples
-all_user_profiles = []
-
-# Extract all user IDs from df_user_samples
-all_test_users = []
-for user_list in df_user_samples["user_ids"]:
-    all_test_users.extend(user_list)
-
-print(f"Processing profiles for {len(all_test_users)} users")
 
 # First, get bin_id for each user
 user_info = df_counts_and_watch_time[
-    df_counts_and_watch_time["user_id"].isin(all_test_users)
+    df_counts_and_watch_time["user_id"].isin(test_users)
 ][["user_id", "cluster_id", "bin_id"]]
 
 # Format watch history data for all users
@@ -208,12 +217,12 @@ df_history_all["mean_percentage_watched"] = df_history_all[
     "mean_percentage_watched"
 ].astype(str)
 
-# Filter history for our users and get the latest 10 videos for each user
+# Filter history for our users and get the latest LATEST_N_VIDEOS_PER_USER videos for each user
 df_history_filtered_all = (
-    df_history_all[df_history_all["user_id"].isin(all_test_users)]
+    df_history_all[df_history_all["user_id"].isin(test_users)]
     .sort_values(by=["user_id", "last_watched_timestamp"], ascending=[True, False])
     .groupby("user_id")
-    .head(10)
+    .head(HISTORY_LATEST_N_VIDEOS_PER_USER)
 )
 
 # Create watch_history list for each user
@@ -222,7 +231,8 @@ watch_history_records = (
     .apply(
         lambda group: group[
             ["video_id", "last_watched_timestamp", "mean_percentage_watched"]
-        ].to_dict("records")
+        ].to_dict("records"),
+        include_groups=False,
     )
     .reset_index()
     .rename(columns={0: "watch_history"})
@@ -234,8 +244,8 @@ user_profiles = pd.merge(user_info, watch_history_records, on="user_id")
 # Rename bin_id column to match the required format
 user_profiles = user_profiles.rename(columns={"bin_id": "watch_time_quantile_bin_id"})
 
-# Convert cluster_id to string and bin_id to int
-user_profiles["cluster_id"] = user_profiles["cluster_id"].astype(str)
+# Convert cluster_id to int and bin_id to int
+user_profiles["cluster_id"] = user_profiles["cluster_id"].astype(int)
 user_profiles["watch_time_quantile_bin_id"] = user_profiles[
     "watch_time_quantile_bin_id"
 ].astype(int)
@@ -245,14 +255,8 @@ user_profile_records = user_profiles.to_dict("records")
 
 print(f"Created {len(user_profile_records)} user profiles")
 
-# Display an example
-if user_profile_records:
-    import json
-
-    print("Example profile:")
-    print(json.dumps(user_profile_records[0], indent=4))
-
-# %%
 with open("/root/recommendation-engine/data-root/user_profile_records.json", "w") as f:
     json.dump(user_profile_records, f, indent=2)
 # %%
+# pd.DataFrame(user_profile_records[0].items(), columns=["key", "value"])
+user_profile_records[0]
