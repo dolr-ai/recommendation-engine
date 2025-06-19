@@ -94,7 +94,6 @@ def get_batch_embeddings(video_ids):
 
         # Create keys for all items
         keys = [f"{vector_service.prefix}{video_id}" for video_id in video_ids]
-        print(keys)
         # Check which keys exist in Redis
         pipe = client.pipeline()
         for key in keys:
@@ -147,7 +146,7 @@ def check_similarity_with_vector_index(
         client = vector_service.get_client()
 
         # Step 1: Create a temporary vector service with a different prefix for our temp index
-        temp_prefix = "temp_similarity:"
+
         temp_vector_service = ValkeyVectorService(
             core=gcp_utils_stage.core,
             host="10.128.15.206",
@@ -157,7 +156,7 @@ def check_similarity_with_vector_index(
             socket_timeout=15,
             socket_connect_timeout=15,
             vector_dim=1408,
-            prefix=temp_prefix,
+            prefix=f"temp_video_id:",
         )
 
         # Step 2: Get embeddings for all search space items in batch
@@ -182,16 +181,30 @@ def check_similarity_with_vector_index(
 
         # Create the vector index
         temp_vector_service.create_vector_index(
-            index_name=temp_index_name, vector_dim=1408, id_field="item_id"
+            index_name=temp_index_name, vector_dim=1408, id_field="temp_video_id"
         )
         print(f"Created temporary vector index: {temp_index_name}")
 
         # Step 4: Store search space embeddings in temporary index
-        batch_data = search_space_embeddings  # Already in the right format
-        stats = temp_vector_service.batch_store_embeddings(
-            batch_data, index_name=temp_index_name, id_field="item_id"
-        )
-        print(f"Stored {stats['successful']} embeddings in temporary index")
+        # Create a custom mapping for each embedding to ensure the field name is "embedding"
+        custom_mapping = {}
+        for video_id, embedding in search_space_embeddings.items():
+            if isinstance(embedding, np.ndarray):
+                embedding = embedding.astype(np.float32)
+            else:
+                embedding = np.array(embedding, dtype=np.float32)
+
+            key = f"temp_video_id:{video_id}"
+            # Store with both the ID field and the embedding field
+            pipe = client.pipeline(transaction=False)
+            pipe.hset(
+                key,
+                mapping={"temp_video_id": video_id, "embedding": embedding.tobytes()},
+            )
+            pipe.execute()
+            custom_mapping[video_id] = True
+
+        print(f"Stored {len(custom_mapping)} embeddings in temporary index")
 
         # Step 5: Get query embeddings in batch
         print(f"Fetching embeddings for {len(query_items)} query items")
@@ -213,7 +226,7 @@ def check_similarity_with_vector_index(
                 query_vector=query_embedding,
                 top_k=len(search_space_embeddings),  # Get all items in search space
                 index_name=temp_index_name,
-                id_field="item_id",
+                id_field="temp_video_id",
             )
 
             # Store results
@@ -224,7 +237,7 @@ def check_similarity_with_vector_index(
         temp_vector_service.drop_vector_index(
             index_name=temp_index_name, keep_docs=False
         )
-        temp_vector_service.clear_vector_data(prefix=temp_prefix)
+        temp_vector_service.clear_vector_data(prefix="temp_video_id:")
         print("Cleaned up temporary index and data")
 
         return results
@@ -236,7 +249,7 @@ def check_similarity_with_vector_index(
             temp_vector_service.drop_vector_index(
                 index_name=temp_index_name, keep_docs=False
             )
-            temp_vector_service.clear_vector_data(prefix=temp_prefix)
+            temp_vector_service.clear_vector_data(prefix="temp_video_id:")
             print("Cleaned up temporary resources after error")
         except:
             pass
@@ -338,13 +351,15 @@ def reranking_logic(user_profile, threshold=0.1, top_k=10, enable_deduplication=
 
         # 4.2 Calculate similarity scores for this candidate type
         similarity_results = check_similarity_with_vector_index(
-            query_videos, list(unique_candidates_for_type)
+            query_videos,
+            list(unique_candidates_for_type),
+            temp_index_name=f"temp_similarity_{candidate_type}",
         )
 
         # 4.3 Aggregate scores for this candidate type
         for query_id, similar_items in similarity_results.items():
             for item in similar_items:
-                candidate_id = item["item_id"]
+                candidate_id = item["temp_video_id"]
                 similarity_score = item["similarity_score"]
 
                 # Skip if the candidate is in the query videos and deduplication is enabled
@@ -382,17 +397,15 @@ def reranking_logic(user_profile, threshold=0.1, top_k=10, enable_deduplication=
     return top_recommendations
 
 
-# %%
 # Example usage
-if __name__ == "__main__":
-    # Get the first user profile from the dataframe
-    user_profile = df_up.iloc[1].to_dict()
+# Get the first user profile from the dataframe
+user_profile = df_up.iloc[1].to_dict()
 
-    # Run the reranking logic
-    recommendations = reranking_logic(user_profile)
+# Run the reranking logic
+recommendations = reranking_logic(user_profile)
 
-    # Print the recommendations
-    print("\nTop recommendations:")
-    for i, video_id in enumerate(recommendations, 1):
-        print(f"{i}. {video_id}")
+# Print the recommendations
+print("\nTop recommendations:")
+for i, video_id in enumerate(recommendations, 1):
+    print(f"{i}. {video_id}")
 # %%
