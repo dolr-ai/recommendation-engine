@@ -64,7 +64,7 @@ class GCPCore:
                 info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
             self.project_id = self.project_id or self.credentials.project_id
-            logger.info("Initialized GCP credentials from JSON string")
+            logger.debug("Initialized GCP credentials from JSON string")
         except Exception as e:
             logger.error(f"Failed to initialize GCP credentials from string: {e}")
             raise e

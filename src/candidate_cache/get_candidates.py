@@ -65,21 +65,11 @@ class CandidateFetcher(ABC):
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
         gcp_credentials = os.getenv("GCP_CREDENTIALS")
-        print(
-            f"GCP_CREDENTIALS environment variable is {'set' if gcp_credentials else 'NOT set'}"
-        )
-
-        # Print all environment variables to help debug
-        print("Available environment variables:")
-        for key in sorted(os.environ.keys()):
-            if "GCP" in key:
-                print(f"  {key}: {'[SET]' if os.environ.get(key) else '[EMPTY]'}")
-
         if not gcp_credentials:
             logger.error("GCP_CREDENTIALS environment variable not set")
             raise ValueError("GCP_CREDENTIALS environment variable is required")
 
-        logger.info("Initializing GCP utils from environment variable")
+        logger.debug("Initializing GCP utils from environment variable")
         return GCPUtils(gcp_credentials=gcp_credentials)
 
     def _init_valkey_service(self):
@@ -284,7 +274,7 @@ if __name__ == "__main__":
         ("1", "efb3001de03349c1be98df31352156f9"),
     ]
     miou_candidates = modified_iou_fetcher.get_candidates(iou_args)
-    logger.info(f"Modified IoU candidates count: {len(miou_candidates)}")
+    logger.debug(f"Modified IoU candidates count: {len(miou_candidates)}")
 
     # Example with Watch Time Quantile candidates
     # (cluster_id, bin_id, query_video_id)
@@ -294,4 +284,4 @@ if __name__ == "__main__":
         ("1", "2", "7408509f03454f90938a18d7f428a0fe"),
     ]
     wt_candidates = watch_time_fetcher.get_candidates(wt_args)
-    logger.info(f"Watch Time Quantile candidates count: {len(wt_candidates)}")
+    logger.debug(f"Watch Time Quantile candidates count: {len(wt_candidates)}")

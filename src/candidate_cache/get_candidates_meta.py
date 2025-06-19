@@ -72,21 +72,12 @@ class MetadataFetcher(ABC):
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
         gcp_credentials = os.getenv("GCP_CREDENTIALS")
-        print(
-            f"GCP_CREDENTIALS environment variable is {'set' if gcp_credentials else 'NOT set'}"
-        )
-
-        # Print all environment variables to help debug
-        print("Available environment variables:")
-        for key in sorted(os.environ.keys()):
-            if "GCP" in key:
-                print(f"  {key}: {'[SET]' if os.environ.get(key) else '[EMPTY]'}")
 
         if not gcp_credentials:
             logger.error("GCP_CREDENTIALS environment variable not set")
             raise ValueError("GCP_CREDENTIALS environment variable is required")
 
-        logger.info("Initializing GCP utils from environment variable")
+        logger.debug("Initializing GCP utils from environment variable")
         return GCPUtils(gcp_credentials=gcp_credentials)
 
     def _init_valkey_service(self):
@@ -245,7 +236,7 @@ class UserWatchTimeQuantileBinsFetcher(MetadataFetcher):
         return [key.split(":")[1] for key in keys]
 
 
-class UserWatchTimeFetcher(MetadataFetcher):
+class UserClusterWatchTimeFetcher(MetadataFetcher):
     """
     Fetcher for User Watch Time metadata.
     """
@@ -314,8 +305,8 @@ class UserWatchTimeFetcher(MetadataFetcher):
 # Example usage
 if __name__ == "__main__":
     # Create fetchers with default config
+    user_watch_time_fetcher = UserClusterWatchTimeFetcher()
     bins_fetcher = UserWatchTimeQuantileBinsFetcher()
-    user_watch_time_fetcher = UserWatchTimeFetcher()
 
     # Example: Get cluster_id and watch_time for a specific user
     test_user = "user_id"  # Replace with an actual user ID
@@ -324,12 +315,14 @@ if __name__ == "__main__":
     )
 
     if cluster_id:
-        logger.info(
+        logger.debug(
             f"User {test_user} belongs to cluster {cluster_id} with watch time {watch_time}"
         )
 
         # Determine bin for this user's watch time
         bin_id = bins_fetcher.determine_bin(cluster_id, watch_time)
-        logger.info(f"User {test_user} belongs to bin {bin_id} in cluster {cluster_id}")
+        logger.debug(
+            f"User {test_user} belongs to bin {bin_id} in cluster {cluster_id}"
+        )
     else:
         logger.warning(f"No cluster found for user {test_user}")

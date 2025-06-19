@@ -1,4 +1,9 @@
 # %%
+# uncomment this to enable debug logging
+# import os
+# os.environ["LOG_LEVEL"] = "DEBUG"
+
+# %%
 import os
 import sys
 import json
@@ -11,6 +16,12 @@ from redis.commands.search.query import Query
 
 from utils.gcp_utils import GCPUtils
 from utils.valkey_utils import ValkeyVectorService, ValkeyService
+
+
+from candidate_cache.get_candidates_meta import (
+    UserClusterWatchTimeFetcher,
+    UserWatchTimeQuantileBinsFetcher,
+)
 
 
 # %%
@@ -36,6 +47,7 @@ gcp_utils_stage = setup_configs(
     if_enable_prod=False,
     if_enable_stage=True,
 )
+os.environ["GCP_CREDENTIALS"] = gcp_utils_stage.core.gcp_credentials
 
 # %%
 valkey_config = {
@@ -87,4 +99,16 @@ where user_id = "22e3h-u7fki-4eb6r-dqgy6-hfkam-27qfu-pgxww-l76hq-5uuk2-evhq7-pae
 """
 temp = gcp_utils_stage.bigquery.execute_query(q2, to_dataframe=True)
 # %%
-temp
+
+
+user_watch_time_fetcher = UserClusterWatchTimeFetcher()
+bins_fetcher = UserWatchTimeQuantileBinsFetcher()
+
+cluster_id, watch_time = user_watch_time_fetcher.get_user_cluster_and_watch_time(
+    "22e3h-u7fki-4eb6r-dqgy6-hfkam-27qfu-pgxww-l76hq-5uuk2-evhq7-pae"
+)
+bin_id = bins_fetcher.determine_bin(cluster_id, watch_time)
+bin_id
+# %%
+bins_fetcher.get_quantile_bins("1")
+# %%

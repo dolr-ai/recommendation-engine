@@ -107,7 +107,7 @@ class ValkeyService:
             # Test connection
             self.client.ping()
             ssl_status = "with TLS" if self.ssl_enabled else "without TLS"
-            logger.info(
+            logger.debug(
                 f"Successfully connected to Valkey instance {self.instance_id} {ssl_status}"
             )
             return self.client
@@ -156,7 +156,7 @@ class ValkeyService:
             return False
 
     # Basic Redis operations (same as before, no changes needed)
-    @time_execution
+    # @time_execution
     def set(self, key: str, value: Any, ex: Optional[int] = None) -> bool:
         """Set a key-value pair"""
         try:
@@ -169,7 +169,7 @@ class ValkeyService:
             logger.error(f"Failed to set key {key} in {self.instance_id}: {e}")
             raise
 
-    @time_execution
+    # @time_execution
     def get(self, key: str) -> Any:
         """Get a value by key"""
         try:
@@ -179,7 +179,7 @@ class ValkeyService:
             logger.error(f"Failed to get key {key} from {self.instance_id}: {e}")
             raise
 
-    @time_execution
+    # @time_execution
     def mset(self, mapping: Dict[str, Any]) -> bool:
         """Set multiple key-value pairs"""
         try:
@@ -189,7 +189,7 @@ class ValkeyService:
             logger.error(f"Failed to set multiple keys in {self.instance_id}: {e}")
             raise
 
-    @time_execution
+    # @time_execution
     def mget(self, keys: List[str]) -> List[Any]:
         """Get multiple values by keys"""
         try:

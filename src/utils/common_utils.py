@@ -1,15 +1,16 @@
 import functools
 import logging
+import os
 from datetime import datetime
-import pathlib
 import pathlib
 from typing import Union
 
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# Set up logging with environment variable
+log_level_str = os.environ.get("LOG_LEVEL", "INFO")
+log_level = getattr(logging, log_level_str, logging.INFO)
+
+logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
