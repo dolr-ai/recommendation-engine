@@ -32,7 +32,7 @@ def time_execution(func):
         start_time = datetime.now()
         result = func(*args, **kwargs)
         elapsed_time = datetime.now() - start_time
-        logger.info(f"{func.__name__} completed in {elapsed_time}")
+        logger.debug(f"{func.__name__} completed in {elapsed_time}")
         return result
 
     return wrapper

@@ -1,6 +1,7 @@
 import os
 import asyncio
 import numpy as np
+import gc
 from typing import Dict, List, Optional, Any, Union, Set
 import pathlib
 from tqdm import tqdm
@@ -28,7 +29,7 @@ DEFAULT_CONFIG = {
     # todo: add vector index as config
     "vector_index_name": "video_embeddings",
     "vector_key_prefix": "video_id:",
-    "batch_size": 1000,  # Number of video IDs to process in each batch
+    "batch_size": 100,  # Number of video IDs to process in each batch
     "max_concurrent_batches": 5,  # Maximum number of concurrent batch operations
 }
 
@@ -108,13 +109,13 @@ class EmbeddingPopulator:
         FROM `jay-dhanwant-experiments.stage_tables.video_embedding_average`
         """
 
-        logger.info(
-            "Fetching all distinct video IDs from video_embedding_average table..."
-        )
         df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
         video_ids = df["video_id"].tolist()
 
-        logger.info(f"Retrieved {len(video_ids)} distinct video IDs")
+        # Force garbage collection
+        del df
+        gc.collect()
+
         return video_ids
 
     async def get_video_embeddings_batch(
@@ -159,9 +160,10 @@ class EmbeddingPopulator:
         # Convert to dictionary
         embeddings_dict = df_embeddings.set_index("video_id")["avg_embedding"].to_dict()
 
-        logger.info(
-            f"Retrieved embeddings for {len(embeddings_dict)} videos out of {len(video_ids)} requested in batch"
-        )
+        # Force garbage collection
+        del df_embeddings
+        gc.collect()
+
         return embeddings_dict
 
     async def process_batch(self, video_ids_batch: List[str]) -> Dict[str, Any]:
@@ -174,22 +176,51 @@ class EmbeddingPopulator:
         Returns:
             Dictionary with statistics about the batch upload
         """
-        # Fetch embeddings for this batch
-        embeddings = await self.get_video_embeddings_batch(video_ids_batch)
+        try:
+            # Fetch embeddings for this batch
+            embeddings = await self.get_video_embeddings_batch(video_ids_batch)
 
-        if not embeddings:
+            if not embeddings:
+                return {
+                    "batch_size": len(video_ids_batch),
+                    "successful": 0,
+                    "failed": len(video_ids_batch),
+                }
+
+            # Check if embeddings are being stored correctly
+            client = self.vector_service.get_client()
+            keys_before = len(client.keys(f"{self.config['vector_key_prefix']}*"))
+
+            # Upload embeddings to Valkey - removed use_pipeline parameter
+            stats = self.vector_service.batch_store_embeddings(
+                embeddings, id_field="video_id"
+            )
+
+            # Check if keys were actually added
+            keys_after = len(client.keys(f"{self.config['vector_key_prefix']}*"))
+            keys_added = keys_after - keys_before
+
+            if keys_added != len(embeddings):
+                logger.warning(
+                    f"Expected to add {len(embeddings)} keys but added {keys_added} keys"
+                )
+
+            # Force garbage collection after processing batch
+            del embeddings
+            gc.collect()
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Error processing batch: {e}")
+            # Force garbage collection
+            gc.collect()
             return {
                 "batch_size": len(video_ids_batch),
                 "successful": 0,
                 "failed": len(video_ids_batch),
+                "error": str(e),
             }
-
-        # Upload embeddings to Valkey using pipeline for efficiency
-        stats = self.vector_service.batch_store_embeddings(
-            embeddings, id_field="video_id", use_pipeline=True
-        )
-
-        return stats
 
     async def populate_vector_store_async(self) -> Dict[str, Any]:
         """
@@ -235,7 +266,7 @@ class EmbeddingPopulator:
         total_batches = (len(all_video_ids) + batch_size - 1) // batch_size
 
         logger.info(
-            f"Processing {len(all_video_ids)} video IDs in {total_batches} batches"
+            f"Processing {len(all_video_ids)} video IDs in {total_batches} batches with {self.config['max_concurrent_batches']} concurrent workers"
         )
 
         # Create batches
@@ -244,30 +275,69 @@ class EmbeddingPopulator:
             for i in range(0, len(all_video_ids), batch_size)
         ]
 
-        # Process batches with limited concurrency
+        # Track Redis keys
+        client = self.vector_service.get_client()
+        initial_keys = len(client.keys(f"{self.config['vector_key_prefix']}*"))
+        logger.info(f"Initial Redis keys: {initial_keys}")
+
+        # Create progress bar
+        pbar = tqdm(total=len(batches), desc="Processing batches")
+
+        # Semaphore to limit concurrency
         semaphore = asyncio.Semaphore(self.config["max_concurrent_batches"])
 
-        async def process_with_semaphore(batch):
+        # Create a task for each batch with proper concurrency control
+        async def process_with_semaphore(batch_idx, batch):
             async with semaphore:
-                return await self.process_batch(batch)
+                try:
+                    result = await self.process_batch(batch)
 
-        # Process all batches with progress tracking
-        tasks = [process_with_semaphore(batch) for batch in batches]
-        results = []
+                    # Log progress periodically
+                    if batch_idx % 10 == 0:
+                        current_keys = len(
+                            client.keys(f"{self.config['vector_key_prefix']}*")
+                        )
+                        keys_added = current_keys - initial_keys
+                        logger.info(
+                            f"Batch {batch_idx}/{len(batches)}: Redis keys now {current_keys} (+{keys_added})"
+                        )
+                        gc.collect()
 
-        logger.info(f"Using {self.config['max_concurrent_batches']} concurrent batches")
+                    # Update progress bar
+                    pbar.update(1)
+                    return result
+                except Exception as e:
+                    logger.error(f"Error in batch {batch_idx}: {e}")
+                    pbar.update(1)
+                    return {
+                        "batch_idx": batch_idx,
+                        "error": str(e),
+                        "successful": 0,
+                        "failed": len(batch),
+                    }
 
-        for task in tqdm(
-            asyncio.as_completed(tasks), total=len(tasks), desc="Processing batches"
-        ):
-            result = await task
-            results.append(result)
+        # Create tasks for all batches - this is where parallelism happens
+        tasks = [process_with_semaphore(i, batch) for i, batch in enumerate(batches)]
+
+        # Run all tasks concurrently with controlled parallelism
+        results = await asyncio.gather(*tasks)
+
+        # Close progress bar
+        pbar.close()
+
+        # Final key count
+        final_keys = len(client.keys(f"{self.config['vector_key_prefix']}*"))
+        keys_added = final_keys - initial_keys
+        logger.info(f"Final Redis keys: {final_keys} (Added {keys_added} keys)")
 
         # Aggregate statistics
         total_stats = {
             "total": len(all_video_ids),
             "successful": sum(r.get("successful", 0) for r in results),
             "failed": sum(r.get("failed", 0) for r in results),
+            "initial_keys": initial_keys,
+            "final_keys": final_keys,
+            "keys_added": keys_added,
         }
 
         logger.info(f"Upload stats: {total_stats}")
@@ -286,7 +356,16 @@ class EmbeddingPopulator:
         Returns:
             Dictionary with statistics about the upload
         """
-        return asyncio.run(self.populate_vector_store_async())
+        # Force garbage collection before starting
+        gc.collect()
+
+        # Run the async implementation
+        result = asyncio.run(self.populate_vector_store_async())
+
+        # Force garbage collection after completion
+        gc.collect()
+
+        return result
 
     def _verify_sample(self, sample_size=None) -> None:
         """Verify a sample of uploaded embeddings."""
@@ -328,16 +407,22 @@ class EmbeddingPopulator:
 
             logger.info("---")
 
+        # Force garbage collection after verification
+        gc.collect()
+
 
 # Example usage
 if __name__ == "__main__":
     # Create embedding populator with custom configuration
     config = {
-        "max_concurrent_batches": 6,  # Process 5 batches concurrently
-        "batch_size": 100,  # Process 100 video IDs per batch
+        "max_concurrent_batches": 24,
+        "batch_size": 1000,  # Smaller batch size to reduce memory usage
     }
     embedding_populator = EmbeddingPopulator(config=config)
 
     # Populate vector store with all video embeddings
     stats = embedding_populator.populate_vector_store()
     print(f"Embedding upload complete with stats: {stats}")
+
+    # Final garbage collection
+    gc.collect()
