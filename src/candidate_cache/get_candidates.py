@@ -18,12 +18,13 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.206",  # Primary endpoint
+        "host": "10.128.15.210",  # Primary endpoint
         "port": 6379,
-        "instance_id": "candidate-valkey-instance",
+        "instance_id": "candidate-cache",
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
+        "cluster_enabled": True,
     }
 }
 
@@ -285,3 +286,84 @@ if __name__ == "__main__":
     ]
     wt_candidates = watch_time_fetcher.get_candidates(wt_args)
     logger.debug(f"Watch Time Quantile candidates count: {len(wt_candidates)}")
+
+
+class FallbackCandidateFetcher(CandidateFetcher):
+    """
+    Fetcher for fallback candidates - gets all candidates for a cluster regardless of query video.
+    """
+
+    def parse_candidate_value(self, value: str) -> List[str]:
+        """
+        Parse a candidate value string into a list of video IDs.
+
+        Args:
+            value: String representation of a list of video IDs
+
+        Returns:
+            List of video IDs
+        """
+        if not value:
+            return []
+
+        try:
+            # Handle the string representation of a list
+            return ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            raise ValueError(f"Invalid candidate value format: {value}")
+
+    def format_key(self, cluster_id: Union[int, str], candidate_type: str) -> str:
+        """
+        Format a key pattern for retrieving all candidates of a specific type for a cluster.
+
+        Args:
+            cluster_id: The cluster ID
+            candidate_type: The type of candidate ('modified_iou' or 'watch_time_quantile')
+
+        Returns:
+            Formatted key pattern string
+        """
+        if candidate_type == "modified_iou":
+            return f"{cluster_id}:*:modified_iou_candidate"
+        elif candidate_type == "watch_time_quantile":
+            return f"{cluster_id}:*:*:watch_time_quantile_bin_candidate"
+        else:
+            raise ValueError(f"Unsupported candidate type: {candidate_type}")
+
+    def get_fallback_candidates(
+        self, cluster_id: Union[int, str], candidate_type: str
+    ) -> List[str]:
+        """
+        Get all candidates of a specific type for a cluster.
+
+        Args:
+            cluster_id: The cluster ID
+            candidate_type: The type of candidate
+
+        Returns:
+            List of unique candidate video IDs
+        """
+        # Get the key pattern
+        key_pattern = self.format_key(cluster_id, candidate_type)
+
+        # Get all keys matching the pattern
+        keys = self.get_keys(key_pattern)
+
+        if not keys:
+            logger.info(f"No keys found for pattern: {key_pattern}")
+            return []
+
+        # Get all values
+        values = self.get_values(keys)
+
+        # Parse all values and collect unique candidates
+        all_candidates = set()
+        for value in values:
+            if value is not None:
+                candidates = self.parse_candidate_value(value)
+                all_candidates.update(candidates)
+
+        logger.info(
+            f"Found {len(all_candidates)} unique fallback candidates for cluster {cluster_id}, type {candidate_type}"
+        )
+        return list(all_candidates)

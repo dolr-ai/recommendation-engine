@@ -15,22 +15,23 @@ logger = get_logger(__name__)
 
 # Default configuration
 DEFAULT_CONFIG = {
-    "valkey": {
-        "host": "10.128.15.206",  # Primary endpoint
+        "valkey": {
+        "host": "10.128.15.210",  # Primary endpoint
         "port": 6379,
-        "instance_id": "candidate-valkey-instance",
+        "instance_id": "candidate-cache",
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
+        "cluster_enabled": True,  # Enable cluster mode
     },
     # todo: configure this as per CRON jobs
-    "expire_seconds": 86400 * 7,
+    "expire_seconds": None,  # Set to None for no expiry
     "verify_sample_size": 5,
     # todo: add vector index as config
     "vector_index_name": "video_embeddings",
     "vector_key_prefix": "video_id:",
-    "batch_size": 100,  # Number of video IDs to process in each batch
-    "max_concurrent_batches": 5,  # Maximum number of concurrent batch operations
+    "batch_size": 1000,  # Number of video IDs to process in each batch
+    "max_concurrent_batches": 32,  # Maximum number of concurrent batch operations
 }
 
 
@@ -151,7 +152,6 @@ class EmbeddingPopulator:
 
         # Execute query and convert to dataframe
         df_embeddings = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
-
         # Determine embedding dimension from first row if available
         if not df_embeddings.empty and self.vector_dim is None:
             self.vector_dim = len(df_embeddings["avg_embedding"].iloc[0])
@@ -191,9 +191,11 @@ class EmbeddingPopulator:
             client = self.vector_service.get_client()
             keys_before = len(client.keys(f"{self.config['vector_key_prefix']}*"))
 
-            # Upload embeddings to Valkey - removed use_pipeline parameter
+            # Upload embeddings to Valkey
             stats = self.vector_service.batch_store_embeddings(
-                embeddings, id_field="video_id"
+                embeddings,
+                id_field="video_id",
+                index_name=self.config["vector_index_name"],
             )
 
             # Check if keys were actually added
@@ -201,6 +203,9 @@ class EmbeddingPopulator:
             keys_added = keys_after - keys_before
 
             if keys_added != len(embeddings):
+                # todo: while checking in cluster mode this would not work,
+                # todo: need to count keys in each shard,
+                # NOTE: when checked after complete execution, the keys are exactly as expected
                 logger.warning(
                     f"Expected to add {len(embeddings)} keys but added {keys_added} keys"
                 )
@@ -293,15 +298,15 @@ class EmbeddingPopulator:
                     result = await self.process_batch(batch)
 
                     # Log progress periodically
-                    if batch_idx % 10 == 0:
-                        current_keys = len(
-                            client.keys(f"{self.config['vector_key_prefix']}*")
-                        )
-                        keys_added = current_keys - initial_keys
-                        logger.info(
-                            f"Batch {batch_idx}/{len(batches)}: Redis keys now {current_keys} (+{keys_added})"
-                        )
-                        gc.collect()
+
+                    current_keys = len(
+                        client.keys(f"{self.config['vector_key_prefix']}*")
+                    )
+                    keys_added = current_keys - initial_keys
+                    logger.info(
+                        f"Batch {batch_idx}/{len(batches)}: Redis keys now {current_keys} (+{keys_added})"
+                    )
+                    gc.collect()
 
                     # Update progress bar
                     pbar.update(1)
@@ -414,11 +419,7 @@ class EmbeddingPopulator:
 # Example usage
 if __name__ == "__main__":
     # Create embedding populator with custom configuration
-    config = {
-        "max_concurrent_batches": 24,
-        "batch_size": 1000,  # Smaller batch size to reduce memory usage
-    }
-    embedding_populator = EmbeddingPopulator(config=config)
+    embedding_populator = EmbeddingPopulator(config=DEFAULT_CONFIG)
 
     # Populate vector store with all video embeddings
     stats = embedding_populator.populate_vector_store()

@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # %%
 import os
 import json
@@ -41,23 +38,25 @@ gcp_utils_stage = setup_configs(
 print("Creating Valkey service...")
 valkey_service = ValkeyService(
     core=gcp_utils_stage.core,
-    host="10.128.15.206",
+    host="10.128.15.210",
     port=6379,
     instance_id="candidate-valkey-instance",
     ssl_enabled=True,
     socket_timeout=15,
     socket_connect_timeout=15,
+    cluster_enabled=True,
 )
 
 # Initialize the vector service
 print("Creating Vector service...")
 vector_service = ValkeyVectorService(
     core=gcp_utils_stage.core,
-    host="10.128.15.206",
+    host="10.128.15.210",
     port=6379,
     ssl_enabled=True,
     socket_timeout=15,
     socket_connect_timeout=15,
+    cluster_enabled=True,
 )
 
 # %%

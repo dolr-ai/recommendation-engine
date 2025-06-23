@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 import redis
+from redis.cluster import RedisCluster
 
 import numpy as np
 import json
@@ -33,6 +34,7 @@ class ValkeyService:
         socket_timeout: int = 10,
         decode_responses: bool = True,
         ssl_enabled: bool = True,  # Enable TLS by default
+        cluster_enabled: bool = False,  # Enable cluster mode
         **kwargs,
     ):
         """
@@ -47,6 +49,7 @@ class ValkeyService:
             socket_timeout: Socket timeout in seconds
             decode_responses: Whether to decode responses to strings
             ssl_enabled: Whether to use TLS/SSL encryption
+            cluster_enabled: Whether to use cluster mode
             **kwargs: Additional redis client parameters
         """
         self.core = core
@@ -55,6 +58,7 @@ class ValkeyService:
         self.instance_id = instance_id or f"{host}:{port}"
         self.client = None
         self.ssl_enabled = ssl_enabled
+        self.cluster_enabled = cluster_enabled
 
         self.connection_config = {
             "host": host,
@@ -102,13 +106,50 @@ class ValkeyService:
             access_token = self._get_access_token()
 
             # Create client with token as password and SSL
-            self.client = redis.Redis(password=access_token, **self.connection_config)
+            if self.cluster_enabled:
+                # For cluster mode, use startup_nodes with the discovery endpoint
+                # Extract relevant connection params
+                conn_params = {
+                    "password": access_token,
+                    "ssl": self.connection_config.get("ssl", False),
+                    "socket_timeout": self.connection_config.get("socket_timeout", 10),
+                    "socket_connect_timeout": self.connection_config.get(
+                        "socket_connect_timeout", 10
+                    ),
+                    "decode_responses": self.connection_config.get(
+                        "decode_responses", True
+                    ),
+                    "skip_full_coverage_check": True,  # Important for GCP Memorystore
+                }
+
+                # Add SSL params if needed
+                if self.ssl_enabled:
+                    conn_params.update(
+                        {
+                            "ssl_cert_reqs": None,
+                            "ssl_check_hostname": False,
+                        }
+                    )
+
+                # Create cluster client
+                self.client = RedisCluster(
+                    host=self.host, port=self.port, **conn_params
+                )
+                logger.debug(f"Using RedisCluster client for {self.instance_id}")
+            else:
+                # For standalone mode, use regular Redis client
+                self.client = redis.Redis(
+                    password=access_token, **self.connection_config
+                )
 
             # Test connection
             self.client.ping()
             ssl_status = "with TLS" if self.ssl_enabled else "without TLS"
+            cluster_status = (
+                "in cluster mode" if self.cluster_enabled else "in standalone mode"
+            )
             logger.debug(
-                f"Successfully connected to Valkey instance {self.instance_id} {ssl_status}"
+                f"Successfully connected to Valkey instance {self.instance_id} {ssl_status} {cluster_status}"
             )
             return self.client
 
@@ -184,7 +225,17 @@ class ValkeyService:
         """Set multiple key-value pairs"""
         try:
             client = self.get_client()
-            return client.mset(mapping)
+
+            # In cluster mode, we need to handle mset differently
+            if self.cluster_enabled:
+                # Use pipeline to set multiple keys
+                pipe = client.pipeline(transaction=False)
+                for key, value in mapping.items():
+                    pipe.set(key, value)
+                results = pipe.execute()
+                return all(results)
+            else:
+                return client.mset(mapping)
         except Exception as e:
             logger.error(f"Failed to set multiple keys in {self.instance_id}: {e}")
             raise
@@ -194,7 +245,16 @@ class ValkeyService:
         """Get multiple values by keys"""
         try:
             client = self.get_client()
-            return client.mget(keys)
+
+            # In cluster mode, we need to handle mget differently
+            if self.cluster_enabled:
+                # Use pipeline to get multiple keys
+                pipe = client.pipeline(transaction=False)
+                for key in keys:
+                    pipe.get(key)
+                return pipe.execute()
+            else:
+                return client.mget(keys)
         except Exception as e:
             logger.error(f"Failed to get multiple keys from {self.instance_id}: {e}")
             raise
@@ -214,7 +274,16 @@ class ValkeyService:
         """Delete one or more keys"""
         try:
             client = self.get_client()
-            return client.delete(*keys)
+
+            # In cluster mode, we need to handle delete differently for multiple keys
+            if self.cluster_enabled and len(keys) > 1:
+                pipe = client.pipeline(transaction=False)
+                for key in keys:
+                    pipe.delete(key)
+                results = pipe.execute()
+                return sum(results)
+            else:
+                return client.delete(*keys)
         except Exception as e:
             logger.error(f"Failed to delete keys {keys} from {self.instance_id}: {e}")
             raise
@@ -223,7 +292,16 @@ class ValkeyService:
         """Get all keys matching a pattern"""
         try:
             client = self.get_client()
-            return client.keys(pattern)
+
+            # In cluster mode, we need to use scan_iter instead of keys
+            if self.cluster_enabled:
+                # Use scan_iter for better performance in cluster mode
+                result = []
+                for key in client.scan_iter(match=pattern):
+                    result.append(key)
+                return result
+            else:
+                return client.keys(pattern)
         except Exception as e:
             logger.error(
                 f"Failed to get keys with pattern {pattern} from {self.instance_id}: {e}"
@@ -398,26 +476,28 @@ class ValkeyVectorService(ValkeyService):
         socket_timeout: int = 10,
         socket_connect_timeout: int = 10,
         ssl_enabled: bool = True,
+        cluster_enabled: bool = False,  # Add cluster_enabled parameter
         vector_dim: int = None,  # Make vector dimensions configurable
         prefix: str = "video_id:",  # Default prefix for keys
         **kwargs,
     ):
         """
-        Initialize ValkeyVectorService with connection parameters
+        Initialize Valkey Vector service with connection parameters
 
         Args:
-            core: GCP Core instance for authentication
-            host: Valkey host address
-            port: Valkey port
-            instance_id: Optional instance ID
+            core: Initialized GCPCore instance for authentication
+            host: Valkey instance host/IP address
+            port: Valkey instance port (default: 6379)
+            instance_id: Optional instance ID for logging/identification
             socket_timeout: Socket timeout in seconds
             socket_connect_timeout: Connection timeout in seconds
-            ssl_enabled: Whether to use SSL/TLS
-            vector_dim: Vector dimensions (will be determined from data if None)
-            prefix: Key prefix for storing vectors (default: "video_id:")
-            **kwargs: Additional parameters to pass to parent class
+            ssl_enabled: Whether to use TLS/SSL encryption
+            cluster_enabled: Whether to use cluster mode
+            vector_dim: Dimension of vector embeddings
+            prefix: Key prefix for vector data
+            **kwargs: Additional redis client parameters
         """
-        # Initialize the parent ValkeyService class
+        # Initialize parent class
         super().__init__(
             core=core,
             host=host,
@@ -426,11 +506,13 @@ class ValkeyVectorService(ValkeyService):
             socket_timeout=socket_timeout,
             socket_connect_timeout=socket_connect_timeout,
             ssl_enabled=ssl_enabled,
-            decode_responses=False,  # Important: Don't decode binary responses
+            cluster_enabled=cluster_enabled,  # Pass cluster_enabled to parent
+            decode_responses=False,  # Important: Don't decode binary responses for vector operations
             **kwargs,
         )
-        self.vector_dim = vector_dim  # Store vector dimensions
-        self.prefix = prefix  # Store key prefix
+
+        self.vector_dim = vector_dim
+        self.prefix = prefix
 
     def create_vector_index(
         self,
@@ -632,9 +714,20 @@ class ValkeyVectorService(ValkeyService):
             logger.debug(f"Found {len(keys)} keys with prefix {key_prefix}")
 
             if keys:
-                # Delete all matching keys
-                deleted = self.get_client().delete(*keys)
-                logger.debug(f"Deleted {deleted} keys with prefix {key_prefix}")
+                # In cluster mode, we need to handle delete differently
+                if self.cluster_enabled and len(keys) > 1:
+                    pipe = self.get_client().pipeline(transaction=False)
+                    for key in keys:
+                        pipe.delete(key)
+                    results = pipe.execute()
+                    deleted = sum(results)
+                    logger.debug(
+                        f"Deleted {deleted} keys with prefix {key_prefix} using pipeline"
+                    )
+                else:
+                    # Delete all matching keys
+                    deleted = self.get_client().delete(*keys)
+                    logger.debug(f"Deleted {deleted} keys with prefix {key_prefix}")
 
             return True
         except Exception as e:
@@ -661,9 +754,12 @@ class ValkeyVectorService(ValkeyService):
         stats = {"successful": 0, "failed": 0, "total": len(embeddings_dict)}
 
         # Use pipeline for better performance
-        pipe = self.get_client().pipeline(transaction=False)
+        pipe = self.get_client().pipeline(
+            transaction=False
+        )  # Consider non-transactional for better performance
 
         try:
+            batch_count = 0
             for item_id, embedding in tqdm(
                 embeddings_dict.items(), desc="Storing embeddings"
             ):
@@ -675,14 +771,25 @@ class ValkeyVectorService(ValkeyService):
 
                 # Prepare hash data
                 key = f"{self.prefix}{item_id}"
-                mapping = {id_field: item_id, index_name: embedding.tobytes()}
+                mapping = {id_field: item_id, "embedding": embedding.tobytes()}
 
                 # Add to pipeline
                 pipe.hset(key, mapping=mapping)
-                stats["successful"] += 1
+                batch_count += 1
 
-            # Execute pipeline
-            pipe.execute()
+                # Execute batch and reset pipeline
+                # For cluster mode, use smaller batch sizes to avoid overloading any single node
+                batch_size = 50 if self.cluster_enabled else 100
+                if batch_count % batch_size == 0:
+                    pipe.execute()
+                    stats["successful"] += batch_count
+                    pipe = self.get_client().pipeline(transaction=False)
+                    batch_count = 0
+
+            # Execute remaining operations
+            if batch_count > 0:
+                pipe.execute()
+                stats["successful"] += batch_count
 
         except Exception as e:
             logger.error(f"Error in batch store: {e}")

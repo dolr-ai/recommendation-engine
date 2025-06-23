@@ -7,6 +7,8 @@ from abc import ABC, abstractmethod
 import pathlib
 from tqdm import tqdm
 
+# os.environ["LOG_LEVEL"] = "DEBUG"
+
 # utils
 from utils.gcp_utils import GCPUtils
 from utils.common_utils import get_logger
@@ -17,12 +19,14 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.206",  # Primary endpoint
+        # 10.128.15.210:6379 # new instance
+        "host": "10.128.15.210",  # Discovery endpoint
         "port": 6379,
-        "instance_id": "candidate-valkey-instance",
+        "instance_id": "candidate-cache",
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
+        "cluster_enabled": True,  # Enable cluster mode
     },
     # todo: configure this as per CRON jobs
     "expire_seconds": 86400 * 7,
@@ -656,39 +660,45 @@ class CandidateEmbeddingPopulator:
             logger.error("Cannot proceed: No valid Valkey connection")
             return {"error": "No valid Valkey connection"}
 
-        # Drop existing index and clear data before creating new ones
+        # Check if vector index exists
         logger.info(
-            f"Dropping existing vector index '{self.config['vector_index_name']}'..."
+            f"Checking if vector index '{self.config['vector_index_name']}' exists..."
         )
+        index_exists = False
         try:
-            self.vector_service.drop_vector_index(
-                index_name=self.config["vector_index_name"], keep_docs=False
+            # Check if index exists using the check_index_exists method
+            index_exists = self.vector_service.check_index_exists(
+                index_name=self.config["vector_index_name"]
             )
-            logger.info("Vector index dropped successfully")
+            logger.info(f"Vector index exists: {index_exists}")
         except Exception as e:
-            logger.info(f"No existing index to drop or error dropping index: {e}")
+            logger.info(f"Error checking if index exists: {e}")
 
-        logger.info(
-            f"Clearing existing vector data with prefix '{self.config['vector_key_prefix']}'..."
-        )
+                # Check if data exists with the configured prefix (for logging purposes only)
+        data_exists = False
         try:
-            self.vector_service.clear_vector_data(
-                prefix=self.config["vector_key_prefix"]
-            )
-            logger.info("Vector data cleared successfully")
+            # Use keys method with the prefix to check if data exists
+            keys_with_prefix = self.vector_service.keys(f"{self.config['vector_key_prefix']}*")
+            data_exists = len(keys_with_prefix) > 0
+            logger.info(f"Vector data exists: {data_exists} (found {len(keys_with_prefix)} keys)")
+            if data_exists:
+                logger.info("Existing vector data will be preserved and updated as needed")
         except Exception as e:
-            logger.info(f"No existing data to clear or error clearing data: {e}")
+            logger.info(f"Error checking if data exists: {e}")
 
-        # Create vector index if it doesn't exist
-        logger.info(f"Creating vector index '{self.config['vector_index_name']}'...")
-        self.vector_service.create_vector_index(
-            id_field="video_id", index_name=self.config["vector_index_name"]
-        )
+                # Create vector index only if it doesn't exist
+        if not index_exists:
+            logger.info(f"Creating vector index '{self.config['vector_index_name']}'...")
+            self.vector_service.create_vector_index(
+                id_field="video_id", index_name=self.config["vector_index_name"]
+            )
+        else:
+            logger.info(f"Using existing vector index '{self.config['vector_index_name']}'...")
 
-        # Upload embeddings to Valkey
+        # Always upload embeddings to Valkey, which will update existing entries or add new ones
         logger.info(f"Uploading {len(embeddings)} video embeddings to Valkey...")
         stats = self.vector_service.batch_store_embeddings(
-            embeddings, id_field="video_id"
+            embeddings, index_name=self.config["vector_index_name"], id_field="video_id"
         )
 
         logger.info(f"Upload stats: {stats}")

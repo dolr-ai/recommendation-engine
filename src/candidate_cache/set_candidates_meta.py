@@ -25,12 +25,13 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.206",  # Primary endpoint
+        "host": "10.128.15.210",  # Primary endpoint
         "port": 6379,
-        "instance_id": "candidate-valkey-instance",
+        "instance_id": "candidate-cache",
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
+        "cluster_enabled": True,  # Enable cluster mode
     },
     # todo: configure this as per CRON jobs
     "expire_seconds": 86400 * 7,
