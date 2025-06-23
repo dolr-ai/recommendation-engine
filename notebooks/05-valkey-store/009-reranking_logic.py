@@ -412,7 +412,9 @@ def filter_and_sort_watch_history(watch_history, threshold):
         threshold: Minimum mean_percentage_watched to consider a video
 
     Returns:
-        List of video IDs ordered from latest to oldest watched
+        Tuple of (query_videos, watch_percentages) where:
+        - query_videos: List of video IDs ordered from latest to oldest watched
+        - watch_percentages: Dictionary mapping video IDs to their mean_percentage_watched values
     """
     filtered_history = []
     for item in watch_history:
@@ -430,7 +432,13 @@ def filter_and_sort_watch_history(watch_history, threshold):
     # Extract video IDs in order (from latest to oldest watched)
     query_videos = [item.get("video_id") for item in filtered_history]
 
-    return query_videos
+    # Create dictionary mapping video IDs to watch percentages
+    watch_percentages = {
+        item.get("video_id"): float(item.get("mean_percentage_watched", 0))
+        for item in filtered_history
+    }
+
+    return query_videos, watch_percentages
 
 
 def reranking_logic(
@@ -458,6 +466,7 @@ def reranking_logic(
     Returns:
         DataFrame with columns:
         - query_video_id: Video IDs ordered from latest to oldest watched
+        - watch_percentage: Mean percentage watched for each query video
         - candidate_type_1: Watch time quantile candidates with scores in ordered format
         - candidate_type_2: Modified IoU candidates with scores in ordered format
         - etc. for each candidate type in candidate_types_dict
@@ -480,12 +489,14 @@ def reranking_logic(
     )
 
     # 1. Filter and sort watch history items by threshold and last_watched_timestamp
-    query_videos = filter_and_sort_watch_history(watch_history, threshold)
+    query_videos, watch_percentages = filter_and_sort_watch_history(
+        watch_history, threshold
+    )
 
     if not query_videos:
         logger.info(f"No videos in watch history meet the threshold of {threshold}")
         # Return empty DataFrame with correct columns
-        columns = ["query_video_id"] + [
+        columns = ["query_video_id", "watch_percentage"] + [
             f"candidate_type_{type_num}"
             for type_num in sorted(candidate_types_dict.keys())
         ]
@@ -550,7 +561,10 @@ def reranking_logic(
     # Convert to DataFrame format
     df_data = []
     for query_id, type_results in similarity_matrix.items():
-        row = {"query_video_id": query_id}
+        row = {
+            "query_video_id": query_id,
+            "watch_percentage": watch_percentages.get(query_id, 0.0),
+        }
         for type_num in sorted(type_results.keys()):
             row[f"candidate_type_{type_num}"] = type_results[type_num]
         df_data.append(row)
@@ -560,6 +574,170 @@ def reranking_logic(
 
     logger.info(f"Created DataFrame with {len(result_df)} rows")
     return result_df
+
+
+def mixer_algorithm(
+    df_reranked,
+    candidate_types_dict,
+    top_k=10,
+    recency_weight=0.8,
+    watch_percentage_weight=0.2,
+    max_candidates_per_query=3,
+    enable_deduplication=True,
+    min_similarity_threshold=0.5,
+):
+    """
+    Mixer algorithm to blend candidates from different sources and generate final recommendations.
+
+    Args:
+        df_reranked: DataFrame from reranking_logic with query videos and candidates
+        candidate_types_dict: Dictionary mapping candidate type numbers to their names and weights
+        top_k: Number of final recommendations to return
+        recency_weight: Weight given to more recent query videos (0-1)
+        watch_percentage_weight: Weight given to videos with higher watch percentages (0-1)
+        max_candidates_per_query: Maximum number of candidates to consider from each query video
+        enable_deduplication: Whether to remove duplicates from final recommendations
+        min_similarity_threshold: Minimum similarity score to consider a candidate (0-1)
+
+    Returns:
+        Dictionary with:
+        - 'recommendations': List of recommended video IDs sorted by final score
+        - 'scores': Dictionary mapping each recommended video ID to its final score
+        - 'sources': Dictionary mapping each recommended video ID to its source information
+    """
+    if df_reranked.empty:
+        logger.warning("Empty reranking dataframe, no recommendations possible")
+        return {"recommendations": [], "scores": {}, "sources": {}}
+
+    # Initialize tracking structures
+    candidate_scores = {}  # Final scores for each candidate
+    candidate_sources = {}  # Track where each candidate came from
+    seen_candidates = set()  # For deduplication
+
+    # Calculate total number of query videos for normalization
+    total_queries = len(df_reranked)
+
+    # Check if any candidate columns exist
+    candidate_columns = [
+        f"candidate_type_{type_num}" for type_num in candidate_types_dict.keys()
+    ]
+    if not any(col in df_reranked.columns for col in candidate_columns):
+        logger.warning("No candidate columns found in dataframe")
+        return {"recommendations": [], "scores": {}, "sources": {}}
+
+    # Process each query video
+    for idx, row in df_reranked.iterrows():
+        query_video_id = row["query_video_id"]
+
+        # Calculate query importance based on recency (position in dataframe) and watch percentage
+        recency_score = 1 - (idx / total_queries) if total_queries > 1 else 1
+        watch_percentage = row.get("watch_percentage", 0.0)
+
+        query_importance = (recency_weight * recency_score) + (
+            watch_percentage_weight * watch_percentage
+        )
+
+        # Process each candidate type
+        for type_num, type_info in candidate_types_dict.items():
+            candidate_type_col = f"candidate_type_{type_num}"
+
+            # Skip if this candidate type doesn't exist in the dataframe
+            if candidate_type_col not in row:
+                continue
+
+            candidate_weight = type_info.get("weight", 1.0)
+            candidate_name = type_info.get("name", f"type_{type_num}")
+
+            # Get candidates for this query and type
+            candidates = row.get(candidate_type_col, [])
+
+            # Handle empty candidates
+            if not candidates:
+                continue
+
+            # Limit number of candidates per query to avoid bias
+            candidates = candidates[:max_candidates_per_query]
+
+            # Process each candidate
+            for i, candidate_tuple in enumerate(candidates):
+                # Handle different formats of candidate data
+                if isinstance(candidate_tuple, tuple) and len(candidate_tuple) == 2:
+                    candidate_id, similarity_score = candidate_tuple
+                elif isinstance(candidate_tuple, str):
+                    # If only ID is provided, use default score
+                    candidate_id = candidate_tuple
+                    similarity_score = 1.0
+                else:
+                    # Skip invalid format
+                    logger.warning(f"Invalid candidate format: {candidate_tuple}")
+                    continue
+
+                # Apply minimum similarity threshold
+                if similarity_score < min_similarity_threshold:
+                    continue
+
+                # Skip if candidate is already seen (optional deduplication)
+                if enable_deduplication and candidate_id in seen_candidates:
+                    continue
+
+                # Calculate final score for this candidate
+                # Formula: query_importance * candidate_weight * similarity_score
+                candidate_score = query_importance * candidate_weight * similarity_score
+
+                # Add or update candidate score
+                if candidate_id in candidate_scores:
+                    candidate_scores[candidate_id] += candidate_score
+                    # Update source information
+                    candidate_sources[candidate_id].append(
+                        {
+                            "query_video": query_video_id,
+                            "candidate_type": candidate_name,
+                            "similarity": similarity_score,
+                            "contribution": candidate_score,
+                        }
+                    )
+                else:
+                    candidate_scores[candidate_id] = candidate_score
+                    # Initialize source information
+                    candidate_sources[candidate_id] = [
+                        {
+                            "query_video": query_video_id,
+                            "candidate_type": candidate_name,
+                            "similarity": similarity_score,
+                            "contribution": candidate_score,
+                        }
+                    ]
+
+                if enable_deduplication:
+                    seen_candidates.add(candidate_id)
+
+    # Sort candidates by final score
+    sorted_candidates = sorted(
+        candidate_scores.items(), key=lambda x: x[1], reverse=True
+    )
+
+    # Get top_k recommendations
+    top_recommendations = [
+        candidate_id for candidate_id, _ in sorted_candidates[:top_k]
+    ]
+
+    # Create final scores dictionary for top recommendations
+    final_scores = {
+        candidate_id: candidate_scores[candidate_id]
+        for candidate_id in top_recommendations
+    }
+
+    # Create final sources dictionary for top recommendations
+    final_sources = {
+        candidate_id: candidate_sources[candidate_id]
+        for candidate_id in top_recommendations
+    }
+
+    return {
+        "recommendations": top_recommendations,
+        "scores": final_scores,
+        "sources": final_sources,
+    }
 
 
 # Example usage
@@ -579,12 +757,20 @@ df_reranked = reranking_logic(user_profile, candidate_types, max_workers=4)
 print("\nRecommendation DataFrame:")
 print(f"Shape: {df_reranked.shape}")
 print("\nColumns:", df_reranked.columns.tolist())
-# %%
-df_reranked["candidate_type_1"].iloc[76]
-# %%
-df_reranked[df_reranked["candidate_type_2"].apply(lambda x: len(x)) != 0][
-    "candidate_type_2"
-].apply(lambda x: len(x))
 
-# %%
-df_reranked
+# Run the enhanced mixer algorithm to get final recommendations
+recommendation_results = mixer_algorithm(
+    df_reranked,
+    candidate_types,
+    top_k=50,
+    min_similarity_threshold=0.4,
+    recency_weight=0.7,
+    watch_percentage_weight=0.3,
+    max_candidates_per_query=5,
+)
+
+# Print recommendation results
+print(
+    f"\nFinal recommendations: {len(recommendation_results['recommendations'])} items"
+)
+print(recommendation_results["recommendations"][:5])  # Print first 5 recommendations
