@@ -663,10 +663,6 @@ def mixer_algorithm(
                 # Handle different formats of candidate data
                 if isinstance(candidate_tuple, tuple) and len(candidate_tuple) == 2:
                     candidate_id, similarity_score = candidate_tuple
-                elif isinstance(candidate_tuple, str):
-                    # If only ID is provided, use default score
-                    candidate_id = candidate_tuple
-                    similarity_score = 1.0
                 else:
                     # Skip invalid format
                     logger.warning(f"Invalid candidate format: {candidate_tuple}")
