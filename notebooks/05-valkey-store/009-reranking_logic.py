@@ -7,6 +7,7 @@
 import os
 import sys
 import json
+import random
 from dotenv import load_dotenv
 import numpy as np
 import pandas as pd
@@ -28,6 +29,7 @@ from candidate_cache.get_candidates_meta import (
 from candidate_cache.get_candidates import (
     ModifiedIoUCandidateFetcher,
     WatchTimeQuantileCandidateFetcher,
+    FallbackCandidateFetcher,
 )
 
 logger = get_logger(__name__)
@@ -86,65 +88,6 @@ df_up["watch_history"].apply(lambda x: len(x)).min()
 
 
 # %%
-def get_batch_embeddings(video_ids):
-    """
-    Retrieve embeddings for multiple video IDs in batch.
-
-    Args:
-        video_ids: List of video IDs to retrieve embeddings for
-
-    Returns:
-        dict: Dictionary mapping video IDs to their embeddings
-    """
-    try:
-        client = vector_service.get_client()
-
-        # Create keys for all items
-        keys = [f"{vector_service.prefix}{video_id}" for video_id in video_ids]
-
-        # Check which keys exist in Redis
-        pipe = client.pipeline()
-        for key in keys:
-            pipe.exists(key)
-        existing_keys_mask = pipe.execute()
-
-        # Filter out keys that don't exist
-        existing_keys = [key for key, exists in zip(keys, existing_keys_mask) if exists]
-        existing_ids = [key.replace(vector_service.prefix, "") for key in existing_keys]
-
-        # Print videos that don't have embeddings
-        missing_ids = set(video_ids) - set(existing_ids)
-        if missing_ids:
-            print(f"Missing embeddings for {len(missing_ids)} videos:")
-            for missing_id in list(missing_ids)[:10]:  # Print first 10 for brevity
-                print(f"  - {missing_id}")
-            if len(missing_ids) > 10:
-                print(f"  ... and {len(missing_ids) - 10} more")
-
-        if not existing_keys:
-            print("No valid embeddings found")
-            return {}
-
-        # Get embeddings in batch using pipeline
-        pipe = client.pipeline()
-        for key in existing_keys:
-            pipe.hget(key, "embedding")  # Fixed field name
-        embedding_binaries = pipe.execute()
-
-        # Convert binary data to numpy arrays
-        embeddings = {}
-        for video_id, embedding_binary in zip(existing_ids, embedding_binaries):
-            if embedding_binary is not None:
-                embedding = np.frombuffer(embedding_binary, dtype=np.float32)
-                embeddings[video_id] = embedding
-
-        return embeddings
-
-    except Exception as e:
-        print(f"Error retrieving batch embeddings: {e}")
-        return {}
-
-
 def check_similarity_with_vector_index(
     query_items, search_space_items, temp_index_name="temp_similarity_index"
 ):
@@ -159,11 +102,15 @@ def check_similarity_with_vector_index(
     Returns:
         dict: Dictionary mapping each query item to its similar items with scores
     """
+    # Early return if either list is empty
+    if not query_items or not search_space_items:
+        logger.warning("Empty query items or search space items")
+        return {}
+
     try:
         client = vector_service.get_client()
 
         # Step 1: Create a temporary vector service with a different prefix for our temp index
-
         temp_vector_service = ValkeyVectorService(
             core=gcp_utils_stage.core,
             host="10.128.15.210",
@@ -173,22 +120,23 @@ def check_similarity_with_vector_index(
             socket_timeout=15,
             socket_connect_timeout=15,
             vector_dim=1408,
-            prefix=f"temp_video_id:",
+            prefix="temp_video_id:",
             cluster_enabled=True,
         )
 
         # Step 2: Get embeddings for all search space items in batch
-        # print(f"Fetching embeddings for {len(search_space_items)} search space items")
-        search_space_embeddings = get_batch_embeddings(search_space_items)
+        search_space_embeddings = vector_service.get_batch_embeddings(
+            search_space_items, verbose=False
+        )
 
         if not search_space_embeddings:
-            print("No valid embeddings found in search space")
+            logger.warning("No valid embeddings found in search space")
             return {}
 
         # Print how many search space items are missing embeddings
         missing_search_space = len(search_space_items) - len(search_space_embeddings)
         if missing_search_space > 0:
-            print(
+            logger.debug(
                 f"Note: {missing_search_space} search space items are missing embeddings"
             )
 
@@ -207,31 +155,42 @@ def check_similarity_with_vector_index(
         temp_vector_service.create_vector_index(
             index_name=temp_index_name, vector_dim=1408, id_field="temp_video_id"
         )
-        # print(f"Created temporary vector index: {temp_index_name}")
 
         # Step 4: Store search space embeddings in temporary index
-        # Create a custom mapping for each embedding to ensure the field name is "embedding"
+        # Pre-process all embeddings to ensure they're numpy arrays with float32 dtype
+        processed_embeddings = {}
         for video_id, embedding in search_space_embeddings.items():
             if isinstance(embedding, np.ndarray):
-                embedding = embedding.astype(np.float32)
+                processed_embeddings[video_id] = embedding.astype(np.float32)
             else:
-                embedding = np.array(embedding, dtype=np.float32)
+                processed_embeddings[video_id] = np.array(embedding, dtype=np.float32)
 
+        # Create mappings for all items at once
+        mappings = {}
+        for video_id, embedding in processed_embeddings.items():
             key = f"temp_video_id:{video_id}"
-            # Store with both the ID field and the embedding field
+            mappings[key] = {
+                "temp_video_id": video_id,
+                "embedding": embedding.tobytes(),
+            }
+
+        # Store all embeddings in batches to avoid overwhelming the server
+        batch_size = 100
+        keys_list = list(mappings.keys())
+        for i in range(0, len(keys_list), batch_size):
+            batch_keys = keys_list[i : i + batch_size]
             pipe = client.pipeline(transaction=False)
-            pipe.hset(
-                key,
-                mapping={"temp_video_id": video_id, "embedding": embedding.tobytes()},
-            )
+            for key in batch_keys:
+                pipe.hset(key, mapping=mappings[key])
             pipe.execute()
 
         # Step 5: Get query embeddings in batch
-        # print(f"Fetching embeddings for {len(set(query_items))} query items")
-        query_embeddings = get_batch_embeddings(query_items)
+        query_embeddings = vector_service.get_batch_embeddings(
+            query_items, verbose=False
+        )
 
         if not query_embeddings:
-            print("No valid embeddings found for query items")
+            logger.warning("No valid embeddings found for query items")
             return {}
 
         # Step 6: For each query item, find similar items in search space
@@ -247,26 +206,24 @@ def check_similarity_with_vector_index(
 
             # Store results
             results[query_id] = similar_items
-            # print(f"Found {len(similar_items)} similar items for query {query_id}")
 
         # Step 7: Clean up - drop temporary index and delete keys
         temp_vector_service.drop_vector_index(
             index_name=temp_index_name, keep_docs=False
         )
         temp_vector_service.clear_vector_data(prefix="temp_video_id:")
-        # print("Cleaned up temporary index and data")
 
         return results
 
     except Exception as e:
-        print(f"Error in similarity check: {e}")
+        logger.error(f"Error in similarity check: {e}")
         # Try to clean up if there was an error
         try:
             temp_vector_service.drop_vector_index(
                 index_name=temp_index_name, keep_docs=False
             )
             temp_vector_service.clear_vector_data(prefix="temp_video_id:")
-            print("Cleaned up temporary resources after error")
+            logger.info("Cleaned up temporary resources after error")
         except:
             pass
         return {}
@@ -291,20 +248,29 @@ def process_query_candidate_pair(
         (candidate_id, similarity_score) tuples sorted by score
     """
     cand_type = type_info["name"]
+    is_fallback = "fallback" in cand_type
 
     # Skip if this candidate type isn't in our all_candidates structure
-    if cand_type not in all_candidates[q_video_id]:
+    # For fallback candidates, we only check the first query video since that's where we stored them
+    check_video_id = query_videos[0] if is_fallback else q_video_id
+
+    if (
+        check_video_id not in all_candidates
+        or cand_type not in all_candidates[check_video_id]
+    ):
         return q_video_id, type_num, []
 
-    candidates_for_video = all_candidates[q_video_id].get(cand_type, [])
+    candidates_for_video = all_candidates[check_video_id].get(cand_type, [])
 
     if not candidates_for_video:
         return q_video_id, type_num, []
 
-    # Remove query videos if deduplication is enabled
-    if enable_deduplication:
+    # Remove query videos if deduplication is enabled and not a fallback
+    if enable_deduplication and not is_fallback:
+        # Convert query_videos to a set for O(1) lookup instead of O(n)
+        query_videos_set = set(query_videos)
         candidates_for_video = [
-            c for c in candidates_for_video if c not in query_videos
+            c for c in candidates_for_video if c not in query_videos_set
         ]
 
     # Calculate similarity scores for this query video and candidate type
@@ -328,7 +294,9 @@ def process_query_candidate_pair(
     return q_video_id, type_num, formatted_results
 
 
-def fetch_candidates(query_videos, cluster_id, bin_id, candidate_types_dict):
+def fetch_candidates(
+    query_videos, cluster_id, bin_id, candidate_types_dict, max_fallback_candidates=1000
+):
     """
     Fetch candidates for all query videos.
 
@@ -337,68 +305,115 @@ def fetch_candidates(query_videos, cluster_id, bin_id, candidate_types_dict):
         cluster_id: User's cluster ID
         bin_id: User's watch time quantile bin ID
         candidate_types_dict: Dictionary mapping candidate type numbers to their names and weights
+        max_fallback_candidates: Maximum number of fallback candidates to sample (if more are available)
 
     Returns:
         OrderedDict of candidates organized by query video and type
     """
     # Initialize candidate fetchers with correct host configuration
-    # Fix: Update the host to match the working configuration
     valkey_config = {
         "valkey": {
-            "host": "10.128.15.210",  # Updated to match working config
+            "host": "10.128.15.210",
             "port": 6379,
             "instance_id": "candidate-cache",
             "ssl_enabled": True,
             "socket_timeout": 15,
             "socket_connect_timeout": 15,
-            "cluster_enabled": True,  # Enable cluster mode
+            "cluster_enabled": True,
         }
     }
 
-    miou_fetcher = ModifiedIoUCandidateFetcher(config=valkey_config)
-    wt_fetcher = WatchTimeQuantileCandidateFetcher(config=valkey_config)
-
-    # Reverse mapping from name to type number for lookup
+    # Create a reverse mapping from name to type number for lookup
+    # Do this once upfront instead of checking repeatedly
     candidate_type_name_to_num = {
         info["name"]: type_num for type_num, info in candidate_types_dict.items()
     }
 
+    # Initialize fetchers only for the types we need
+    miou_fetcher = None
+    wt_fetcher = None
+    fallback_fetcher = None
+
+    need_miou = "modified_iou" in candidate_type_name_to_num
+    need_wt = "watch_time_quantile" in candidate_type_name_to_num
+    need_fallback_miou = "fallback_modified_iou" in candidate_type_name_to_num
+    need_fallback_wt = "fallback_watch_time_quantile" in candidate_type_name_to_num
+
+    # Only initialize the fetchers we need
+    if need_miou:
+        miou_fetcher = ModifiedIoUCandidateFetcher(config=valkey_config)
+
+    if need_wt:
+        wt_fetcher = WatchTimeQuantileCandidateFetcher(config=valkey_config)
+
+    if need_fallback_miou or need_fallback_wt:
+        fallback_fetcher = FallbackCandidateFetcher(config=valkey_config)
+
     # Fetch candidates for each query video
     all_candidates = OrderedDict()
+    miou_candidates = {}
+    wt_candidates = {}
+    fallback_candidates = {}
 
-    # Fetch Modified IoU candidates if in the candidate types
-    if "modified_iou" in candidate_type_name_to_num:
+    # Fetch Modified IoU candidates if needed
+    if need_miou:
         miou_args = [(str(cluster_id), video_id) for video_id in query_videos]
         miou_candidates = miou_fetcher.get_candidates(miou_args)
-    else:
-        miou_candidates = {}
 
-    # Fetch Watch Time Quantile candidates if in the candidate types
-    if "watch_time_quantile" in candidate_type_name_to_num:
+    # Fetch Watch Time Quantile candidates if needed
+    if need_wt:
         wt_args = [
             (str(cluster_id), str(bin_id), video_id) for video_id in query_videos
         ]
         wt_candidates = wt_fetcher.get_candidates(wt_args)
-    else:
-        wt_candidates = {}
+
+    # Fetch fallback candidates if needed
+    if need_fallback_miou:
+        fallback_miou = fallback_fetcher.get_fallback_candidates(
+            str(cluster_id), "modified_iou"
+        )
+        # Sample if we have more than max_fallback_candidates
+        if len(fallback_miou) > max_fallback_candidates:
+            fallback_miou = random.sample(fallback_miou, max_fallback_candidates)
+        fallback_candidates["fallback_modified_iou"] = fallback_miou
+
+    if need_fallback_wt:
+        fallback_wt = fallback_fetcher.get_fallback_candidates(
+            str(cluster_id), "watch_time_quantile"
+        )
+        # Sample if we have more than max_fallback_candidates
+        if len(fallback_wt) > max_fallback_candidates:
+            fallback_wt = random.sample(fallback_wt, max_fallback_candidates)
+        fallback_candidates["fallback_watch_time_quantile"] = fallback_wt
 
     logger.info(f"Fetched candidates for {len(query_videos)} query videos")
+    if fallback_candidates:
+        logger.info(
+            f"Fetched fallback candidates: {', '.join([f'{k}: {len(v)}' for k, v in fallback_candidates.items()])}"
+        )
 
     # Organize candidates by query video and type in an ordered dictionary
+    # Pre-initialize the structure for all query videos to avoid repeated checks
     for video_id in query_videos:
         all_candidates[video_id] = {}
 
         # Add candidates for each type if available
-        if "modified_iou" in candidate_type_name_to_num:
+        if need_miou:
             all_candidates[video_id]["modified_iou"] = miou_candidates.get(
                 f"{cluster_id}:{video_id}:modified_iou_candidate", []
             )
 
-        if "watch_time_quantile" in candidate_type_name_to_num:
+        if need_wt:
             all_candidates[video_id]["watch_time_quantile"] = wt_candidates.get(
                 f"{cluster_id}:{bin_id}:{video_id}:watch_time_quantile_bin_candidate",
                 [],
             )
+
+    # Add fallback candidates to the first query video only
+    if query_videos and fallback_candidates:
+        first_video_id = query_videos[0]
+        for fallback_type, fallback_list in fallback_candidates.items():
+            all_candidates[first_video_id][fallback_type] = fallback_list
 
     return all_candidates
 
@@ -447,6 +462,7 @@ def reranking_logic(
     threshold=0.1,
     enable_deduplication=False,
     max_workers=4,
+    max_fallback_candidates=1000,
 ):
     """
     Reranking logic for user recommendations - implements everything before the mixer algorithm.
@@ -462,6 +478,7 @@ def reranking_logic(
         threshold: Minimum mean_percentage_watched to consider a video as a query item
         enable_deduplication: Whether to remove duplicates from candidates
         max_workers: Maximum number of worker threads for parallel processing
+        max_fallback_candidates: Maximum number of fallback candidates to sample (if more are available)
 
     Returns:
         DataFrame with columns:
@@ -476,6 +493,8 @@ def reranking_logic(
         candidate_types_dict = {
             1: {"name": "watch_time_quantile", "weight": 1.0},
             2: {"name": "modified_iou", "weight": 0.8},
+            3: {"name": "fallback_watch_time_quantile", "weight": 0.6},
+            4: {"name": "fallback_modified_iou", "weight": 0.5},
         }
 
     # Extract user information
@@ -506,7 +525,7 @@ def reranking_logic(
 
     # 2. Fetch candidates for all query videos
     all_candidates = fetch_candidates(
-        query_videos, cluster_id, bin_id, candidate_types_dict
+        query_videos, cluster_id, bin_id, candidate_types_dict, max_fallback_candidates
     )
 
     # 3. Process each query video and candidate type in parallel
@@ -580,6 +599,7 @@ def mixer_algorithm(
     df_reranked,
     candidate_types_dict,
     top_k=10,
+    fallback_top_k=50,
     recency_weight=0.8,
     watch_percentage_weight=0.2,
     max_candidates_per_query=3,
@@ -593,6 +613,7 @@ def mixer_algorithm(
         df_reranked: DataFrame from reranking_logic with query videos and candidates
         candidate_types_dict: Dictionary mapping candidate type numbers to their names and weights
         top_k: Number of final recommendations to return
+        fallback_top_k: Number of fallback recommendations to return (can be different from top_k)
         recency_weight: Weight given to more recent query videos (0-1)
         watch_percentage_weight: Weight given to videos with higher watch percentages (0-1)
         max_candidates_per_query: Maximum number of candidates to consider from each query video
@@ -604,15 +625,37 @@ def mixer_algorithm(
         - 'recommendations': List of recommended video IDs sorted by final score
         - 'scores': Dictionary mapping each recommended video ID to its final score
         - 'sources': Dictionary mapping each recommended video ID to its source information
+        - 'fallback_recommendations': List of fallback recommended video IDs sorted by score
+        - 'fallback_scores': Dictionary mapping each fallback recommended video ID to its score
+        - 'fallback_sources': Dictionary mapping each fallback recommended video ID to its source
     """
     if df_reranked.empty:
+        empty_result = {
+            "recommendations": [],
+            "scores": {},
+            "sources": {},
+            "fallback_recommendations": [],
+            "fallback_scores": {},
+            "fallback_sources": {},
+        }
         logger.warning("Empty reranking dataframe, no recommendations possible")
-        return {"recommendations": [], "scores": {}, "sources": {}}
+        return empty_result
 
     # Initialize tracking structures
     candidate_scores = {}  # Final scores for each candidate
     candidate_sources = {}  # Track where each candidate came from
     seen_candidates = set()  # For deduplication
+
+    # Separate tracking for fallback candidates
+    fallback_candidate_scores = {}
+    fallback_candidate_sources = {}
+
+    # Pre-compute which types are fallback types for faster lookup
+    fallback_type_nums = {
+        type_num
+        for type_num, info in candidate_types_dict.items()
+        if isinstance(info, dict) and "fallback" in info.get("name", "")
+    }
 
     # Calculate total number of query videos for normalization
     total_queries = len(df_reranked)
@@ -623,7 +666,14 @@ def mixer_algorithm(
     ]
     if not any(col in df_reranked.columns for col in candidate_columns):
         logger.warning("No candidate columns found in dataframe")
-        return {"recommendations": [], "scores": {}, "sources": {}}
+        return {
+            "recommendations": [],
+            "scores": {},
+            "sources": {},
+            "fallback_recommendations": [],
+            "fallback_scores": {},
+            "fallback_sources": {},
+        }
 
     # Process each query video
     for idx, row in df_reranked.iterrows():
@@ -648,6 +698,9 @@ def mixer_algorithm(
             candidate_weight = type_info.get("weight", 1.0)
             candidate_name = type_info.get("name", f"type_{type_num}")
 
+            # Check if this is a fallback candidate type (using pre-computed set)
+            is_fallback = type_num in fallback_type_nums
+
             # Get candidates for this query and type
             candidates = row.get(candidate_type_col, [])
 
@@ -656,7 +709,16 @@ def mixer_algorithm(
                 continue
 
             # Limit number of candidates per query to avoid bias
-            candidates = candidates[:max_candidates_per_query]
+            if not is_fallback:  # Only limit regular candidates, not fallbacks
+                candidates = candidates[:max_candidates_per_query]
+
+            # Choose the right structures based on fallback status
+            target_scores = (
+                fallback_candidate_scores if is_fallback else candidate_scores
+            )
+            target_sources = (
+                fallback_candidate_sources if is_fallback else candidate_sources
+            )
 
             # Process each candidate
             for i, candidate_tuple in enumerate(candidates):
@@ -673,38 +735,34 @@ def mixer_algorithm(
                     continue
 
                 # Skip if candidate is already seen (optional deduplication)
-                if enable_deduplication and candidate_id in seen_candidates:
+                if (
+                    enable_deduplication
+                    and candidate_id in seen_candidates
+                    and not is_fallback
+                ):
                     continue
 
                 # Calculate final score for this candidate
                 # Formula: query_importance * candidate_weight * similarity_score
                 candidate_score = query_importance * candidate_weight * similarity_score
 
-                # Add or update candidate score
-                if candidate_id in candidate_scores:
-                    candidate_scores[candidate_id] += candidate_score
-                    # Update source information
-                    candidate_sources[candidate_id].append(
-                        {
-                            "query_video": query_video_id,
-                            "candidate_type": candidate_name,
-                            "similarity": similarity_score,
-                            "contribution": candidate_score,
-                        }
-                    )
-                else:
-                    candidate_scores[candidate_id] = candidate_score
-                    # Initialize source information
-                    candidate_sources[candidate_id] = [
-                        {
-                            "query_video": query_video_id,
-                            "candidate_type": candidate_name,
-                            "similarity": similarity_score,
-                            "contribution": candidate_score,
-                        }
-                    ]
+                # Source information dictionary (same for both regular and fallback)
+                source_info = {
+                    "query_video": query_video_id,
+                    "candidate_type": candidate_name,
+                    "similarity": similarity_score,
+                    "contribution": candidate_score,
+                }
 
-                if enable_deduplication:
+                # Add or update candidate score
+                if candidate_id in target_scores:
+                    target_scores[candidate_id] += candidate_score
+                    target_sources[candidate_id].append(source_info)
+                else:
+                    target_scores[candidate_id] = candidate_score
+                    target_sources[candidate_id] = [source_info]
+
+                if enable_deduplication and not is_fallback:
                     seen_candidates.add(candidate_id)
 
     # Sort candidates by final score
@@ -712,45 +770,76 @@ def mixer_algorithm(
         candidate_scores.items(), key=lambda x: x[1], reverse=True
     )
 
+    # Sort fallback candidates by final score
+    sorted_fallback_candidates = sorted(
+        fallback_candidate_scores.items(), key=lambda x: x[1], reverse=True
+    )
+
     # Get top_k recommendations
     top_recommendations = [
         candidate_id for candidate_id, _ in sorted_candidates[:top_k]
     ]
 
-    # Create final scores dictionary for top recommendations
+    # Get fallback_top_k fallback recommendations
+    top_fallback_recommendations = [
+        candidate_id for candidate_id, _ in sorted_fallback_candidates[:fallback_top_k]
+    ]
+
+    # Create result dictionaries for top recommendations
     final_scores = {
         candidate_id: candidate_scores[candidate_id]
         for candidate_id in top_recommendations
     }
 
-    # Create final sources dictionary for top recommendations
     final_sources = {
         candidate_id: candidate_sources[candidate_id]
         for candidate_id in top_recommendations
+    }
+
+    # Create result dictionaries for top fallback recommendations
+    final_fallback_scores = {
+        candidate_id: fallback_candidate_scores[candidate_id]
+        for candidate_id in top_fallback_recommendations
+    }
+
+    final_fallback_sources = {
+        candidate_id: fallback_candidate_sources[candidate_id]
+        for candidate_id in top_fallback_recommendations
     }
 
     return {
         "recommendations": top_recommendations,
         "scores": final_scores,
         "sources": final_sources,
+        "fallback_recommendations": top_fallback_recommendations,
+        "fallback_scores": final_fallback_scores,
+        "fallback_sources": final_fallback_sources,
     }
 
 
 # Example usage
 # Get the first user profile from the dataframe
-user_profile = df_up.iloc[1].to_dict()
+user_profile = df_up.iloc[40].to_dict()
 
 # Define candidate types with weights
 candidate_types = {
     1: {"name": "watch_time_quantile", "weight": 1.0},
     2: {"name": "modified_iou", "weight": 0.8},
+    3: {"name": "fallback_watch_time_quantile", "weight": 0.6},
+    4: {"name": "fallback_modified_iou", "weight": 0.5},
 }
 
 # Run the reranking logic with custom candidate types
-df_reranked = reranking_logic(user_profile, candidate_types, max_workers=4)
+df_reranked = reranking_logic(
+    user_profile,
+    candidate_types,
+    max_workers=4,
+    max_fallback_candidates=200,
+    enable_deduplication=True,
+)
 
 # Print the DataFrame information
-print("\nRecommendation DataFrame:")
+print("\nReranked DataFrame:")
 print(f"Shape: {df_reranked.shape}")
 print("\nColumns:", df_reranked.columns.tolist())
 
@@ -759,10 +848,11 @@ recommendation_results = mixer_algorithm(
     df_reranked,
     candidate_types,
     top_k=50,
+    fallback_top_k=100,
     min_similarity_threshold=0.4,
     recency_weight=0.7,
     watch_percentage_weight=0.3,
-    max_candidates_per_query=5,
+    max_candidates_per_query=10,
 )
 
 # Print recommendation results
@@ -770,3 +860,12 @@ print(
     f"\nFinal recommendations: {len(recommendation_results['recommendations'])} items"
 )
 print(recommendation_results["recommendations"][:5])  # Print first 5 recommendations
+
+# Print fallback recommendation results
+print(
+    f"\nFallback recommendations: {len(recommendation_results['fallback_recommendations'])} items"
+)
+print(
+    recommendation_results["fallback_recommendations"][:5]
+)  # Print first 5 fallback recommendations
+# %%

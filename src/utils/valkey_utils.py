@@ -514,6 +514,75 @@ class ValkeyVectorService(ValkeyService):
         self.vector_dim = vector_dim
         self.prefix = prefix
 
+    def get_batch_embeddings(self, item_ids, prefix=None, verbose=True):
+        """
+        Retrieve embeddings for multiple item IDs in batch.
+
+        Args:
+            item_ids: List of item IDs to retrieve embeddings for
+            prefix: Optional prefix to use (defaults to self.prefix)
+            verbose: Whether to print information about missing embeddings
+
+        Returns:
+            dict: Dictionary mapping item IDs to their embeddings
+        """
+        try:
+            client = self.get_client()
+
+            # Use provided prefix or instance prefix
+            key_prefix = prefix if prefix is not None else self.prefix
+
+            # Create keys for all items
+            keys = [f"{key_prefix}{item_id}" for item_id in item_ids]
+
+            # Check which keys exist in Redis
+            pipe = client.pipeline()
+            for key in keys:
+                pipe.exists(key)
+            existing_keys_mask = pipe.execute()
+
+            # Filter out keys that don't exist
+            existing_keys = [
+                key for key, exists in zip(keys, existing_keys_mask) if exists
+            ]
+            existing_ids = [key.replace(key_prefix, "") for key in existing_keys]
+
+            # Print items that don't have embeddings
+            missing_ids = set(item_ids) - set(existing_ids)
+            if missing_ids and verbose:
+                logger.info(f"Missing embeddings for {len(missing_ids)} items")
+                if len(missing_ids) <= 10:
+                    for missing_id in missing_ids:
+                        logger.warning(f"  - {missing_id}")
+                else:
+                    for missing_id in list(missing_ids)[:10]:
+                        logger.warning(f"  - {missing_id}")
+                    logger.warning(f"  ... and {len(missing_ids) - 10} more")
+
+            if not existing_keys:
+                if verbose:
+                    logger.warning("No valid embeddings found")
+                return {}
+
+            # Get embeddings in batch using pipeline
+            pipe = client.pipeline()
+            for key in existing_keys:
+                pipe.hget(key, "embedding")
+            embedding_binaries = pipe.execute()
+
+            # Convert binary data to numpy arrays
+            embeddings = {}
+            for item_id, embedding_binary in zip(existing_ids, embedding_binaries):
+                if embedding_binary is not None:
+                    embedding = np.frombuffer(embedding_binary, dtype=np.float32)
+                    embeddings[item_id] = embedding
+
+            return embeddings
+
+        except Exception as e:
+            logger.error(f"Error retrieving batch embeddings: {e}")
+            return {}
+
     def create_vector_index(
         self,
         index_name: str = "video_embeddings",
