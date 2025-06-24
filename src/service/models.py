@@ -1,0 +1,112 @@
+"""
+Models for the recommendation service API.
+
+This module defines Pydantic models for API requests and responses.
+"""
+
+from typing import Dict, List, Optional, Any, Union
+from pydantic import BaseModel, Field, model_validator
+
+
+class WatchHistoryItem(BaseModel):
+    """Watch history item model."""
+
+    video_id: str
+    last_watched_timestamp: str
+    mean_percentage_watched: str
+
+
+class UserProfile(BaseModel):
+    """User profile model."""
+
+    user_id: str
+    cluster_id: int
+    watch_time_quantile_bin_id: int
+    watch_history: List[WatchHistoryItem]
+
+
+class RecommendationRequest(BaseModel):
+    """Recommendation request model."""
+
+    user_profile: UserProfile
+    top_k: Optional[int] = Field(
+        default=50, description="Number of recommendations to return"
+    )
+    fallback_top_k: Optional[int] = Field(
+        default=100, description="Number of fallback recommendations to return"
+    )
+    threshold: Optional[float] = Field(
+        default=0.1, description="Minimum watch percentage threshold"
+    )
+    enable_deduplication: Optional[bool] = Field(
+        default=True, description="Whether to enable deduplication"
+    )
+    max_workers: Optional[int] = Field(
+        default=4, description="Maximum number of worker threads"
+    )
+    max_fallback_candidates: Optional[int] = Field(
+        default=200, description="Maximum number of fallback candidates to sample"
+    )
+    min_similarity_threshold: Optional[float] = Field(
+        default=0.4, description="Minimum similarity threshold"
+    )
+    recency_weight: Optional[float] = Field(
+        default=0.8, description="Weight for recency in recommendation scoring"
+    )
+    watch_percentage_weight: Optional[float] = Field(
+        default=0.2, description="Weight for watch percentage in recommendation scoring"
+    )
+
+
+class SourceItem(BaseModel):
+    """Source information for a recommendation."""
+
+    query_video: str
+    candidate_type: str
+    similarity: float
+    contribution: float
+
+
+class RecommendationResponse(BaseModel):
+    """Recommendation response model."""
+
+    recommendations: List[str] = Field(description="List of recommended video IDs")
+    scores: Dict[str, float] = Field(
+        description="Dictionary mapping video IDs to recommendation scores"
+    )
+    sources: Dict[str, Union[Dict[str, Any], List[SourceItem]]] = Field(
+        description="Video ID to source information mapping"
+    )
+    fallback_recommendations: List[str] = Field(
+        description="List of fallback recommended video IDs"
+    )
+    fallback_scores: Dict[str, float] = Field(
+        description="Dictionary mapping video IDs to fallback scores"
+    )
+    fallback_sources: Dict[str, Union[Dict[str, Any], List[SourceItem]]] = Field(
+        description="Video ID to fallback source information mapping"
+    )
+    processing_time_ms: float = Field(description="Processing time in milliseconds")
+    error: Optional[str] = Field(default=None, description="Error message if any")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_sources(cls, data):
+        """
+        Normalize sources and fallback_sources to handle both dict and list formats.
+        The recommendation engine can return sources as either a dict or a list of dicts.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        # Convert list sources to dict format if needed
+        for field in ["sources", "fallback_sources"]:
+            if field in data:
+                source_dict = data[field]
+                if isinstance(source_dict, dict):
+                    for key, value in source_dict.items():
+                        # If the value is a list, keep it as is
+                        # The pydantic model will handle validation
+                        pass
+
+        return data

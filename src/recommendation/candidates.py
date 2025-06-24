@@ -24,17 +24,32 @@ class CandidateService:
     _cached_fallback_miou_candidates = {}
     _cached_fallback_wt_candidates = {}
 
-    def __init__(self, valkey_config):
+    # Probability of refreshing the cache (10%)
+    _cache_refresh_probability = 0.10
+
+    def __init__(self, valkey_config, cache_refresh_probability=None):
         """
         Initialize candidate service.
 
         Args:
             valkey_config: Valkey configuration dictionary
+            cache_refresh_probability: Probability (0.0-1.0) of refreshing the cache on each request.
+                                      If None, uses the class default.
         """
         self.valkey_config = valkey_config
         self.miou_fetcher = None
         self.wt_fetcher = None
         self.fallback_fetcher = None
+
+        # Allow overriding the default cache refresh probability
+        if cache_refresh_probability is not None:
+            self._cache_refresh_probability = max(
+                0.0, min(1.0, cache_refresh_probability)
+            )
+            logger.info(
+                f"Using custom cache refresh probability: {self._cache_refresh_probability}"
+            )
+
         logger.info("CandidateService initialized")
 
     def _initialize_fetchers(self, candidate_types_dict):
@@ -114,18 +129,30 @@ class CandidateService:
         """Fetch fallback Modified IoU candidates in parallel with caching."""
         cluster_id_str = str(cluster_id)
 
-        # Check if we already have cached candidates for this cluster
-        if cluster_id_str in self._cached_fallback_miou_candidates:
+        # Check if we should refresh the cache
+        should_refresh = random.random() < self._cache_refresh_probability
+
+        # Use cache only if it exists and we don't need to refresh
+        if (
+            cluster_id_str in self._cached_fallback_miou_candidates
+            and not should_refresh
+        ):
             logger.info(
                 f"Using cached fallback Modified IoU candidates for cluster {cluster_id} "
                 f"({len(self._cached_fallback_miou_candidates[cluster_id_str])} candidates)"
             )
             return self._cached_fallback_miou_candidates[cluster_id_str]
 
-        # If not in cache, fetch from storage
-        logger.info(
-            f"Fetching fallback Modified IoU candidates for cluster {cluster_id} (not cached)"
-        )
+        # Log appropriate message based on whether we're refreshing or fetching for the first time
+        if should_refresh and cluster_id_str in self._cached_fallback_miou_candidates:
+            logger.info(
+                f"CACHE REFRESH: Bypassing cache for fallback Modified IoU candidates for cluster {cluster_id} (probability={self._cache_refresh_probability})"
+            )
+        else:
+            logger.info(
+                f"Fetching fallback Modified IoU candidates for cluster {cluster_id} (not cached)"
+            )
+
         try:
             fallback_miou = self.fallback_fetcher.get_fallback_candidates(
                 cluster_id_str, "modified_iou"
@@ -143,9 +170,17 @@ class CandidateService:
 
             # Cache the candidates for future use
             self._cached_fallback_miou_candidates[cluster_id_str] = fallback_miou
-            logger.info(
-                f"Cached {len(fallback_miou)} fallback Modified IoU candidates for cluster {cluster_id}"
-            )
+            if (
+                should_refresh
+                and cluster_id_str in self._cached_fallback_miou_candidates
+            ):
+                logger.info(
+                    f"CACHE REFRESH: Updated cache for fallback Modified IoU candidates for cluster {cluster_id}"
+                )
+            else:
+                logger.info(
+                    f"Cached {len(fallback_miou)} fallback Modified IoU candidates for cluster {cluster_id}"
+                )
 
             return fallback_miou
         except Exception as e:
@@ -158,18 +193,27 @@ class CandidateService:
         """Fetch fallback Watch Time Quantile candidates in parallel with caching."""
         cluster_id_str = str(cluster_id)
 
-        # Check if we already have cached candidates for this cluster
-        if cluster_id_str in self._cached_fallback_wt_candidates:
+        # Check if we should refresh the cache
+        should_refresh = random.random() < self._cache_refresh_probability
+
+        # Use cache only if it exists and we don't need to refresh
+        if cluster_id_str in self._cached_fallback_wt_candidates and not should_refresh:
             logger.info(
                 f"Using cached fallback Watch Time Quantile candidates for cluster {cluster_id} "
                 f"({len(self._cached_fallback_wt_candidates[cluster_id_str])} candidates)"
             )
             return self._cached_fallback_wt_candidates[cluster_id_str]
 
-        # If not in cache, fetch from storage
-        logger.info(
-            f"Fetching fallback Watch Time Quantile candidates for cluster {cluster_id} (not cached)"
-        )
+        # Log appropriate message based on whether we're refreshing or fetching for the first time
+        if should_refresh and cluster_id_str in self._cached_fallback_wt_candidates:
+            logger.info(
+                f"CACHE REFRESH: Bypassing cache for fallback Watch Time Quantile candidates for cluster {cluster_id} (probability={self._cache_refresh_probability})"
+            )
+        else:
+            logger.info(
+                f"Fetching fallback Watch Time Quantile candidates for cluster {cluster_id} (not cached)"
+            )
+
         try:
             fallback_wt = self.fallback_fetcher.get_fallback_candidates(
                 cluster_id_str, "watch_time_quantile"
@@ -187,9 +231,14 @@ class CandidateService:
 
             # Cache the candidates for future use
             self._cached_fallback_wt_candidates[cluster_id_str] = fallback_wt
-            logger.info(
-                f"Cached {len(fallback_wt)} fallback Watch Time Quantile candidates for cluster {cluster_id}"
-            )
+            if should_refresh and cluster_id_str in self._cached_fallback_wt_candidates:
+                logger.info(
+                    f"CACHE REFRESH: Updated cache for fallback Watch Time Quantile candidates for cluster {cluster_id}"
+                )
+            else:
+                logger.info(
+                    f"Cached {len(fallback_wt)} fallback Watch Time Quantile candidates for cluster {cluster_id}"
+                )
 
             return fallback_wt
         except Exception as e:

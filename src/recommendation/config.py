@@ -33,6 +33,9 @@ DEFAULT_VALKEY_CONFIG = {
 
 DEFAULT_VECTOR_DIM = 1408
 
+# Default probability for refreshing the fallback cache (10%)
+DEFAULT_FALLBACK_CACHE_REFRESH_PROBABILITY = 0.10
+
 
 class RecommendationConfig:
     """Configuration class for recommendation engine."""
@@ -41,6 +44,7 @@ class RecommendationConfig:
         self,
         candidate_types=None,
         valkey_config=None,
+        fallback_cache_refresh_probability=None,
     ):
         """
         Initialize recommendation configuration.
@@ -48,9 +52,14 @@ class RecommendationConfig:
         Args:
             candidate_types: Dictionary of candidate types and weights
             valkey_config: Valkey configuration dictionary
+            fallback_cache_refresh_probability: Probability (0.0-1.0) of refreshing the fallback cache on each request
         """
         self.candidate_types = candidate_types or DEFAULT_CANDIDATE_TYPES
         self.valkey_config = valkey_config or DEFAULT_VALKEY_CONFIG
+        self.fallback_cache_refresh_probability = (
+            fallback_cache_refresh_probability
+            or DEFAULT_FALLBACK_CACHE_REFRESH_PROBABILITY
+        )
         self.gcp_utils = None
         self.vector_service = None
 

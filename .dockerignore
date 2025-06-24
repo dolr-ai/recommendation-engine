@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+
+# Docker
+.dockerignore
+docker-compose.yml
+
+# VS Code
+.vscode/
+
+# Environment
+.env
+.env.local
+
+# Data files
+data-root/large_files/
+*.pkl
+*.h5
+*.bin
+
+# Logs
+logs/
+*.log
+
+# Tests
+tests/
+test_*.py
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Notebooks (optional, include if needed)
+# notebooks/

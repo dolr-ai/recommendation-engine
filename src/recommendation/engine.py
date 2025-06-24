@@ -68,6 +68,7 @@ class RecommendationEngine:
         logger.info("Initializing CandidateService")
         self.candidate_service = CandidateService(
             valkey_config=self.config.valkey_config,
+            cache_refresh_probability=self.config.fallback_cache_refresh_probability,
         )
 
         logger.info("Initializing RerankingService")

@@ -463,6 +463,125 @@ class ValkeyService:
 
         return stats
 
+    def purge_memory_all_nodes(self):
+        """Purge memory on all cluster nodes"""
+        if not self.cluster_enabled:
+            logger.warning("This is not a cluster instance")
+            return {}
+
+        try:
+            client = self.get_client()
+
+            # Get all nodes in the cluster
+            nodes = client.get_nodes()
+
+            results = {}
+            for node in nodes:
+                try:
+                    # Create a new connection to the specific node
+                    node_client = redis.Redis(
+                        host=node.host,
+                        port=node.port,
+                        password=self._get_access_token(),
+                        socket_timeout=self.connection_config.get("socket_timeout", 10),
+                        socket_connect_timeout=self.connection_config.get(
+                            "socket_connect_timeout", 10
+                        ),
+                        decode_responses=self.connection_config.get(
+                            "decode_responses", True
+                        ),
+                        **(
+                            {
+                                "ssl": True,
+                                "ssl_cert_reqs": None,
+                                "ssl_check_hostname": False,
+                            }
+                            if self.ssl_enabled
+                            else {}
+                        ),
+                    )
+
+                    # Execute MEMORY PURGE on the node
+                    result = node_client.execute_command("MEMORY PURGE")
+                    node_info = f"{node.host}:{node.port}"
+                    results[node_info] = result
+                    logger.info(f"MEMORY PURGE on {node_info}: {result}")
+
+                    # Close the connection
+                    node_client.close()
+                except Exception as e:
+                    node_info = f"{node.host}:{node.port}"
+                    results[node_info] = f"Error: {e}"
+                    logger.error(f"Failed to purge memory on {node_info}: {e}")
+
+            return results
+        except Exception as e:
+            logger.error(f"Error purging memory on cluster: {e}")
+            return {}
+
+    def optimize_replication_backlog(self):
+        """Optimize replication backlog on all master nodes"""
+        if not self.cluster_enabled:
+            logger.warning("This is not a cluster instance")
+            return False
+
+        try:
+            client = self.get_client()
+            nodes = client.get_nodes()
+
+            masters_configured = 0
+            for node in nodes:
+                try:
+                    # Create a new connection to the specific node
+                    node_client = redis.Redis(
+                        host=node.host,
+                        port=node.port,
+                        password=self._get_access_token(),
+                        socket_timeout=self.connection_config.get("socket_timeout", 10),
+                        socket_connect_timeout=self.connection_config.get(
+                            "socket_connect_timeout", 10
+                        ),
+                        decode_responses=self.connection_config.get(
+                            "decode_responses", True
+                        ),
+                        **(
+                            {
+                                "ssl": True,
+                                "ssl_cert_reqs": None,
+                                "ssl_check_hostname": False,
+                            }
+                            if self.ssl_enabled
+                            else {}
+                        ),
+                    )
+
+                    # Check if this node is a master
+                    info = node_client.info("replication")
+                    if info.get("role") == "master":
+                        # Configure replication backlog
+                        node_client.config_set("repl-backlog-size", "32mb")
+                        node_client.config_set("repl-backlog-ttl", "1800")
+                        masters_configured += 1
+                        node_info = f"{node.host}:{node.port}"
+                        logger.info(
+                            f"Configured replication backlog on master {node_info}"
+                        )
+
+                    # Close the connection
+                    node_client.close()
+                except Exception as e:
+                    node_info = f"{node.host}:{node.port}"
+                    logger.error(f"Failed to configure {node_info}: {e}")
+
+            logger.info(
+                f"Configured replication backlog on {masters_configured} master nodes"
+            )
+            return masters_configured > 0
+
+        except Exception as e:
+            logger.error(f"Error optimizing replication backlog: {e}")
+            return False
+
 
 class ValkeyVectorService(ValkeyService):
     """Service for storing and retrieving vector embeddings in Valkey"""
