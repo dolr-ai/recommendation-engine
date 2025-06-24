@@ -511,6 +511,9 @@ class ValkeyVectorService(ValkeyService):
             **kwargs,
         )
 
+        # Store these as instance attributes as well for direct access
+        self.socket_timeout = socket_timeout
+        self.socket_connect_timeout = socket_connect_timeout
         self.vector_dim = vector_dim
         self.prefix = prefix
 
@@ -709,6 +712,10 @@ class ValkeyVectorService(ValkeyService):
                 )
 
             if not processed_results:
+                logger.warning(f"query_vector: {query_vector}")
+                logger.warning(
+                    f"videos in vector index: {self.get_client().keys(f'{self.prefix}*')}"
+                )
                 logger.warning(
                     f"No similar items found for query in index {index_name}"
                 )
