@@ -86,6 +86,27 @@ user_profile = {
 3. **Mixing**: Blends candidates from different sources based on weights and scores
 4. **Final Recommendations**: Returns top-k recommendations and fallback recommendations
 
+## Performance Optimizations
+
+### Fallback Candidate Caching
+
+The system implements caching for fallback candidates to avoid repeatedly fetching the same data:
+
+- Fallback candidates are cached by cluster_id in the CandidateService
+- Once fetched, the same fallback candidates are reused for all subsequent operations
+- Video embeddings are also cached in the SimilarityService to avoid repeated vector lookups
+- This significantly improves performance when processing recommendations for a user
+
+To specify the maximum number of fallback candidates to cache:
+
+```python
+recommendations = engine.get_recommendations(
+    user_profile,
+    max_fallback_candidates=200,  # Will cache up to 200 fallback candidates per cluster/type
+    # Other parameters...
+)
+```
+
 ## Configuration
 
 The recommendation engine can be configured with custom candidate types and weights:

@@ -20,6 +20,10 @@ logger = get_logger(__name__)
 class CandidateService:
     """Service for fetching and processing recommendation candidates."""
 
+    # Class-level dictionaries to cache fallback candidates by cluster_id and type
+    _cached_fallback_miou_candidates = {}
+    _cached_fallback_wt_candidates = {}
+
     def __init__(self, valkey_config):
         """
         Initialize candidate service.
@@ -107,13 +111,24 @@ class CandidateService:
             return {}
 
     def _fetch_fallback_miou_candidates(self, cluster_id, max_fallback_candidates):
-        """Fetch fallback Modified IoU candidates in parallel."""
+        """Fetch fallback Modified IoU candidates in parallel with caching."""
+        cluster_id_str = str(cluster_id)
+
+        # Check if we already have cached candidates for this cluster
+        if cluster_id_str in self._cached_fallback_miou_candidates:
+            logger.info(
+                f"Using cached fallback Modified IoU candidates for cluster {cluster_id} "
+                f"({len(self._cached_fallback_miou_candidates[cluster_id_str])} candidates)"
+            )
+            return self._cached_fallback_miou_candidates[cluster_id_str]
+
+        # If not in cache, fetch from storage
         logger.info(
-            f"Fetching fallback Modified IoU candidates for cluster {cluster_id}"
+            f"Fetching fallback Modified IoU candidates for cluster {cluster_id} (not cached)"
         )
         try:
             fallback_miou = self.fallback_fetcher.get_fallback_candidates(
-                str(cluster_id), "modified_iou"
+                cluster_id_str, "modified_iou"
             )
             logger.info(
                 f"Fetched {len(fallback_miou)} fallback Modified IoU candidates before sampling"
@@ -125,6 +140,13 @@ class CandidateService:
                 logger.info(
                     f"Sampled down to {len(fallback_miou)} fallback Modified IoU candidates"
                 )
+
+            # Cache the candidates for future use
+            self._cached_fallback_miou_candidates[cluster_id_str] = fallback_miou
+            logger.info(
+                f"Cached {len(fallback_miou)} fallback Modified IoU candidates for cluster {cluster_id}"
+            )
+
             return fallback_miou
         except Exception as e:
             logger.error(
@@ -133,13 +155,24 @@ class CandidateService:
             return []
 
     def _fetch_fallback_wt_candidates(self, cluster_id, max_fallback_candidates):
-        """Fetch fallback Watch Time Quantile candidates in parallel."""
+        """Fetch fallback Watch Time Quantile candidates in parallel with caching."""
+        cluster_id_str = str(cluster_id)
+
+        # Check if we already have cached candidates for this cluster
+        if cluster_id_str in self._cached_fallback_wt_candidates:
+            logger.info(
+                f"Using cached fallback Watch Time Quantile candidates for cluster {cluster_id} "
+                f"({len(self._cached_fallback_wt_candidates[cluster_id_str])} candidates)"
+            )
+            return self._cached_fallback_wt_candidates[cluster_id_str]
+
+        # If not in cache, fetch from storage
         logger.info(
-            f"Fetching fallback Watch Time Quantile candidates for cluster {cluster_id}"
+            f"Fetching fallback Watch Time Quantile candidates for cluster {cluster_id} (not cached)"
         )
         try:
             fallback_wt = self.fallback_fetcher.get_fallback_candidates(
-                str(cluster_id), "watch_time_quantile"
+                cluster_id_str, "watch_time_quantile"
             )
             logger.info(
                 f"Fetched {len(fallback_wt)} fallback Watch Time Quantile candidates before sampling"
@@ -151,6 +184,13 @@ class CandidateService:
                 logger.info(
                     f"Sampled down to {len(fallback_wt)} fallback Watch Time Quantile candidates"
                 )
+
+            # Cache the candidates for future use
+            self._cached_fallback_wt_candidates[cluster_id_str] = fallback_wt
+            logger.info(
+                f"Cached {len(fallback_wt)} fallback Watch Time Quantile candidates for cluster {cluster_id}"
+            )
+
             return fallback_wt
         except Exception as e:
             logger.error(

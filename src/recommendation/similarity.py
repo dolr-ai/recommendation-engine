@@ -14,6 +14,9 @@ logger = get_logger(__name__)
 class SimilarityService:
     """Service for calculating similarity between video embeddings."""
 
+    # Class-level cache for search space embeddings
+    _cached_embeddings = {}
+
     def __init__(self, vector_service, gcp_utils):
         """
         Initialize similarity service.
@@ -72,13 +75,38 @@ class SimilarityService:
                 cluster_enabled=self.vector_service.cluster_enabled,
             )
 
-            # Step 2: Get embeddings for all search space items in batch
+            # Step 2: Get embeddings for all search space items in batch, using cache where possible
             logger.info(
                 f"Fetching embeddings for {len(search_space_items)} search space items"
             )
-            search_space_embeddings = self.vector_service.get_batch_embeddings(
-                search_space_items, verbose=False
-            )
+
+            # Split into cached and uncached items
+            uncached_items = [
+                item
+                for item in search_space_items
+                if item not in self._cached_embeddings
+            ]
+
+            if uncached_items:
+                logger.info(
+                    f"Fetching {len(uncached_items)} uncached search space embeddings"
+                )
+                new_embeddings = self.vector_service.get_batch_embeddings(
+                    uncached_items, verbose=False
+                )
+
+                # Update cache with new embeddings
+                self._cached_embeddings.update(new_embeddings)
+                logger.info(f"Added {len(new_embeddings)} embeddings to cache")
+            else:
+                logger.info("All search space embeddings found in cache")
+
+            # Get all embeddings from cache
+            search_space_embeddings = {
+                video_id: self._cached_embeddings[video_id]
+                for video_id in search_space_items
+                if video_id in self._cached_embeddings
+            }
 
             if not search_space_embeddings:
                 logger.warning("No valid embeddings found in search space")

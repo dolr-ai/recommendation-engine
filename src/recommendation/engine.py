@@ -120,6 +120,8 @@ class RecommendationEngine:
             enable_deduplication: Whether to remove duplicates from candidates
             max_workers: Maximum number of worker threads for parallel processing
             max_fallback_candidates: Maximum number of fallback candidates to sample
+                                    (if more are available). Fallback candidates are cached
+                                    internally for better performance.
             recency_weight: Weight given to more recent query videos (0-1)
             watch_percentage_weight: Weight given to videos with higher watch percentages (0-1)
             max_candidates_per_query: Maximum number of candidates to consider from each query video
