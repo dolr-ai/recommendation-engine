@@ -74,14 +74,23 @@ DATA_ROOT, gcp_utils_stage, gcp_utils_prod = setup_configs(
 # Default configuration for Valkey
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.206",  # Primary endpoint
+        # 10.128.15.210:6379 # new instance
+        "host": "10.128.15.210",  # Discovery endpoint
         "port": 6379,
-        "instance_id": "candidate-valkey-instance",
+        "instance_id": "candidate-cache",
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-    }
+        "cluster_enabled": True,  # Enable cluster mode
+    },
+    # todo: configure this as per CRON jobs
+    "expire_seconds": 86400 * 7,
+    "verify_sample_size": 5,
+    # todo: add vector index as config
+    "vector_index_name": "video_embeddings",
+    "vector_key_prefix": "video_id:",
 }
+
 
 # Initialize Valkey service
 valkey_service = ValkeyService(core=gcp_utils_stage.core, **DEFAULT_CONFIG["valkey"])

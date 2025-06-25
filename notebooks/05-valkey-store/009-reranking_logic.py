@@ -8,17 +8,24 @@ import os
 import sys
 import json
 import random
-from dotenv import load_dotenv
+import concurrent.futures
+from collections import OrderedDict
+from datetime import datetime
+from functools import partial
+from typing import Dict, List, Tuple, Union, Any
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from tqdm import tqdm
-from collections import OrderedDict
-import concurrent.futures
-from functools import partial
-
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from utils.gcp_utils import GCPUtils
-from utils.valkey_utils import ValkeyVectorService, ValkeyService
+from utils.valkey_utils import ValkeyVectorService, ValkeyService, ValkeyUtils
 from utils.common_utils import get_logger
 
 from candidate_cache.get_candidates_meta import (
@@ -441,7 +448,12 @@ def filter_and_sort_watch_history(watch_history, threshold):
 
     # Sort by last_watched_timestamp (newest first)
     filtered_history.sort(
-        key=lambda x: x.get("last_watched_timestamp", 0), reverse=True
+        key=lambda x: datetime.fromisoformat(
+            x.get("last_watched_timestamp", "1970-01-01T00:00:00+00:00").replace(
+                " ", "T"
+            )
+        ),
+        reverse=True,
     )
 
     # Extract video IDs in order (from latest to oldest watched)

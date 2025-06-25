@@ -7,6 +7,7 @@ This module provides functionality for fetching and processing candidates from v
 import random
 import concurrent.futures
 from collections import OrderedDict
+from datetime import datetime
 from utils.common_utils import get_logger
 from candidate_cache.get_candidates import (
     ModifiedIoUCandidateFetcher,
@@ -458,8 +459,14 @@ class CandidateService:
         )
 
         # Sort by last_watched_timestamp (newest first)
+        # todo: check if this is being passed by client in the right format
         filtered_history.sort(
-            key=lambda x: x.get("last_watched_timestamp", 0), reverse=True
+            key=lambda x: datetime.fromisoformat(
+                x.get("last_watched_timestamp", "1970-01-01T00:00:00+00:00").replace(
+                    " ", "T"
+                )
+            ),
+            reverse=True,
         )
         logger.info("Sorted watch history by timestamp (newest first)")
 
