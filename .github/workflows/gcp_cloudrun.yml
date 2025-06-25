@@ -87,7 +87,7 @@ jobs:
           --concurrency 500 \
           --cpu 4 \
           --memory 4Gi \
-          --set-env-vars="GCP_CREDENTIALS=${{ secrets.GCP_CREDENTIALS_JSON }}" \
+          --set-env-vars="GCP_CREDENTIALS=${{ secrets.GCP_CREDENTIALS }}" \
           --vpc-connector projects/$PROJECT_ID/locations/$REGION/connectors/vpc-for-redis \
           --vpc-egress private-ranges-only \
           --region $REGION \
