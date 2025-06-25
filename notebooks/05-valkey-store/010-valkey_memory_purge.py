@@ -82,22 +82,20 @@ print(f"Purge results: {purge_results}")
 
 # %%
 # Test replication backlog optimization
-print("Testing replication backlog optimization...")
-optimize_results = vector_service.optimize_replication_backlog()
-print(f"Optimization successful: {optimize_results}")
+# print("Testing replication backlog optimization...")
+# optimize_results = vector_service.optimize_replication_backlog()
+# print(f"Optimization successful: {optimize_results}")
 
 # %%
 # Get cluster info
 print("Getting cluster info...")
 client = vector_service.get_client()
+
 try:
     # Get cluster nodes info
     nodes_info = client.execute_command("CLUSTER NODES")
     print("Cluster nodes:")
-    for line in nodes_info.split("\n"):
-        if line.strip():
-            print(f"  {line}")
-
+    print(nodes_info)
     # Get memory stats
     print("\nMemory stats:")
     memory_info = client.info("memory")

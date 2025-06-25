@@ -134,6 +134,9 @@ class SimilarityService:
             except Exception as e:
                 logger.debug(f"No existing index to drop: {e}")
 
+            ttl_temp_index = (
+                60 * 15
+            )  # todo: hardcoded 15 minutes, should be configurable
             # Create the vector index
             index_created = temp_vector_service.create_vector_index(
                 index_name=temp_index_name,
@@ -184,6 +187,10 @@ class SimilarityService:
                 pipe = client.pipeline(transaction=False)
                 for key in batch_keys:
                     pipe.hset(key, mapping=mappings[key])
+                    pipe.expire(key, ttl_temp_index)
+                    # this is temp key, so we can expire it after 15 minutes,
+                    # this is additional safety measure apart from clearing vector index
+                    # todo: hardcoded 15 minutes, should be configurable
                 pipe.execute()
 
             # Step 5: Get query embeddings in batch
@@ -233,6 +240,8 @@ class SimilarityService:
             temp_vector_service.clear_vector_data(prefix="temp_video_id:")
             logger.info(f"Similarity check completed with {len(results)} results")
 
+            temp_vector_service.purge_memory_all_nodes()
+            # logger.info("Purged memory on all nodes")
             return results
 
         except Exception as e:

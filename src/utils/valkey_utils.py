@@ -505,7 +505,7 @@ class ValkeyService:
                     result = node_client.execute_command("MEMORY PURGE")
                     node_info = f"{node.host}:{node.port}"
                     results[node_info] = result
-                    logger.info(f"MEMORY PURGE on {node_info}: {result}")
+                    logger.debug(f"MEMORY PURGE on {node_info}: {result}")
 
                     # Close the connection
                     node_client.close()
