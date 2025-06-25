@@ -6,6 +6,7 @@ A FastAPI service for delivering personalized video recommendations.
 
 - **Single User Recommendations**: Get personalized recommendations for a single user
 - **Batch Processing**: Process multiple users in a single request
+- **Automatic Metadata Fetching**: Automatically fetch user metadata (cluster_id, watch_time_quantile_bin_id) when not provided
 - **Fallback Candidates**: Uses optimized caching for fallback candidates with probabilistic refresh
 - **Configurable Parameters**: Customize recommendation behavior through API parameters
 
@@ -29,18 +30,14 @@ Request body:
 
 ```json
 {
-  "user_profile": {
-    "user_id": "user123",
-    "cluster_id": 1,
-    "watch_time_quantile_bin_id": 3,
-    "watch_history": [
-      {
-        "video_id": "video123",
-        "last_watched_timestamp": "2025-05-28 06:33:40.393635+00:00",
-        "mean_percentage_watched": "0.64"
-      }
-    ]
-  },
+  "user_id": "user123",
+  "watch_history": [
+    {
+      "video_id": "video123",
+      "last_watched_timestamp": "2025-05-28 06:33:40.393635+00:00",
+      "mean_percentage_watched": "0.64"
+    }
+  ],
   "top_k": 50,
   "fallback_top_k": 100,
   "threshold": 0.1,
@@ -53,6 +50,8 @@ Request body:
 }
 ```
 
+**Note**: The `watch_history` field is optional. If not provided, an empty list will be used.
+
 ### Batch Recommendations
 
 ```
@@ -64,24 +63,37 @@ Request body:
 ```json
 [
   {
-    "user_profile": {
-      "user_id": "user123",
-      "cluster_id": 1,
-      "watch_time_quantile_bin_id": 3,
-      "watch_history": [...]
-    },
+    "user_id": "user123",
+    "watch_history": [...],
     "top_k": 50
   },
   {
-    "user_profile": {
-      "user_id": "user456",
-      "cluster_id": 2,
-      "watch_time_quantile_bin_id": 4,
-      "watch_history": [...]
-    },
+    "user_id": "user456",
     "top_k": 30
   }
 ]
+```
+
+## Metadata Service
+
+The service includes an internal metadata service that automatically fetches user metadata when needed:
+
+- **Cluster ID**: User's assigned cluster based on their behavior patterns
+- **Watch Time Quantile Bin ID**: User's watch time percentile within their cluster (0-3)
+
+The metadata service uses the existing `UserClusterWatchTimeFetcher` and `UserWatchTimeQuantileBinsFetcher` from the candidate cache to retrieve this information from Valkey.
+
+### Configuration
+
+The metadata service can be configured using environment variables:
+
+```bash
+# Valkey connection settings (optional, uses defaults if not set)
+export VALKEY_HOST="10.128.15.210"
+export VALKEY_PORT="6379"
+
+# GCP credentials (required)
+export GCP_CREDENTIALS=$(jq -c . '/path/to/credentials.json')
 ```
 
 ## Running the Service
@@ -121,6 +133,14 @@ export FALLBACK_CACHE_REFRESH_PROBABILITY=0.2
 
 - Video embeddings are also cached to avoid repeated vector lookups
 - This significantly improves performance while ensuring fresh recommendations over time
+
+## Error Handling
+
+The service handles various error scenarios gracefully:
+
+- **Missing User Metadata**: If a user's metadata cannot be fetched, the request will return an error response
+- **Invalid User ID**: If the user ID is not found in the system, appropriate error messages are returned
+- **Service Unavailable**: If the metadata service or recommendation engine is unavailable, error responses are returned
 
 ## todo
 1. nsfw filter on/off handle

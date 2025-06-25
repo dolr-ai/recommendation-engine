@@ -25,13 +25,21 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.206",  # Primary endpoint
+        # 10.128.15.210:6379 # new instance
+        "host": "10.128.15.210",  # Discovery endpoint
         "port": 6379,
-        "instance_id": "candidate-valkey-instance",
+        "instance_id": "candidate-cache",
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-    }
+        "cluster_enabled": True,  # Enable cluster mode
+    },
+    # todo: configure this as per CRON jobs
+    "expire_seconds": 86400 * 7,
+    "verify_sample_size": 5,
+    # todo: add vector index as config
+    "vector_index_name": "video_embeddings",
+    "vector_key_prefix": "video_id:",
 }
 
 
@@ -324,8 +332,8 @@ class UserClusterWatchTimeFetcher(MetadataFetcher):
 # Example usage
 if __name__ == "__main__":
     # Create fetchers with default config
-    user_watch_time_fetcher = UserClusterWatchTimeFetcher()
-    bins_fetcher = UserWatchTimeQuantileBinsFetcher()
+    user_watch_time_fetcher = UserClusterWatchTimeFetcher(config=DEFAULT_CONFIG)
+    bins_fetcher = UserWatchTimeQuantileBinsFetcher(config=DEFAULT_CONFIG)
 
     # Example: Get cluster_id and watch_time for a specific user
     test_user = "user_id"  # Replace with an actual user ID
@@ -334,14 +342,12 @@ if __name__ == "__main__":
     )
 
     if cluster_id != -1:
-        logger.debug(
+        logger.info(
             f"User {test_user} belongs to cluster {cluster_id} with watch time {watch_time}"
         )
 
         # Determine bin for this user's watch time
         bin_id = bins_fetcher.determine_bin(cluster_id, watch_time)
-        logger.debug(
-            f"User {test_user} belongs to bin {bin_id} in cluster {cluster_id}"
-        )
+        logger.info(f"User {test_user} belongs to bin {bin_id} in cluster {cluster_id}")
     else:
         logger.warning(f"No cluster found for user {test_user}")

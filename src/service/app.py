@@ -14,7 +14,10 @@ from fastapi.exceptions import RequestValidationError, ResponseValidationError
 import uvicorn
 
 from utils.common_utils import get_logger
-from service.models import RecommendationRequest, RecommendationResponse
+from service.models import (
+    RecommendationRequest,
+    RecommendationResponse,
+)
 from service.recommendation_service import RecommendationService
 
 logger = get_logger(__name__)
@@ -95,23 +98,39 @@ async def health_check():
 async def get_recommendations(request: RecommendationRequest):
     """
     Get personalized video recommendations for a user.
+    Metadata (cluster_id and watch_time_quantile_bin_id) will be automatically fetched if not provided.
 
     Args:
-        request: Recommendation request containing user profile and parameters
+        request: Recommendation request containing user_id and optional parameters
 
     Returns:
         RecommendationResponse with recommendations and metadata
     """
-    logger.info(
-        f"Received recommendation request for user {request.user_profile.user_id}"
-    )
+    logger.info(f"Received recommendation request for user {request.user_id}")
 
     try:
         # Get recommendation service instance
         service = RecommendationService.get_instance()
 
-        # Convert user profile to dictionary
-        user_profile = request.user_profile.dict()
+        # Convert watch history items to dictionaries
+        watch_history = []
+        if request.watch_history:
+            for item in request.watch_history:
+                watch_history.append(
+                    {
+                        "video_id": item.video_id,
+                        "last_watched_timestamp": item.last_watched_timestamp,
+                        "mean_percentage_watched": item.mean_percentage_watched,
+                    }
+                )
+
+        # Create user profile from request
+        user_profile = {
+            "user_id": request.user_id,
+            "cluster_id": None,  # Will be auto-fetched
+            "watch_time_quantile_bin_id": None,  # Will be auto-fetched
+            "watch_history": watch_history,
+        }
 
         # Get recommendations
         recommendations = service.get_recommendations(
@@ -126,10 +145,6 @@ async def get_recommendations(request: RecommendationRequest):
             recency_weight=request.recency_weight,
             watch_percentage_weight=request.watch_percentage_weight,
         )
-
-        # Check for error
-        if "error" in recommendations:
-            raise HTTPException(status_code=500, detail=recommendations["error"])
 
         # Return response directly to avoid validation issues
         return JSONResponse(content=recommendations)
@@ -150,6 +165,7 @@ async def get_batch_recommendations(
 ):
     """
     Get recommendations for multiple users in batch.
+    Metadata (cluster_id and watch_time_quantile_bin_id) will be automatically fetched if not provided.
 
     Args:
         requests: List of recommendation requests
@@ -165,8 +181,25 @@ async def get_batch_recommendations(
 
     for request in requests:
         try:
-            # Convert user profile to dictionary
-            user_profile = request.user_profile.dict()
+            # Convert watch history items to dictionaries
+            watch_history = []
+            if request.watch_history:
+                for item in request.watch_history:
+                    watch_history.append(
+                        {
+                            "video_id": item.video_id,
+                            "last_watched_timestamp": item.last_watched_timestamp,
+                            "mean_percentage_watched": item.mean_percentage_watched,
+                        }
+                    )
+
+            # Create user profile from request
+            user_profile = {
+                "user_id": request.user_id,
+                "cluster_id": None,  # Will be auto-fetched
+                "watch_time_quantile_bin_id": None,  # Will be auto-fetched
+                "watch_history": watch_history,
+            }
 
             # Get recommendations
             recommendations = service.get_recommendations(
@@ -200,20 +233,15 @@ async def get_batch_recommendations(
                 }
             )
 
-    # Return response directly as JSON
-    return JSONResponse(content=results)
+    return results
 
 
 def start():
-    """Start the API server."""
-    # Get port from environment or use default
-    port = int(os.environ.get("API_PORT", "8000"))
-
-    # Start server
+    """Start the FastAPI application."""
     uvicorn.run(
         "service.app:app",
         host="0.0.0.0",
-        port=port,
+        port=8000,
         reload=False,
         log_level="info",
     )

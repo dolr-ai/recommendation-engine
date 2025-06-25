@@ -11,6 +11,7 @@ from typing import Dict, Any
 from utils.common_utils import get_logger
 from recommendation.config import RecommendationConfig
 from recommendation.engine import RecommendationEngine
+from service.metadata_service import MetadataService
 
 logger = get_logger(__name__)
 
@@ -20,6 +21,7 @@ class RecommendationService:
 
     _instance = None
     _engine = None
+    _metadata_service = None
 
     @classmethod
     def get_instance(cls):
@@ -28,6 +30,7 @@ class RecommendationService:
             logger.info("Creating new RecommendationService instance")
             cls._instance = cls()
             cls._initialize_engine()
+            cls._initialize_metadata_service()
         return cls._instance
 
     @classmethod
@@ -60,6 +63,64 @@ class RecommendationService:
         except Exception as e:
             logger.error(f"Failed to initialize recommendation service: {e}")
             raise
+
+    @classmethod
+    def _initialize_metadata_service(cls):
+        """Initialize metadata service."""
+        try:
+            logger.info("Initializing metadata service")
+            cls._metadata_service = MetadataService.get_instance()
+            logger.info("Metadata service initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize metadata service: {e}")
+            raise
+
+    def _enrich_user_profile(self, user_profile: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enrich user profile with metadata if cluster_id or watch_time_quantile_bin_id are missing.
+
+        Args:
+            user_profile: User profile dictionary
+
+        Returns:
+            Enriched user profile dictionary
+        """
+        user_id = user_profile.get("user_id")
+        cluster_id = user_profile.get("cluster_id")
+        watch_time_quantile_bin_id = user_profile.get("watch_time_quantile_bin_id")
+
+        # If both metadata fields are provided, return as is
+        if cluster_id is not None and watch_time_quantile_bin_id is not None:
+            logger.info(
+                f"User {user_id} metadata already provided: cluster_id={cluster_id}, watch_time_quantile_bin_id={watch_time_quantile_bin_id}"
+            )
+            return user_profile
+
+        # Fetch metadata from the metadata service
+        logger.info(f"Fetching metadata for user {user_id}")
+        metadata = self._metadata_service.get_user_metadata(user_id)
+
+        # Update user profile with fetched metadata or fallback values
+        enriched_profile = user_profile.copy()
+
+        if metadata.get("error"):
+            logger.warning(
+                f"Failed to fetch metadata for user {user_id}: {metadata['error']}. Using fallback values."
+            )
+            # Use fallback values instead of failing
+            enriched_profile["cluster_id"] = -1  # Default cluster
+            enriched_profile["watch_time_quantile_bin_id"] = -1  # Default bin
+        else:
+            enriched_profile["cluster_id"] = metadata["cluster_id"]
+            enriched_profile["watch_time_quantile_bin_id"] = metadata[
+                "watch_time_quantile_bin_id"
+            ]
+            logger.info(
+                f"Enriched user {user_id} profile: cluster_id={metadata['cluster_id']}, "
+                f"watch_time_quantile_bin_id={metadata['watch_time_quantile_bin_id']}"
+            )
+
+        return enriched_profile
 
     def get_recommendations(
         self,
@@ -95,6 +156,29 @@ class RecommendationService:
         logger.info(f"Getting recommendations for user {user_profile.get('user_id')}")
         start_time = time.time()
 
+        # Enrich user profile with metadata if needed
+        enriched_profile = self._enrich_user_profile(user_profile)
+
+        # Check if metadata fetching failed (cluster_id or watch_time_quantile_bin_id is -1)
+        if (
+            enriched_profile.get("cluster_id") == -1
+            or enriched_profile.get("watch_time_quantile_bin_id") == -1
+        ):
+            processing_time_ms = (time.time() - start_time) * 1000
+            logger.warning(
+                f"Returning empty recommendations for user {user_profile.get('user_id')} due to missing metadata"
+            )
+            return {
+                "recommendations": [],
+                "scores": {},
+                "sources": {},
+                "fallback_recommendations": [],
+                "fallback_scores": {},
+                "fallback_sources": {},
+                "processing_time_ms": processing_time_ms,
+                "error": "user id not found in cluster / metadata could not be fetched",
+            }
+
         # Define candidate types with weights
         candidate_types = {
             1: {"name": "watch_time_quantile", "weight": 1.0},
@@ -106,7 +190,7 @@ class RecommendationService:
         try:
             # Get recommendations from engine
             recommendations = self._engine.get_recommendations(
-                user_profile=user_profile,
+                user_profile=enriched_profile,
                 candidate_types=candidate_types,
                 threshold=threshold,
                 top_k=top_k,

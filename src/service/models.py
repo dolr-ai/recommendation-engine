@@ -20,15 +20,23 @@ class UserProfile(BaseModel):
     """User profile model."""
 
     user_id: str
-    cluster_id: int
-    watch_time_quantile_bin_id: int
+    cluster_id: Optional[int] = Field(
+        default=None, description="User's cluster ID (auto-fetched if not provided)"
+    )
+    watch_time_quantile_bin_id: Optional[int] = Field(
+        default=None,
+        description="User's watch time quantile bin ID (auto-fetched if not provided)",
+    )
     watch_history: List[WatchHistoryItem]
 
 
 class RecommendationRequest(BaseModel):
     """Recommendation request model."""
 
-    user_profile: UserProfile
+    user_id: str = Field(description="User ID for recommendations")
+    watch_history: Optional[List[WatchHistoryItem]] = Field(
+        default=[], description="User's watch history (optional)"
+    )
     top_k: Optional[int] = Field(
         default=50, description="Number of recommendations to return"
     )
