@@ -8,10 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
-  REGISTRY: ${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/recommendation-engine-registry
-  IMAGE_NAME: ${{ secrets.GCP_REGION || 'us-central1' }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/recommendation-engine-registry/recommendation-engine
 
 jobs:
   build-and-push:
@@ -36,6 +33,15 @@ jobs:
 
     - name: Build and push Docker image
       run: |
+        # Get project ID from gcloud
+        PROJECT_ID=$(gcloud config get-value project)
+        REGISTRY="$REGION-docker.pkg.dev/$PROJECT_ID/recommendation-engine-registry"
+        IMAGE_NAME="$REGISTRY/recommendation-engine"
+
+        echo "Project ID: $PROJECT_ID"
+        echo "Registry: $REGISTRY"
+        echo "Image Name: $IMAGE_NAME"
+
         # Build the Docker image
         docker build -t $IMAGE_NAME:${{ github.sha }} .
         docker build -t $IMAGE_NAME:latest .
