@@ -107,10 +107,6 @@ class RerankingService:
             logger.warning(f"No candidates found for type={cand_type}")
             return type_num, {}
 
-        logger.info(
-            f"Calculating similarity for type={cand_type} with {len(all_search_space)} unique candidates"
-        )
-
         # Get query videos that have candidates for this type
         query_videos_with_candidates = list(video_to_candidates.keys())
 
@@ -170,10 +166,6 @@ class RerankingService:
         Returns:
             Dictionary mapping each query video to a dictionary of candidate types and their formatted results
         """
-        logger.info(
-            f"Processing batch of {len(query_videos)} query videos for {len(candidate_type_info)} candidate types in parallel"
-        )
-
         # Initialize results structure
         batch_results = OrderedDict()
         for q_video_id in query_videos:
@@ -189,10 +181,6 @@ class RerankingService:
         results = []
         successful_tasks = 0
         failed_tasks = 0
-
-        logger.info(
-            f"Starting parallel processing for {len(tasks)} candidate types with max_workers={max_workers}"
-        )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Create a partial function with fixed arguments
@@ -215,7 +203,6 @@ class RerankingService:
                     type_num, type_results = future.result()
                     results.append((type_num, type_results))
                     successful_tasks += 1
-                    logger.info(f"Completed candidate type {type_num} successfully")
                 except Exception as exc:
                     t_num = future_to_task[future]
                     logger.error(
@@ -223,10 +210,6 @@ class RerankingService:
                         exc_info=True,
                     )
                     failed_tasks += 1
-
-        logger.info(
-            f"Parallel candidate processing completed: {successful_tasks} successful, {failed_tasks} failed tasks"
-        )
 
         # Merge results into the batch_results structure
         for type_num, type_results in results:
@@ -280,17 +263,7 @@ class RerankingService:
         bin_id = user_profile.get("watch_time_quantile_bin_id")
         watch_history = user_profile.get("watch_history", [])
 
-        logger.info(
-            f"Starting reranking logic for user: {user_id} (cluster: {cluster_id}, bin: {bin_id})"
-        )
-        logger.info(
-            f"Using {len(candidate_types_dict)} candidate types, threshold={threshold}, deduplication={enable_deduplication}"
-        )
-
         # 1. Filter and sort watch history items by threshold and last_watched_timestamp
-        logger.info(
-            f"Filtering and sorting watch history with {len(watch_history)} items"
-        )
         query_videos, watch_percentages = (
             self.candidate_service.filter_and_sort_watch_history(
                 watch_history, threshold
@@ -308,11 +281,7 @@ class RerankingService:
             ]
             return pd.DataFrame(columns=columns)
 
-        logger.info(f"Found {len(query_videos)} query videos that meet the threshold")
-        logger.debug(f"Query videos (first 5): {query_videos[:5]}")
-
         # 2. Fetch candidates for all query videos
-        logger.info(f"Fetching candidates for {len(query_videos)} query videos")
         all_candidates = self.candidate_service.fetch_candidates(
             query_videos,
             cluster_id,
@@ -323,9 +292,6 @@ class RerankingService:
         )
 
         # 3. Process all query videos in batch, with parallel processing for candidate types
-        logger.info(
-            "Starting batch similarity calculations with parallel candidate processing"
-        )
         similarity_matrix = self.process_query_candidates_batch(
             query_videos,
             candidate_types_dict,
@@ -334,12 +300,7 @@ class RerankingService:
             max_workers=max_workers,
         )
 
-        logger.info(
-            "Completed similarity calculations for all query videos and candidate types"
-        )
-
         # Convert to DataFrame format
-        logger.info("Converting similarity matrix to DataFrame format")
         df_data = []
         for query_id, type_results in similarity_matrix.items():
             row = {
@@ -352,9 +313,5 @@ class RerankingService:
 
         # Create DataFrame with query videos ordered from latest to oldest watched
         result_df = pd.DataFrame(df_data)
-
-        logger.info(
-            f"Created DataFrame with {len(result_df)} rows and {len(result_df.columns)} columns"
-        )
 
         return result_df

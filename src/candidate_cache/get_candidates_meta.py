@@ -118,6 +118,43 @@ class MetadataFetcher(ABC):
         """
         return self.valkey_service.get(key)
 
+    def get_values(self, keys):
+        """
+        Get values for multiple keys.
+
+        Args:
+            keys: List of keys to get values for
+
+        Returns:
+            List of values in the same order as the keys
+        """
+        return self.valkey_service.mget(keys)
+
+    def fetch_using_mget(self, keys: List[str]) -> Dict[str, Any]:
+        """
+        Efficiently fetch multiple metadata values using mget in a single batch operation.
+
+        This method optimizes the metadata fetching process by:
+        1. Using a single mget call to retrieve all values at once
+        2. Processing and parsing results in memory
+
+        Args:
+            keys: List of keys to fetch
+
+        Returns:
+            Dictionary mapping keys to their parsed values
+        """
+        # Fetch all values at once using mget
+        values = self.valkey_service.mget(keys)
+
+        # Parse values and build result dictionary
+        result = {}
+        for key, value in zip(keys, values):
+            if value is not None:
+                result[key] = self.parse_metadata_value(value)
+
+        return result
+
     @abstractmethod
     def parse_metadata_value(self, value: str) -> Any:
         """
@@ -254,6 +291,32 @@ class UserWatchTimeQuantileBinsFetcher(MetadataFetcher):
         keys = self.get_keys("meta:*:user_watch_time_quantile_bins")
         return [key.split(":")[1] for key in keys]
 
+    def batch_get_quantile_bins(
+        self, cluster_ids: List[Union[int, str]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get watch time quantile bins for multiple clusters in a single batch operation.
+
+        Args:
+            cluster_ids: List of cluster IDs
+
+        Returns:
+            Dictionary mapping cluster IDs to their quantile bins data
+        """
+        # Format all keys
+        keys = [self.format_key(cluster_id) for cluster_id in cluster_ids]
+
+        # Use fetch_using_mget to get all values efficiently
+        result = self.fetch_using_mget(keys)
+
+        # Remap keys from full keys to just cluster IDs for easier access
+        cluster_bins = {}
+        for key, value in result.items():
+            cluster_id = key.split(":")[1]  # Extract cluster_id from key
+            cluster_bins[cluster_id] = value
+
+        return cluster_bins
+
 
 class UserClusterWatchTimeFetcher(MetadataFetcher):
     """
@@ -327,6 +390,50 @@ class UserClusterWatchTimeFetcher(MetadataFetcher):
                 f"Error getting cluster and watch time for user {user_id}: {e}"
             )
             return -1, -1
+
+    def batch_get_user_cluster_and_watch_time(
+        self, user_ids: List[str]
+    ) -> Dict[str, Tuple[Union[str, int], float]]:
+        """
+        Get the cluster_id and watch_time for multiple users in a single batch operation.
+
+        Args:
+            user_ids: List of user IDs
+
+        Returns:
+            Dictionary mapping user IDs to tuples of (cluster_id, watch_time)
+        """
+        try:
+            # Format all keys
+            keys = [self.format_key(user_id) for user_id in user_ids]
+
+            # Use fetch_using_mget to get all values efficiently
+            result = self.fetch_using_mget(keys)
+
+            # Process the results
+            user_data = {}
+            for key, data in result.items():
+                user_id = key.split(":")[1]  # Extract user_id from key
+
+                if data and len(data) > 0:
+                    # Get the first (and only) cluster_id and watch_time
+                    cluster_id = list(data.keys())[0]
+                    watch_time = data[cluster_id]
+                    user_data[user_id] = (cluster_id, watch_time)
+                else:
+                    user_data[user_id] = (-1, -1)
+
+            # Add missing users with default values
+            for user_id in user_ids:
+                if user_id not in user_data:
+                    user_data[user_id] = (-1, -1)
+
+            return user_data
+
+        except Exception as e:
+            logger.error(f"Error batch getting cluster and watch time: {e}")
+            # Return default values for all users
+            return {user_id: (-1, -1) for user_id in user_ids}
 
 
 # Example usage

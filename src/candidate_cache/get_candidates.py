@@ -115,6 +115,35 @@ class CandidateFetcher(ABC):
         """
         return self.valkey_service.mget(keys)
 
+    def fetch_using_mget(self, keys_args: List[tuple]) -> Dict[str, Any]:
+        """
+        Efficiently fetch multiple candidates using mget in a single batch operation.
+
+        This method optimizes the candidate fetching process by:
+        1. Formatting all keys in parallel
+        2. Using a single mget call to retrieve all values at once
+        3. Processing and parsing results in memory
+
+        Args:
+            keys_args: List of argument tuples to pass to format_key
+
+        Returns:
+            Dictionary mapping keys to their parsed values
+        """
+        # Format all keys in parallel
+        keys = self.format_keys_parallel(keys_args)
+
+        # Fetch all values at once using mget
+        values = self.valkey_service.mget(keys)
+
+        # Parse values and build result dictionary
+        result = {}
+        for key, value in zip(keys, values):
+            if value is not None:
+                result[key] = self.parse_candidate_value(value)
+
+        return result
+
     @abstractmethod
     def parse_candidate_value(self, value: str) -> Any:
         """
@@ -164,19 +193,8 @@ class CandidateFetcher(ABC):
         Returns:
             Dictionary mapping keys to their parsed values
         """
-        # Format all keys in parallel
-        keys = self.format_keys_parallel(keys_args)
-
-        # Fetch all values at once using mget
-        values = self.get_values(keys)
-
-        # Parse values and build result dictionary
-        result = {}
-        for key, value in zip(keys, values):
-            if value is not None:
-                result[key] = self.parse_candidate_value(value)
-
-        return result
+        # Use the optimized fetch_using_mget method
+        return self.fetch_using_mget(keys_args)
 
 
 class ModifiedIoUCandidateFetcher(CandidateFetcher):
@@ -367,3 +385,68 @@ class FallbackCandidateFetcher(CandidateFetcher):
             f"Found {len(all_candidates)} unique fallback candidates for cluster {cluster_id}, type {candidate_type}"
         )
         return list(all_candidates)
+
+    def batch_get_fallback_candidates(
+        self, cluster_ids: List[Union[int, str]], candidate_type: str
+    ) -> Dict[str, List[str]]:
+        """
+        Get fallback candidates for multiple clusters in a single operation.
+
+        This method optimizes the fallback candidate fetching process by:
+        1. Collecting all keys for all clusters in one pass
+        2. Using a single mget call to retrieve all values
+        3. Processing results in memory
+
+        Args:
+            cluster_ids: List of cluster IDs
+            candidate_type: The type of candidate ('modified_iou' or 'watch_time_quantile')
+
+        Returns:
+            Dictionary mapping cluster IDs to their fallback candidates
+        """
+        # Collect all keys for all clusters
+        all_keys = []
+        cluster_keys_map = {}
+
+        for cluster_id in cluster_ids:
+            key_pattern = self.format_key(cluster_id, candidate_type)
+            keys = self.get_keys(key_pattern)
+
+            if keys:
+                all_keys.extend(keys)
+                cluster_keys_map[str(cluster_id)] = keys
+            else:
+                logger.info(f"No keys found for pattern: {key_pattern}")
+
+        if not all_keys:
+            logger.info(f"No fallback candidates found for any cluster")
+            return {str(cluster_id): [] for cluster_id in cluster_ids}
+
+        # Get all values in a single mget call
+        values = self.valkey_service.mget(all_keys)
+
+        # Create a map of key to value
+        key_value_map = {
+            key: value for key, value in zip(all_keys, values) if value is not None
+        }
+
+        # Process results for each cluster
+        result = {}
+        for cluster_id, keys in cluster_keys_map.items():
+            all_candidates = set()
+            for key in keys:
+                if key in key_value_map:
+                    candidates = self.parse_candidate_value(key_value_map[key])
+                    all_candidates.update(candidates)
+
+            result[cluster_id] = list(all_candidates)
+            logger.info(
+                f"Found {len(all_candidates)} unique fallback candidates for cluster {cluster_id}, type {candidate_type}"
+            )
+
+        # Add empty lists for clusters with no candidates
+        for cluster_id in cluster_ids:
+            if str(cluster_id) not in result:
+                result[str(cluster_id)] = []
+
+        return result

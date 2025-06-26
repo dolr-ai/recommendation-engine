@@ -74,7 +74,6 @@ class RecommendationConfig:
             try:
                 # Initialize GCP utils with credentials string
                 self.gcp_utils = GCPUtils(gcp_credentials=gcp_credentials_str)
-                logger.info("Initialized GCP credentials from environment variable")
             except Exception as e:
                 logger.error(f"Failed to initialize GCP credentials: {e}")
         else:
@@ -101,7 +100,6 @@ class RecommendationConfig:
             prefix="video_id:",
             cluster_enabled=valkey_config["cluster_enabled"],
         )
-        logger.info("Initialized vector service")
 
     def verify_connection(self):
         """Verify connection to vector service."""

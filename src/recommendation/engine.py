@@ -34,15 +34,10 @@ class RecommendationEngine:
         self.config = config if config is not None else RecommendationConfig()
 
         # Initialize vector service for embeddings
-        logger.info("Initializing ValkeyVectorService")
-
-        # Use the vector service from the config if available
         if self.config.vector_service:
-            logger.info("Using vector service from config")
             self.vector_service = self.config.vector_service
         else:
             # Create a new vector service if not available in config
-            logger.info("Creating new vector service")
             self.vector_service = ValkeyVectorService(
                 core=self.config.gcp_utils.core,
                 host=self.config.valkey_config["valkey"]["host"],
@@ -59,30 +54,24 @@ class RecommendationEngine:
             )
 
         # Initialize services
-        logger.info("Initializing BigQuery SimilarityService")
         self.similarity_service = SimilarityService(
             gcp_utils=self.config.gcp_utils,
         )
 
-        logger.info("Initializing CandidateService")
         self.candidate_service = CandidateService(
             valkey_config=self.config.valkey_config,
         )
 
-        logger.info("Initializing RerankingService")
         self.reranking_service = RerankingService(
             similarity_service=self.similarity_service,
             candidate_service=self.candidate_service,
         )
 
-        logger.info("Initializing MixerService")
         self.mixer_service = MixerService()
 
         # Verify vector service connection
         try:
-            logger.info("Verifying vector service connection")
             self.vector_service.verify_connection()
-            logger.info("Vector service connection verified successfully")
         except Exception as e:
             logger.error(f"Failed to verify vector service connection: {e}")
             raise
@@ -131,26 +120,12 @@ class RecommendationEngine:
         """
         start_time = time.time()
         user_id = user_profile.get("user_id", "unknown")
-        logger.info(f"Getting recommendations for user {user_id}")
-        logger.info(
-            f"Parameters: threshold={threshold}, top_k={top_k}, fallback_top_k={fallback_top_k}, "
-            + f"enable_deduplication={enable_deduplication}, max_workers={max_workers}, "
-            + f"max_fallback_candidates={max_fallback_candidates}"
-        )
 
         # Use provided candidate types or default from config
         if candidate_types is None:
             candidate_types = self.config.candidate_types
-            logger.info(
-                f"Using default candidate types: {list(candidate_types.keys())}"
-            )
-        else:
-            logger.info(
-                f"Using provided candidate types: {list(candidate_types.keys())}"
-            )
 
         # Step 1: Run reranking logic
-        logger.info("Starting reranking logic")
         rerank_start = time.time()
         df_reranked = self.reranking_service.reranking_logic(
             user_profile=user_profile,
@@ -161,14 +136,8 @@ class RecommendationEngine:
             max_fallback_candidates=max_fallback_candidates,
         )
         rerank_time = time.time() - rerank_start
-        logger.info(
-            f"Reranking completed in {rerank_time:.2f} seconds with {len(df_reranked)} query videos"
-        )
-
-        self.vector_service.purge_memory_all_nodes()
 
         # Step 2: Run mixer algorithm
-        logger.info("Starting mixer algorithm")
         mixer_start = time.time()
         recommendations = self.mixer_service.mixer_algorithm(
             df_reranked=df_reranked,
@@ -182,7 +151,6 @@ class RecommendationEngine:
             min_similarity_threshold=min_similarity_threshold,
         )
         mixer_time = time.time() - mixer_start
-        logger.info(f"Mixer algorithm completed in {mixer_time:.2f} seconds")
 
         # Log recommendation results
         main_rec_count = len(recommendations.get("recommendations", []))

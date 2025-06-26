@@ -53,36 +53,23 @@ class CandidateService:
         need_fallback_miou = "fallback_modified_iou" in candidate_type_name_to_num
         need_fallback_wt = "fallback_watch_time_quantile" in candidate_type_name_to_num
 
-        logger.info(
-            f"Initializing fetchers - MIOU: {need_miou}, WT: {need_wt}, Fallback MIOU: {need_fallback_miou}, Fallback WT: {need_fallback_wt}"
-        )
-
         # Only initialize the fetchers we need
         if need_miou and not self.miou_fetcher:
             self.miou_fetcher = ModifiedIoUCandidateFetcher(config=self.valkey_config)
-            logger.info("Initialized Modified IoU candidate fetcher")
 
         if need_wt and not self.wt_fetcher:
             self.wt_fetcher = WatchTimeQuantileCandidateFetcher(
                 config=self.valkey_config
             )
-            logger.info("Initialized Watch Time Quantile candidate fetcher")
 
         if (need_fallback_miou or need_fallback_wt) and not self.fallback_fetcher:
             self.fallback_fetcher = FallbackCandidateFetcher(config=self.valkey_config)
-            logger.info("Initialized Fallback candidate fetcher")
 
     def _fetch_miou_candidates(self, cluster_id, query_videos):
         """Fetch Modified IoU candidates in parallel."""
-        logger.info(
-            f"Fetching Modified IoU candidates for cluster {cluster_id} with {len(query_videos)} query videos"
-        )
         miou_args = [(str(cluster_id), video_id) for video_id in query_videos]
         try:
-            candidates = self.miou_fetcher.get_candidates(miou_args)
-            logger.info(
-                f"Successfully fetched {len(candidates)} Modified IoU candidates"
-            )
+            candidates = self.miou_fetcher.fetch_using_mget(miou_args)
             return candidates
         except Exception as e:
             logger.error(f"Error fetching Modified IoU candidates: {e}", exc_info=True)
@@ -90,17 +77,11 @@ class CandidateService:
 
     def _fetch_wt_candidates(self, cluster_id, bin_id, query_videos):
         """Fetch Watch Time Quantile candidates in parallel."""
-        logger.info(
-            f"Fetching Watch Time Quantile candidates for cluster {cluster_id}, bin {bin_id} with {len(query_videos)} query videos"
-        )
         wt_args = [
             (str(cluster_id), str(bin_id), video_id) for video_id in query_videos
         ]
         try:
-            candidates = self.wt_fetcher.get_candidates(wt_args)
-            logger.info(
-                f"Successfully fetched {len(candidates)} Watch Time Quantile candidates"
-            )
+            candidates = self.wt_fetcher.fetch_using_mget(wt_args)
             return candidates
         except Exception as e:
             logger.error(
@@ -112,24 +93,14 @@ class CandidateService:
         """Fetch fallback Modified IoU candidates."""
         cluster_id_str = str(cluster_id)
 
-        logger.info(
-            f"Fetching fallback Modified IoU candidates for cluster {cluster_id}"
-        )
-
         try:
             fallback_miou = self.fallback_fetcher.get_fallback_candidates(
                 cluster_id_str, "modified_iou"
-            )
-            logger.info(
-                f"Fetched {len(fallback_miou)} fallback Modified IoU candidates before sampling"
             )
 
             # Sample if we have more than max_fallback_candidates
             if len(fallback_miou) > max_fallback_candidates:
                 fallback_miou = random.sample(fallback_miou, max_fallback_candidates)
-                logger.info(
-                    f"Sampled down to {len(fallback_miou)} fallback Modified IoU candidates"
-                )
 
             return fallback_miou
         except Exception as e:
@@ -142,24 +113,14 @@ class CandidateService:
         """Fetch fallback Watch Time Quantile candidates."""
         cluster_id_str = str(cluster_id)
 
-        logger.info(
-            f"Fetching fallback Watch Time Quantile candidates for cluster {cluster_id}"
-        )
-
         try:
             fallback_wt = self.fallback_fetcher.get_fallback_candidates(
                 cluster_id_str, "watch_time_quantile"
-            )
-            logger.info(
-                f"Fetched {len(fallback_wt)} fallback Watch Time Quantile candidates before sampling"
             )
 
             # Sample if we have more than max_fallback_candidates
             if len(fallback_wt) > max_fallback_candidates:
                 fallback_wt = random.sample(fallback_wt, max_fallback_candidates)
-                logger.info(
-                    f"Sampled down to {len(fallback_wt)} fallback Watch Time Quantile candidates"
-                )
 
             return fallback_wt
         except Exception as e:
@@ -192,13 +153,6 @@ class CandidateService:
         Returns:
             OrderedDict of candidates organized by query video and type
         """
-        logger.info(
-            f"Starting candidate fetching for {len(query_videos)} query videos with cluster_id={cluster_id}, bin_id={bin_id}"
-        )
-        logger.info(
-            f"Using max_workers={max_workers}, max_fallback_candidates={max_fallback_candidates}"
-        )
-
         # Initialize fetchers if needed
         self._initialize_fetchers(candidate_types_dict)
 
@@ -220,23 +174,19 @@ class CandidateService:
         fallback_candidates = {}
 
         # Use ThreadPoolExecutor for parallel fetching
-        logger.info(f"Starting parallel fetching with {max_workers} workers")
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit tasks for parallel execution
             if need_miou:
-                logger.info("Submitting Modified IoU candidate fetching task")
                 tasks["miou"] = executor.submit(
                     self._fetch_miou_candidates, cluster_id, query_videos
                 )
 
             if need_wt:
-                logger.info("Submitting Watch Time Quantile candidate fetching task")
                 tasks["wt"] = executor.submit(
                     self._fetch_wt_candidates, cluster_id, bin_id, query_videos
                 )
 
             if need_fallback_miou:
-                logger.info("Submitting fallback Modified IoU candidate fetching task")
                 tasks["fallback_miou"] = executor.submit(
                     self._fetch_fallback_miou_candidates,
                     cluster_id,
@@ -244,9 +194,6 @@ class CandidateService:
                 )
 
             if need_fallback_wt:
-                logger.info(
-                    "Submitting fallback Watch Time Quantile candidate fetching task"
-                )
                 tasks["fallback_wt"] = executor.submit(
                     self._fetch_fallback_wt_candidates,
                     cluster_id,
@@ -254,31 +201,17 @@ class CandidateService:
                 )
 
             # Collect results as they complete
-            logger.info(f"Waiting for {len(tasks)} parallel fetching tasks to complete")
             for name, future in tasks.items():
                 try:
-                    logger.info(f"Processing results from {name} task")
                     if name == "miou":
                         miou_candidates = future.result()
-                        logger.info(
-                            f"Received {len(miou_candidates)} Modified IoU candidates"
-                        )
                     elif name == "wt":
                         wt_candidates = future.result()
-                        logger.info(
-                            f"Received {len(wt_candidates)} Watch Time Quantile candidates"
-                        )
                     elif name == "fallback_miou":
                         fallback_candidates["fallback_modified_iou"] = future.result()
-                        logger.info(
-                            f"Received {len(fallback_candidates.get('fallback_modified_iou', []))} fallback Modified IoU candidates"
-                        )
                     elif name == "fallback_wt":
                         fallback_candidates["fallback_watch_time_quantile"] = (
                             future.result()
-                        )
-                        logger.info(
-                            f"Received {len(fallback_candidates.get('fallback_watch_time_quantile', []))} fallback Watch Time Quantile candidates"
                         )
                 except Exception as e:
                     logger.error(
@@ -294,16 +227,7 @@ class CandidateService:
                     elif name == "fallback_wt":
                         fallback_candidates["fallback_watch_time_quantile"] = []
 
-        logger.info(
-            f"All parallel fetching tasks completed for {len(query_videos)} query videos"
-        )
-        if fallback_candidates:
-            logger.info(
-                f"Fetched fallback candidates: {', '.join([f'{k}: {len(v)}' for k, v in fallback_candidates.items()])}"
-            )
-
         # Organize candidates by query video and type in an ordered dictionary
-        logger.info("Organizing candidates by query video and type")
         all_candidates = OrderedDict()
 
         # Pre-initialize the structure for all query videos to avoid repeated checks
@@ -315,33 +239,18 @@ class CandidateService:
                 key = f"{cluster_id}:{video_id}:modified_iou_candidate"
                 candidates = miou_candidates.get(key, [])
                 all_candidates[video_id]["modified_iou"] = candidates
-                logger.debug(
-                    f"Added {len(candidates)} Modified IoU candidates for video {video_id}"
-                )
 
             if need_wt:
                 key = f"{cluster_id}:{bin_id}:{video_id}:watch_time_quantile_bin_candidate"
                 candidates = wt_candidates.get(key, [])
                 all_candidates[video_id]["watch_time_quantile"] = candidates
-                logger.debug(
-                    f"Added {len(candidates)} Watch Time Quantile candidates for video {video_id}"
-                )
 
         # Add fallback candidates to the first query video only
         if query_videos and fallback_candidates:
             first_video_id = query_videos[0]
-            logger.info(
-                f"Adding fallback candidates to first query video: {first_video_id}"
-            )
             for fallback_type, fallback_list in fallback_candidates.items():
                 all_candidates[first_video_id][fallback_type] = fallback_list
-                logger.debug(
-                    f"Added {len(fallback_list)} {fallback_type} candidates to first query video"
-                )
 
-        logger.info(
-            f"Candidate fetching completed with {len(all_candidates)} query videos processed"
-        )
         return all_candidates
 
     def filter_and_sort_watch_history(self, watch_history, threshold):
@@ -357,10 +266,6 @@ class CandidateService:
             - query_videos: List of video IDs ordered from latest to oldest watched
             - watch_percentages: Dictionary mapping video IDs to their mean_percentage_watched values
         """
-        logger.info(
-            f"Filtering and sorting {len(watch_history)} watch history items with threshold {threshold}"
-        )
-
         filtered_history = []
         skipped_count = 0
         for item in watch_history:
@@ -374,10 +279,6 @@ class CandidateService:
                 skipped_count += 1
                 continue
 
-        logger.info(
-            f"Filtered watch history: kept {len(filtered_history)}, skipped {skipped_count} items"
-        )
-
         # Sort by last_watched_timestamp (newest first)
         # todo: check if this is being passed by client in the right format
         filtered_history.sort(
@@ -388,7 +289,6 @@ class CandidateService:
             ),
             reverse=True,
         )
-        logger.info("Sorted watch history by timestamp (newest first)")
 
         # Extract video IDs in order (from latest to oldest watched)
         query_videos = [item.get("video_id") for item in filtered_history]
@@ -399,7 +299,4 @@ class CandidateService:
             for item in filtered_history
         }
 
-        logger.info(
-            f"Returning {len(query_videos)} query videos after filtering and sorting"
-        )
         return query_videos, watch_percentages

@@ -30,7 +30,6 @@ class SimilarityService:
             "VIDEO_EMBEDDING_TABLE",
             "jay-dhanwant-experiments.stage_tables.video_embedding_average",
         )
-        logger.info(f"Using embedding table: {self.embedding_table}")
 
     def calculate_similarity(
         self, query_items: List[str], search_space_items: List[str]
@@ -45,10 +44,6 @@ class SimilarityService:
         Returns:
             dict: Dictionary mapping each query item to its similar items with scores
         """
-        logger.info(
-            f"Starting similarity calculation for {len(query_items)} query items against {len(search_space_items)} search items"
-        )
-
         # Early return if either list is empty
         if not query_items or not search_space_items:
             logger.warning("Empty query items or search space items")
@@ -86,8 +81,6 @@ class SimilarityService:
 
             # Execute the query
             results_df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
-
-            logger.info(f"BigQuery returned {len(results_df)} results")
 
             # Convert results to the expected format (same as the original SimilarityService)
             formatted_results = {}

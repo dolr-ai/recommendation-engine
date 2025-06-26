@@ -1,10 +1,12 @@
 """
-Mixer module for blending recommendation candidates.
+Mixer module for recommendation engine.
 
-This module provides functionality for blending candidates from different sources and
-generating final recommendations.
+This module provides functionality for mixing and ranking recommendations from different sources.
 """
 
+from collections import defaultdict, Counter
+import pandas as pd
+import numpy as np
 from utils.common_utils import get_logger
 
 logger = get_logger(__name__)
@@ -52,17 +54,10 @@ class MixerService:
             - 'fallback_scores': Dictionary mapping each fallback recommended video ID to its score
             - 'fallback_sources': Dictionary mapping each fallback recommended video ID to its source
         """
-        logger.info(
-            f"Starting mixer algorithm with top_k={top_k}, fallback_top_k={fallback_top_k}"
-        )
-        logger.info(
-            f"Parameters: recency_weight={recency_weight}, watch_percentage_weight={watch_percentage_weight}, "
-            + f"max_candidates_per_query={max_candidates_per_query}, enable_deduplication={enable_deduplication}, "
-            + f"min_similarity_threshold={min_similarity_threshold}"
-        )
-
-        if df_reranked.empty:
-            empty_result = {
+        # Check if we have any data to work with
+        if df_reranked is None or df_reranked.empty:
+            logger.warning("Empty reranking dataframe, no recommendations possible")
+            return {
                 "recommendations": [],
                 "scores": {},
                 "sources": {},
@@ -70,8 +65,6 @@ class MixerService:
                 "fallback_scores": {},
                 "fallback_sources": {},
             }
-            logger.warning("Empty reranking dataframe, no recommendations possible")
-            return empty_result
 
         # Initialize tracking structures
         candidate_scores = {}  # Final scores for each candidate
@@ -88,11 +81,9 @@ class MixerService:
             for type_num, info in candidate_types_dict.items()
             if isinstance(info, dict) and "fallback" in info.get("name", "")
         }
-        logger.info(f"Identified fallback type numbers: {fallback_type_nums}")
 
         # Calculate total number of query videos for normalization
         total_queries = len(df_reranked)
-        logger.info(f"Processing {total_queries} query videos")
 
         # Check if any candidate columns exist
         candidate_columns = [
@@ -113,10 +104,8 @@ class MixerService:
         available_columns = [
             col for col in candidate_columns if col in df_reranked.columns
         ]
-        logger.info(f"Available candidate columns: {available_columns}")
 
         # Process each query video
-        logger.info("Processing each query video to calculate candidate scores")
         total_candidates_processed = 0
         total_candidates_filtered_by_threshold = 0
         total_candidates_filtered_by_deduplication = 0
@@ -130,11 +119,6 @@ class MixerService:
 
             query_importance = (recency_weight * recency_score) + (
                 watch_percentage_weight * watch_percentage
-            )
-
-            logger.debug(
-                f"Query video {query_video_id} (idx={idx}): recency_score={recency_score:.4f}, "
-                + f"watch_percentage={watch_percentage:.4f}, importance={query_importance:.4f}"
             )
 
             # Process each candidate type
