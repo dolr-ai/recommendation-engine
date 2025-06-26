@@ -167,6 +167,8 @@ class RecommendationEngine:
             f"Reranking completed in {rerank_time:.2f} seconds with {len(df_reranked)} query videos"
         )
 
+        self.reranking_service.similarity_service.purge_memory_all_nodes()
+
         # Step 2: Run mixer algorithm
         logger.info("Starting mixer algorithm")
         mixer_start = time.time()

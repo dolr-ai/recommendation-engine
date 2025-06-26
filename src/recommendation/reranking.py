@@ -55,9 +55,9 @@ class RerankingService:
         cand_type = type_info["name"]
         is_fallback = "fallback" in cand_type
 
-        logger.info(
-            f"Processing query-candidate pair: video={q_video_id}, type={type_num} ({cand_type})"
-        )
+        # logger.info(
+        #     f"Processing query-candidate pair: video={q_video_id}, type={type_num} ({cand_type})"
+        # )
 
         # Skip if this candidate type isn't in our all_candidates structure
         # For fallback candidates, we only check the first query video since that's where we stored them
@@ -115,9 +115,9 @@ class RerankingService:
 
             # Sort by similarity score in descending order
             formatted_results.sort(key=lambda x: x[1], reverse=True)
-            logger.info(
-                f"Found {len(formatted_results)} similar candidates for video={q_video_id}, type={cand_type}"
-            )
+            # logger.info(
+            #     f"Found {len(formatted_results)} similar candidates for video={q_video_id}, type={cand_type}"
+            # )
 
             # Log some statistics about similarity scores
             if formatted_results:

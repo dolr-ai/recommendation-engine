@@ -54,7 +54,7 @@ class SimilarityService:
 
         try:
             client = self.vector_service.get_client()
-            logger.info(f"Got vector service client for {temp_index_name}")
+            # logger.info(f"Got vector service client for {temp_index_name}")
 
             # Step 1: Create a temporary vector service with a different prefix for our temp index
             logger.info(f"Creating temporary vector service for {temp_index_name}")
@@ -233,15 +233,13 @@ class SimilarityService:
                 )
 
             # Step 7: Clean up - drop temporary index and delete keys
-            logger.info(f"Cleaning up temporary index: {temp_index_name}")
+            # logger.info(f"Cleaning up temporary index: {temp_index_name}")
             temp_vector_service.drop_vector_index(
                 index_name=temp_index_name, keep_docs=False
             )
             temp_vector_service.clear_vector_data(prefix="temp_video_id:")
             logger.info(f"Similarity check completed with {len(results)} results")
 
-            temp_vector_service.purge_memory_all_nodes()
-            # logger.info("Purged memory on all nodes")
             return results
 
         except Exception as e:

@@ -846,14 +846,14 @@ class ValkeyVectorService(ValkeyService):
             return []
 
     def drop_vector_index(
-        self, index_name: str = "video_embeddings", keep_docs: bool = True
+        self, index_name: str = "video_embeddings", keep_docs: bool = False
     ) -> bool:
         """
         Drop a vector index
 
         Args:
             index_name: Name of the index to drop
-            keep_docs: Whether to keep the documents (default: True)
+            keep_docs: Whether to keep the documents (default: False)
 
         Returns:
             True if successful, False otherwise
