@@ -477,6 +477,7 @@ class ValkeyService:
 
             results = {}
             for node in nodes:
+                node_client = None
                 try:
                     # Create a new connection to the specific node
                     node_client = redis.Redis(
@@ -506,13 +507,20 @@ class ValkeyService:
                     node_info = f"{node.host}:{node.port}"
                     results[node_info] = result
                     logger.debug(f"MEMORY PURGE on {node_info}: {result}")
-
-                    # Close the connection
-                    node_client.close()
                 except Exception as e:
                     node_info = f"{node.host}:{node.port}"
                     results[node_info] = f"Error: {e}"
                     logger.error(f"Failed to purge memory on {node_info}: {e}")
+                finally:
+                    # Always close the connection, even if an error occurred
+                    if node_client:
+                        try:
+                            node_client.close()
+                            logger.debug(
+                                f"Closed connection to {node.host}:{node.port}"
+                            )
+                        except Exception as close_error:
+                            logger.error(f"Error closing connection: {close_error}")
 
             return results
         except Exception as e:

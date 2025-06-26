@@ -121,12 +121,12 @@ class SimilarityService:
                     f"Missing embeddings for {missing_search_space} search space items out of {len(search_space_items)}"
                 )
 
-            logger.info(
+            logger.debug(
                 f"Successfully loaded {len(search_space_embeddings)} embeddings out of {len(search_space_items)} search items"
             )
 
             # Step 3: Create temporary index for search space
-            logger.info(f"Creating temporary vector index: {temp_index_name}")
+            logger.debug(f"Creating temporary vector index: {temp_index_name}")
             try:
                 # Try to drop the index if it exists
                 client.ft(temp_index_name).dropindex()
@@ -148,7 +148,7 @@ class SimilarityService:
             )
 
             # Step 4: Store search space embeddings in temporary index
-            logger.info(
+            logger.debug(
                 f"Processing and storing {len(search_space_embeddings)} embeddings in temporary index"
             )
             # Pre-process all embeddings to ensure they're numpy arrays with float32 dtype
@@ -174,7 +174,7 @@ class SimilarityService:
             batch_size = 100
             keys_list = list(mappings.keys())
             total_batches = (len(keys_list) + batch_size - 1) // batch_size
-            logger.info(
+            logger.debug(
                 f"Storing embeddings in {total_batches} batches of size {batch_size}"
             )
 
@@ -194,7 +194,7 @@ class SimilarityService:
                 pipe.execute()
 
             # Step 5: Get query embeddings in batch
-            logger.info(f"Fetching embeddings for {len(query_items)} query items")
+            logger.debug(f"Fetching embeddings for {len(query_items)} query items")
             query_embeddings = self.vector_service.get_batch_embeddings(
                 query_items, verbose=False
             )
@@ -209,10 +209,12 @@ class SimilarityService:
                     f"Missing embeddings for {missing_query} query items out of {len(query_items)}"
                 )
 
-            logger.info(f"Successfully loaded {len(query_embeddings)} query embeddings")
+            logger.debug(
+                f"Successfully loaded {len(query_embeddings)} query embeddings"
+            )
 
             # Step 6: For each query item, find similar items in search space
-            logger.info(
+            logger.debug(
                 f"Finding similar items for {len(query_embeddings)} query items"
             )
             results = {}
@@ -233,12 +235,12 @@ class SimilarityService:
                 )
 
             # Step 7: Clean up - drop temporary index and delete keys
-            # logger.info(f"Cleaning up temporary index: {temp_index_name}")
+            # logger.debug(f"Cleaning up temporary index: {temp_index_name}")
             temp_vector_service.drop_vector_index(
                 index_name=temp_index_name, keep_docs=False
             )
             temp_vector_service.clear_vector_data(prefix="temp_video_id:")
-            logger.info(f"Similarity check completed with {len(results)} results")
+            logger.debug(f"Similarity check completed with {len(results)} results")
 
             return results
 
@@ -246,12 +248,12 @@ class SimilarityService:
             logger.error(f"Error in similarity check: {e}", exc_info=True)
             # Try to clean up if there was an error
             try:
-                logger.info(f"Attempting cleanup after error for {temp_index_name}")
+                logger.debug(f"Attempting cleanup after error for {temp_index_name}")
                 temp_vector_service.drop_vector_index(
                     index_name=temp_index_name, keep_docs=False
                 )
                 temp_vector_service.clear_vector_data(prefix="temp_video_id:")
-                logger.info("Cleaned up temporary resources after error")
+                logger.debug("Cleaned up temporary resources after error")
             except Exception as cleanup_error:
                 logger.error(f"Cleanup failed: {cleanup_error}")
             return {}
