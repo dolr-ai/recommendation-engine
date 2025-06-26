@@ -7,7 +7,7 @@ A FastAPI service for delivering personalized video recommendations.
 - **Single User Recommendations**: Get personalized recommendations for a single user
 - **Batch Processing**: Process multiple users in a single request
 - **Automatic Metadata Fetching**: Automatically fetch user metadata (cluster_id, watch_time_quantile_bin_id) when not provided
-- **Fallback Candidates**: Uses optimized caching for fallback candidates with probabilistic refresh
+- **Fallback Candidates**: Provides fallback recommendations when personalized ones are insufficient
 - **Configurable Parameters**: Customize recommendation behavior through API parameters
 
 ## API Endpoints
@@ -119,20 +119,12 @@ python -m src.service.run
 
 ## Performance Optimization
 
-The service implements caching for fallback candidates to avoid repeatedly fetching the same data:
+The service implements several performance optimizations:
 
-- Fallback candidates are cached by cluster_id
-- A probabilistic refresh mechanism ensures that the cache is periodically refreshed
-- By default, there's a 10% chance of refreshing the cache on each request
-- You can configure this probability using the `FALLBACK_CACHE_REFRESH_PROBABILITY` environment variable:
-
-```bash
-# Set to 20% refresh probability
-export FALLBACK_CACHE_REFRESH_PROBABILITY=0.2
-```
-
-- Video embeddings are also cached to avoid repeated vector lookups
-- This significantly improves performance while ensuring fresh recommendations over time
+- BigQuery-based similarity calculations for efficient vector operations
+- Parallel processing of different candidate types
+- Video embeddings are cached to avoid repeated vector lookups
+- These optimizations significantly improve performance while ensuring fresh recommendations
 
 ## Error Handling
 

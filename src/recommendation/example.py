@@ -78,7 +78,7 @@ def main():
             user_profile=user_profile,
             candidate_types=candidate_types,
             threshold=0.1,
-            top_k=50,
+            top_k=100,
             fallback_top_k=100,
             enable_deduplication=True,
             max_workers=4,

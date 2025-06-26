@@ -39,25 +39,8 @@ class RecommendationService:
         try:
             logger.info("Initializing recommendation engine")
 
-            # Get fallback cache refresh probability from environment variable or use default
-            fallback_cache_refresh = os.getenv("FALLBACK_CACHE_REFRESH_PROBABILITY")
-            if fallback_cache_refresh is not None:
-                try:
-                    fallback_cache_refresh = float(fallback_cache_refresh)
-                    fallback_cache_refresh = max(0.0, min(1.0, fallback_cache_refresh))
-                    logger.info(
-                        f"Using fallback cache refresh probability from env: {fallback_cache_refresh}"
-                    )
-                except (ValueError, TypeError):
-                    fallback_cache_refresh = None
-                    logger.warning(
-                        "Invalid FALLBACK_CACHE_REFRESH_PROBABILITY value, using default"
-                    )
-
-            # Create config with optional fallback cache refresh probability
-            config = RecommendationConfig(
-                fallback_cache_refresh_probability=fallback_cache_refresh
-            )
+            # Create config
+            config = RecommendationConfig()
             cls._engine = RecommendationEngine(config=config)
             logger.info("Recommendation engine initialized successfully")
         except Exception as e:

@@ -8,7 +8,7 @@ recommendation process.
 import time
 from utils.common_utils import get_logger
 from utils.valkey_utils import ValkeyVectorService
-from recommendation.similarity import SimilarityService
+from recommendation.similarity_bq import SimilarityService
 from recommendation.candidates import CandidateService
 from recommendation.reranking import RerankingService
 from recommendation.mixer import MixerService
@@ -59,16 +59,14 @@ class RecommendationEngine:
             )
 
         # Initialize services
-        logger.info("Initializing SimilarityService")
+        logger.info("Initializing BigQuery SimilarityService")
         self.similarity_service = SimilarityService(
-            vector_service=self.vector_service,
             gcp_utils=self.config.gcp_utils,
         )
 
         logger.info("Initializing CandidateService")
         self.candidate_service = CandidateService(
             valkey_config=self.config.valkey_config,
-            cache_refresh_probability=self.config.fallback_cache_refresh_probability,
         )
 
         logger.info("Initializing RerankingService")

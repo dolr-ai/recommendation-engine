@@ -28,112 +28,212 @@ class RerankingService:
         self.candidate_service = candidate_service
         logger.info("RerankingService initialized")
 
-    def process_query_candidate_pair(
+    def _process_single_candidate_type(
         self,
-        q_video_id,
         type_num,
         type_info,
-        all_candidates,
         query_videos,
+        all_candidates,
         enable_deduplication,
     ):
         """
-        Process a single query video and candidate type pair to calculate similarity scores.
+        Process a single candidate type for all query videos.
 
         Args:
-            q_video_id: The query video ID
             type_num: The candidate type number
             type_info: Dictionary containing candidate type information
-            all_candidates: Dictionary of all candidates organized by query video and type
             query_videos: List of all query videos
+            all_candidates: Dictionary of all candidates organized by query video and type
             enable_deduplication: Whether to remove duplicates from candidates
 
         Returns:
-            Tuple of (q_video_id, type_num, formatted_results) where formatted_results is a list of
+            Tuple of (type_num, results_dict) where results_dict maps each query_video_id to a list of
             (candidate_id, similarity_score) tuples sorted by score
         """
         cand_type = type_info["name"]
         is_fallback = "fallback" in cand_type
+        results_dict = {}
 
-        # logger.info(
-        #     f"Processing query-candidate pair: video={q_video_id}, type={type_num} ({cand_type})"
-        # )
+        # Collect all candidates for this type
+        all_search_space = []
+        video_to_candidates = {}
 
-        # Skip if this candidate type isn't in our all_candidates structure
-        # For fallback candidates, we only check the first query video since that's where we stored them
-        check_video_id = query_videos[0] if is_fallback else q_video_id
+        if is_fallback:
+            # Handle fallback candidates (stored only in the first query video)
+            # This is an optimization: fallback candidates are the same for all query videos,
+            # so they're only stored once to save memory
+            check_video_id = query_videos[0]
+            if (
+                check_video_id in all_candidates
+                and cand_type in all_candidates[check_video_id]
+            ):
+                candidates_for_video = all_candidates[check_video_id].get(cand_type, [])
 
-        if (
-            check_video_id not in all_candidates
-            or cand_type not in all_candidates[check_video_id]
-        ):
-            logger.warning(
-                f"No candidates found for video={check_video_id}, type={cand_type}"
-            )
-            return q_video_id, type_num, []
+                # Apply deduplication if needed
+                if enable_deduplication:
+                    query_videos_set = set(query_videos)
+                    candidates_for_video = [
+                        c for c in candidates_for_video if c not in query_videos_set
+                    ]
 
-        candidates_for_video = all_candidates[check_video_id].get(cand_type, [])
+                # Use the same candidates for all query videos
+                for q_video_id in query_videos:
+                    video_to_candidates[q_video_id] = candidates_for_video
+                    all_search_space.extend(candidates_for_video)
 
-        if not candidates_for_video:
-            logger.warning(
-                f"Empty candidates list for video={check_video_id}, type={cand_type}"
-            )
-            return q_video_id, type_num, []
+        else:
+            # Handle regular (non-fallback) candidates
+            for q_video_id in query_videos:
+                if (
+                    q_video_id in all_candidates
+                    and cand_type in all_candidates[q_video_id]
+                ):
+                    candidates_for_video = all_candidates[q_video_id].get(cand_type, [])
 
-        # Remove query videos if deduplication is enabled and not a fallback
-        original_count = len(candidates_for_video)
-        if enable_deduplication and not is_fallback:
-            # Convert query_videos to a set for O(1) lookup instead of O(n)
-            query_videos_set = set(query_videos)
-            candidates_for_video = [
-                c for c in candidates_for_video if c not in query_videos_set
-            ]
-            removed_count = original_count - len(candidates_for_video)
-            if removed_count > 0:
-                logger.info(
-                    f"Removed {removed_count} duplicate videos from candidates (video={q_video_id}, type={cand_type})"
-                )
+                    # Apply deduplication if needed
+                    if enable_deduplication:
+                        query_videos_set = set(query_videos)
+                        candidates_for_video = [
+                            c for c in candidates_for_video if c not in query_videos_set
+                        ]
 
-        # logger.info(
-        #     f"Calculating similarity scores for video={q_video_id}, type={cand_type} with {len(candidates_for_video)} candidates"
-        # )
+                    video_to_candidates[q_video_id] = candidates_for_video
+                    all_search_space.extend(candidates_for_video)
 
-        # Calculate similarity scores for this query video and candidate type
-        similarity_results = self.similarity_service.check_similarity_with_vector_index(
-            [q_video_id],
-            candidates_for_video,
-            temp_index_name=f"temp_similarity_{hash(q_video_id)}_{cand_type}",
+        # Remove duplicates from search space
+        all_search_space = list(set(all_search_space))
+
+        if not all_search_space:
+            logger.warning(f"No candidates found for type={cand_type}")
+            return type_num, {}
+
+        logger.info(
+            f"Calculating similarity for type={cand_type} with {len(all_search_space)} unique candidates"
         )
 
-        # Format the results
-        formatted_results = []
-        if q_video_id in similarity_results and similarity_results[q_video_id]:
-            for item in similarity_results[q_video_id]:
-                candidate_id = item["temp_video_id"]
-                similarity_score = item["similarity_score"]
-                formatted_results.append((candidate_id, similarity_score))
+        # Get query videos that have candidates for this type
+        query_videos_with_candidates = list(video_to_candidates.keys())
 
-            # Sort by similarity score in descending order
-            formatted_results.sort(key=lambda x: x[1], reverse=True)
-            # logger.info(
-            #     f"Found {len(formatted_results)} similar candidates for video={q_video_id}, type={cand_type}"
-            # )
+        if not query_videos_with_candidates:
+            logger.warning(f"No query videos have candidates for type={cand_type}")
+            return type_num, {}
 
-            # Log some statistics about similarity scores
-            if formatted_results:
-                scores = [score for _, score in formatted_results]
-                max_score = max(scores)
-                min_score = min(scores)
-                avg_score = sum(scores) / len(scores)
-                logger.info(
-                    f"Similarity score stats for video={q_video_id}, type={cand_type}: max={max_score:.4f}, min={min_score:.4f}, avg={avg_score:.4f}"
+        # Calculate similarity scores for all query videos against all candidates at once
+        similarity_results = self.similarity_service.calculate_similarity(
+            query_videos_with_candidates, all_search_space
+        )
+
+        # Process and format results
+        for q_video_id in query_videos_with_candidates:
+            if q_video_id in similarity_results and similarity_results[q_video_id]:
+                # Filter results to only include candidates for this video
+                relevant_candidates = video_to_candidates.get(q_video_id, [])
+                relevant_results = []
+
+                for item in similarity_results[q_video_id]:
+                    candidate_id = item["temp_video_id"]
+                    # Only include candidates that were in this video's candidate list
+                    if candidate_id in relevant_candidates:
+                        similarity_score = item["similarity_score"]
+                        relevant_results.append((candidate_id, similarity_score))
+
+                # Sort by similarity score in descending order
+                relevant_results.sort(key=lambda x: x[1], reverse=True)
+                results_dict[q_video_id] = relevant_results
+            else:
+                logger.warning(
+                    f"No similarity results found for video={q_video_id}, type={cand_type}"
                 )
-        else:
-            logger.warning(
-                f"No similarity results found for video={q_video_id}, type={cand_type}"
+                results_dict[q_video_id] = []
+
+        return type_num, results_dict
+
+    def process_query_candidates_batch(
+        self,
+        query_videos,
+        candidate_type_info,
+        all_candidates,
+        enable_deduplication,
+        max_workers=4,
+    ):
+        """
+        Process multiple query videos and candidate types in batch to calculate similarity scores.
+        Each candidate type is processed in parallel.
+
+        Args:
+            query_videos: List of query video IDs
+            candidate_type_info: Dictionary mapping candidate type numbers to their info
+            all_candidates: Dictionary of all candidates organized by query video and type
+            enable_deduplication: Whether to remove duplicates from candidates
+            max_workers: Maximum number of worker threads for parallel processing
+
+        Returns:
+            Dictionary mapping each query video to a dictionary of candidate types and their formatted results
+        """
+        logger.info(
+            f"Processing batch of {len(query_videos)} query videos for {len(candidate_type_info)} candidate types in parallel"
+        )
+
+        # Initialize results structure
+        batch_results = OrderedDict()
+        for q_video_id in query_videos:
+            batch_results[q_video_id] = OrderedDict()
+            for type_num in sorted(candidate_type_info.keys()):
+                batch_results[q_video_id][type_num] = []
+
+        # Process each candidate type in parallel
+        tasks = []
+        for type_num, type_info in candidate_type_info.items():
+            tasks.append((type_num, type_info))
+
+        results = []
+        successful_tasks = 0
+        failed_tasks = 0
+
+        logger.info(
+            f"Starting parallel processing for {len(tasks)} candidate types with max_workers={max_workers}"
+        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Create a partial function with fixed arguments
+            process_func = partial(
+                self._process_single_candidate_type,
+                query_videos=query_videos,
+                all_candidates=all_candidates,
+                enable_deduplication=enable_deduplication,
             )
 
-        return q_video_id, type_num, formatted_results
+            # Submit all tasks
+            future_to_task = {
+                executor.submit(process_func, t_num, t_info): t_num
+                for t_num, t_info in tasks
+            }
+
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_task):
+                try:
+                    type_num, type_results = future.result()
+                    results.append((type_num, type_results))
+                    successful_tasks += 1
+                    logger.info(f"Completed candidate type {type_num} successfully")
+                except Exception as exc:
+                    t_num = future_to_task[future]
+                    logger.error(
+                        f"Task for candidate type {t_num} generated an exception: {exc}",
+                        exc_info=True,
+                    )
+                    failed_tasks += 1
+
+        logger.info(
+            f"Parallel candidate processing completed: {successful_tasks} successful, {failed_tasks} failed tasks"
+        )
+
+        # Merge results into the batch_results structure
+        for type_num, type_results in results:
+            for q_video_id, formatted_results in type_results.items():
+                batch_results[q_video_id][type_num] = formatted_results
+
+        return batch_results
 
     def reranking_logic(
         self,
@@ -222,82 +322,17 @@ class RerankingService:
             max_workers=max_workers,  # Pass max_workers to enable parallel fetching
         )
 
-        # Log candidate counts for each type
-        for video_id in query_videos[
-            :3
-        ]:  # Log for first 3 videos only to avoid excessive logging
-            if video_id in all_candidates:
-                for cand_type, candidates in all_candidates[video_id].items():
-                    logger.debug(
-                        f"Video {video_id} has {len(candidates)} candidates of type {cand_type}"
-                    )
-
-        # 3. Process each query video and candidate type in parallel
-        logger.info("Starting parallel similarity calculations")
-
-        # Initialize the similarity matrix structure
-        similarity_matrix = OrderedDict()
-        for q_video_id in query_videos:
-            similarity_matrix[q_video_id] = OrderedDict()
-            for type_num in sorted(candidate_types_dict.keys()):
-                similarity_matrix[q_video_id][type_num] = []
-
-        # Create a list of all (query_video, candidate_type) pairs to process
-        tasks = []
-        for q_video_id in query_videos:
-            for type_num, type_info in candidate_types_dict.items():
-                tasks.append((q_video_id, type_num, type_info))
-
-        logger.info(f"Created {len(tasks)} tasks for parallel processing")
-
-        # Process pairs in parallel using ThreadPoolExecutor
-        results = []
-        successful_tasks = 0
-        failed_tasks = 0
-
-        logger.info(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Create a partial function with fixed arguments
-            process_func = partial(
-                self.process_query_candidate_pair,
-                all_candidates=all_candidates,
-                query_videos=query_videos,
-                enable_deduplication=enable_deduplication,
-            )
-
-            # Submit all tasks
-            future_to_task = {
-                executor.submit(process_func, q_vid, t_num, t_info): (q_vid, t_num)
-                for q_vid, t_num, t_info in tasks
-            }
-
-            logger.info(f"Submitted {len(future_to_task)} tasks to executor")
-
-            # Collect results as they complete
-            for future in concurrent.futures.as_completed(future_to_task):
-                try:
-                    results.append(future.result())
-                    successful_tasks += 1
-                    if successful_tasks % 10 == 0:
-                        logger.info(f"Completed {successful_tasks} tasks successfully")
-                except Exception as exc:
-                    q_vid, t_num = future_to_task[future]
-                    logger.error(
-                        f"Task for query {q_vid}, type {t_num} generated an exception: {exc}",
-                        exc_info=True,
-                    )
-                    failed_tasks += 1
-
+        # 3. Process all query videos in batch, with parallel processing for candidate types
         logger.info(
-            f"Parallel processing completed: {successful_tasks} successful, {failed_tasks} failed tasks"
+            "Starting batch similarity calculations with parallel candidate processing"
         )
-
-        # Update similarity matrix with results
-        for q_video_id, type_num, formatted_results in results:
-            similarity_matrix[q_video_id][type_num] = formatted_results
-            logger.debug(
-                f"Updated similarity matrix for video={q_video_id}, type={type_num} with {len(formatted_results)} results"
-            )
+        similarity_matrix = self.process_query_candidates_batch(
+            query_videos,
+            candidate_types_dict,
+            all_candidates,
+            enable_deduplication,
+            max_workers=max_workers,
+        )
 
         logger.info(
             "Completed similarity calculations for all query videos and candidate types"
@@ -321,18 +356,5 @@ class RerankingService:
         logger.info(
             f"Created DataFrame with {len(result_df)} rows and {len(result_df.columns)} columns"
         )
-
-        # Log some statistics about the results
-        if not result_df.empty:
-            for type_num in sorted(candidate_types_dict.keys()):
-                col = f"candidate_type_{type_num}"
-                if col in result_df.columns:
-                    candidate_counts = result_df[col].apply(lambda x: len(x))
-                    avg_candidates = candidate_counts.mean()
-                    max_candidates = candidate_counts.max()
-                    min_candidates = candidate_counts.min()
-                    logger.info(
-                        f"Stats for {col}: avg={avg_candidates:.1f}, min={min_candidates}, max={max_candidates} candidates"
-                    )
 
         return result_df
