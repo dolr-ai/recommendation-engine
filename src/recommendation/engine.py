@@ -7,12 +7,11 @@ recommendation process.
 
 import time
 from utils.common_utils import get_logger
-from utils.valkey_utils import ValkeyVectorService
 from recommendation.similarity_bq import SimilarityService
 from recommendation.candidates import CandidateService
 from recommendation.reranking import RerankingService
 from recommendation.mixer import MixerService
-from recommendation.config import RecommendationConfig, DEFAULT_VECTOR_DIM
+from recommendation.config import RecommendationConfig
 
 logger = get_logger(__name__)
 
@@ -33,26 +32,6 @@ class RecommendationEngine:
         # Use provided config or create default config
         self.config = config if config is not None else RecommendationConfig()
 
-        # Initialize vector service for embeddings
-        if self.config.vector_service:
-            self.vector_service = self.config.vector_service
-        else:
-            # Create a new vector service if not available in config
-            self.vector_service = ValkeyVectorService(
-                core=self.config.gcp_utils.core,
-                host=self.config.valkey_config["valkey"]["host"],
-                port=self.config.valkey_config["valkey"]["port"],
-                instance_id=self.config.valkey_config["valkey"]["instance_id"],
-                ssl_enabled=self.config.valkey_config["valkey"]["ssl_enabled"],
-                socket_timeout=self.config.valkey_config["valkey"]["socket_timeout"],
-                socket_connect_timeout=self.config.valkey_config["valkey"][
-                    "socket_connect_timeout"
-                ],
-                vector_dim=DEFAULT_VECTOR_DIM,
-                prefix="video_id:",
-                cluster_enabled=self.config.valkey_config["valkey"]["cluster_enabled"],
-            )
-
         # Initialize services
         self.similarity_service = SimilarityService(
             gcp_utils=self.config.gcp_utils,
@@ -68,13 +47,6 @@ class RecommendationEngine:
         )
 
         self.mixer_service = MixerService()
-
-        # Verify vector service connection
-        try:
-            self.vector_service.verify_connection()
-        except Exception as e:
-            logger.error(f"Failed to verify vector service connection: {e}")
-            raise
 
         init_time = time.time() - start_time
         logger.info(

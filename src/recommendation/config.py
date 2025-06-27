@@ -7,7 +7,6 @@ This module handles loading and managing configuration settings for the recommen
 import os
 import json
 from utils.gcp_utils import GCPUtils
-from utils.valkey_utils import ValkeyVectorService
 from utils.common_utils import get_logger
 
 logger = get_logger(__name__)
@@ -52,7 +51,6 @@ class RecommendationConfig:
         self.candidate_types = candidate_types or DEFAULT_CANDIDATE_TYPES
         self.valkey_config = valkey_config or DEFAULT_VALKEY_CONFIG
         self.gcp_utils = None
-        self.vector_service = None
 
         # Load configuration
         self._load_config()
@@ -61,9 +59,6 @@ class RecommendationConfig:
         """Load configuration from environment variables and initialize services."""
         # Setup GCP credentials
         self._setup_gcp_credentials()
-
-        # Initialize vector service
-        self._init_vector_service()
 
     def _setup_gcp_credentials(self):
         """Setup GCP credentials."""
@@ -78,38 +73,6 @@ class RecommendationConfig:
                 logger.error(f"Failed to initialize GCP credentials: {e}")
         else:
             logger.warning("GCP_CREDENTIALS environment variable not found")
-
-    def _init_vector_service(self):
-        """Initialize vector service."""
-        if not self.gcp_utils:
-            logger.warning(
-                "GCP utils not initialized, skipping vector service initialization"
-            )
-            return
-
-        valkey_config = self.valkey_config["valkey"]
-        self.vector_service = ValkeyVectorService(
-            core=self.gcp_utils.core,
-            host=valkey_config["host"],
-            port=valkey_config["port"],
-            instance_id=valkey_config["instance_id"],
-            ssl_enabled=valkey_config["ssl_enabled"],
-            socket_timeout=valkey_config["socket_timeout"],
-            socket_connect_timeout=valkey_config["socket_connect_timeout"],
-            vector_dim=DEFAULT_VECTOR_DIM,
-            prefix="video_id:",
-            cluster_enabled=valkey_config["cluster_enabled"],
-        )
-
-    def verify_connection(self):
-        """Verify connection to vector service."""
-        if self.vector_service:
-            return self.vector_service.verify_connection()
-        return False
-
-    def get_vector_service(self):
-        """Get vector service instance."""
-        return self.vector_service
 
     def get_gcp_utils(self):
         """Get GCP utils instance."""

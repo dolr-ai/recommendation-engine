@@ -68,6 +68,9 @@ class CandidateService:
     def _fetch_miou_candidates(self, cluster_id, query_videos):
         """Fetch Modified IoU candidates in parallel."""
         miou_args = [(str(cluster_id), video_id) for video_id in query_videos]
+        logger.info(
+            f"Fetching Modified IoU candidates for {len(miou_args)} videos\n miou_args: {miou_args}"
+        )
         try:
             candidates = self.miou_fetcher.fetch_using_mget(miou_args)
             return candidates

@@ -89,9 +89,15 @@ class MetadataPopulator(ABC):
 
     def _init_valkey_service(self):
         """Initialize the Valkey service."""
-        self.valkey_service = ValkeyService(
-            core=self.gcp_utils.core, **self.config["valkey"]
-        )
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            logger.info("Initializing Valkey service from REDIS_URL")
+            self.valkey_service = ValkeyService.from_url()
+        else:
+            logger.info("Initializing Valkey service from config")
+            self.valkey_service = ValkeyService(
+                core=self.gcp_utils.core, **self.config["valkey"]
+            )
 
     @abstractmethod
     def get_metadata(self) -> List[Dict[str, Any]]:

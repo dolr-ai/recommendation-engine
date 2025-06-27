@@ -3,6 +3,7 @@ from datetime import datetime
 
 import redis
 from redis.cluster import RedisCluster
+import os
 
 import numpy as np
 import json
@@ -17,6 +18,24 @@ from google.auth.transport.requests import Request
 from .gcp_utils import GCPCore
 from .common_utils import time_execution, get_logger
 
+"""
+Valkey (Redis-compatible) utilities for GCP Memorystore and other Redis providers.
+
+Examples:
+    # Connect using GCP authentication
+    from src.utils.gcp_utils import GCPCore
+    core = GCPCore()
+    valkey = ValkeyService(core, host="10.0.0.1", port=6379)
+
+    # Connect using Redis URL (e.g., Upstash)
+    # Set REDIS_URL environment variable or pass URL directly
+    valkey = ValkeyService.from_url()
+    # OR
+    valkey = ValkeyService.from_url("redis://username:password@host:port")
+
+    # For vector operations
+    vector_service = ValkeyVectorService.from_url(vector_dim=1536)
+"""
 
 logger = get_logger(__name__)
 
@@ -78,6 +97,67 @@ class ValkeyService:
                     "ssl_check_hostname": False,
                 }
             )
+
+    @classmethod
+    def from_url(cls, url: Optional[str] = None):
+        """
+        Create a ValkeyService instance from a Redis URL
+
+        Args:
+            url: Redis URL (defaults to REDIS_URL environment variable if not provided)
+
+        Returns:
+            ValkeyService instance connected via URL
+
+        Example:
+            # Using environment variable:
+            service = ValkeyService.from_url()
+
+            # Using explicit URL:
+            service = ValkeyService.from_url("redis://username:password@host:port")
+        """
+        # Get URL from parameter or environment variable
+        redis_url = url or os.environ.get("REDIS_URL")
+
+        if not redis_url:
+            raise ValueError(
+                "Redis URL not provided and REDIS_URL environment variable not set"
+            )
+
+        try:
+            # Create Redis client from URL
+            client = redis.Redis.from_url(
+                redis_url,
+                socket_connect_timeout=10,
+                socket_timeout=10,
+                decode_responses=True,
+            )
+
+            # Test connection
+            client.ping()
+
+            # Create a minimal instance
+            instance = cls.__new__(cls)
+
+            # Initialize with None for required parameters
+            instance.core = None
+            instance.host = "from_url"
+            instance.port = 0
+            instance.instance_id = "redis_url_connection"
+            instance.ssl_enabled = "ssl" in redis_url
+            instance.cluster_enabled = False
+
+            # Store the client directly
+            instance.client = client
+            instance.connection_config = {
+                "url": redis_url.split("@")[-1]
+            }  # Store only host part for security
+
+            return instance
+
+        except Exception as e:
+            logger.error(f"Failed to connect using Redis URL: {e}")
+            raise
 
     def _get_access_token(self) -> str:
         """
@@ -293,15 +373,22 @@ class ValkeyService:
         try:
             client = self.get_client()
 
-            # In cluster mode, we need to use scan_iter instead of keys
-            if self.cluster_enabled:
-                # Use scan_iter for better performance in cluster mode
-                result = []
-                for key in client.scan_iter(match=pattern):
-                    result.append(key)
-                return result
-            else:
-                return client.keys(pattern)
+            # Use scan_iter for better performance with large datasets
+            result = []
+            # Limit the number of keys to prevent memory issues
+            max_keys = 10000
+            count = 0
+
+            for key in client.scan_iter(match=pattern, count=1000):
+                result.append(key)
+                count += 1
+                if count >= max_keys:
+                    logger.warning(
+                        f"Reached maximum key limit ({max_keys}) for pattern: {pattern}"
+                    )
+                    break
+
+            return result
         except Exception as e:
             logger.error(
                 f"Failed to get keys with pattern {pattern} from {self.instance_id}: {e}"
@@ -643,6 +730,53 @@ class ValkeyVectorService(ValkeyService):
         self.socket_connect_timeout = socket_connect_timeout
         self.vector_dim = vector_dim
         self.prefix = prefix
+
+    @classmethod
+    def from_url(
+        cls,
+        url: Optional[str] = None,
+        vector_dim: int = None,
+        prefix: str = "video_id:",
+    ):
+        """
+        Create a ValkeyVectorService instance from a Redis URL
+
+        Args:
+            url: Redis URL (defaults to REDIS_URL environment variable if not provided)
+            vector_dim: Dimension of vector embeddings
+            prefix: Key prefix for vector data
+
+        Returns:
+            ValkeyVectorService instance connected via URL
+
+        Example:
+            # Using environment variable:
+            service = ValkeyVectorService.from_url(vector_dim=1536)
+
+            # Using explicit URL:
+            service = ValkeyVectorService.from_url("redis://username:password@host:port", vector_dim=1536)
+        """
+        # Get base instance using parent class method
+        instance = super().from_url(url)
+
+        # Override class to ValkeyVectorService
+        instance.__class__ = cls
+
+        # Add vector-specific attributes
+        instance.vector_dim = vector_dim
+        instance.prefix = prefix
+        instance.socket_timeout = 10
+        instance.socket_connect_timeout = 10
+
+        # Update connection config to use binary responses for vectors
+        instance.client = redis.Redis.from_url(
+            url or os.environ.get("REDIS_URL"),
+            socket_connect_timeout=10,
+            socket_timeout=10,
+            decode_responses=False,  # Important: Don't decode binary responses for vector operations
+        )
+
+        return instance
 
     def get_batch_embeddings(self, item_ids, prefix=None, verbose=True):
         """

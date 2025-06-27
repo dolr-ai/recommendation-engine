@@ -90,9 +90,15 @@ class CandidatePopulator(ABC):
 
     def _init_valkey_service(self):
         """Initialize the Valkey service."""
-        self.valkey_service = ValkeyService(
-            core=self.gcp_utils.core, **self.config["valkey"]
-        )
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            logger.info("Initializing Valkey service from REDIS_URL")
+            self.valkey_service = ValkeyService.from_url()
+        else:
+            logger.info("Initializing Valkey service from config")
+            self.valkey_service = ValkeyService(
+                core=self.gcp_utils.core, **self.config["valkey"]
+            )
 
     @abstractmethod
     def get_candidates(self) -> List[Dict[str, Any]]:
@@ -556,12 +562,20 @@ class CandidateEmbeddingPopulator:
                 "Vector dimension must be determined before initializing vector service"
             )
 
-        self.vector_service = ValkeyVectorService(
-            core=self.gcp_utils.core,
-            vector_dim=self.vector_dim,
-            prefix=self.config["vector_key_prefix"],
-            **self.config["valkey"],
-        )
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            logger.info("Initializing Valkey vector service from REDIS_URL")
+            self.vector_service = ValkeyVectorService.from_url(
+                vector_dim=self.vector_dim, prefix=self.config["vector_key_prefix"]
+            )
+        else:
+            logger.info("Initializing Valkey vector service from config")
+            self.vector_service = ValkeyVectorService(
+                core=self.gcp_utils.core,
+                vector_dim=self.vector_dim,
+                prefix=self.config["vector_key_prefix"],
+                **self.config["valkey"],
+            )
 
     def extract_video_ids_from_candidates(self) -> Set[str]:
         """
@@ -674,26 +688,36 @@ class CandidateEmbeddingPopulator:
         except Exception as e:
             logger.info(f"Error checking if index exists: {e}")
 
-                # Check if data exists with the configured prefix (for logging purposes only)
+            # Check if data exists with the configured prefix (for logging purposes only)
         data_exists = False
         try:
             # Use keys method with the prefix to check if data exists
-            keys_with_prefix = self.vector_service.keys(f"{self.config['vector_key_prefix']}*")
+            keys_with_prefix = self.vector_service.keys(
+                f"{self.config['vector_key_prefix']}*"
+            )
             data_exists = len(keys_with_prefix) > 0
-            logger.info(f"Vector data exists: {data_exists} (found {len(keys_with_prefix)} keys)")
+            logger.info(
+                f"Vector data exists: {data_exists} (found {len(keys_with_prefix)} keys)"
+            )
             if data_exists:
-                logger.info("Existing vector data will be preserved and updated as needed")
+                logger.info(
+                    "Existing vector data will be preserved and updated as needed"
+                )
         except Exception as e:
             logger.info(f"Error checking if data exists: {e}")
 
-                # Create vector index only if it doesn't exist
+            # Create vector index only if it doesn't exist
         if not index_exists:
-            logger.info(f"Creating vector index '{self.config['vector_index_name']}'...")
+            logger.info(
+                f"Creating vector index '{self.config['vector_index_name']}'..."
+            )
             self.vector_service.create_vector_index(
                 id_field="video_id", index_name=self.config["vector_index_name"]
             )
         else:
-            logger.info(f"Using existing vector index '{self.config['vector_index_name']}'...")
+            logger.info(
+                f"Using existing vector index '{self.config['vector_index_name']}'..."
+            )
 
         # Always upload embeddings to Valkey, which will update existing entries or add new ones
         logger.info(f"Uploading {len(embeddings)} video embeddings to Valkey...")
@@ -762,6 +786,7 @@ if __name__ == "__main__":
     print(f"Upload complete with stats: {stats}")
 
     # Option 3: Populate vector embeddings for candidates
-    embedding_populator = CandidateEmbeddingPopulator(multi_populator=multi_populator)
-    embedding_stats = embedding_populator.populate_vector_store()
-    print(f"Embedding upload complete with stats: {embedding_stats}")
+    # dont put any vectors in redis
+    # embedding_populator = CandidateEmbeddingPopulator(multi_populator=multi_populator)
+    # embedding_stats = embedding_populator.populate_vector_store()
+    # print(f"Embedding upload complete with stats: {embedding_stats}")

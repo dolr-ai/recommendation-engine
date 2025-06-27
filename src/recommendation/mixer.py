@@ -4,9 +4,6 @@ Mixer module for recommendation engine.
 This module provides functionality for mixing and ranking recommendations from different sources.
 """
 
-from collections import defaultdict, Counter
-import pandas as pd
-import numpy as np
 from utils.common_utils import get_logger
 
 logger = get_logger(__name__)

@@ -90,9 +90,15 @@ class MetadataFetcher(ABC):
 
     def _init_valkey_service(self):
         """Initialize the Valkey service."""
-        self.valkey_service = ValkeyService(
-            core=self.gcp_utils.core, **self.config["valkey"]
-        )
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            logger.info("Initializing Valkey service from REDIS_URL")
+            self.valkey_service = ValkeyService.from_url()
+        else:
+            logger.info("Initializing Valkey service from config")
+            self.valkey_service = ValkeyService(
+                core=self.gcp_utils.core, **self.config["valkey"]
+            )
 
     def get_keys(self, pattern):
         """
@@ -104,7 +110,11 @@ class MetadataFetcher(ABC):
         Returns:
             List of matching keys
         """
-        return self.valkey_service.keys(pattern)
+        try:
+            return self.valkey_service.keys(pattern)
+        except Exception as e:
+            logger.error(f"Error getting keys with pattern {pattern}: {e}")
+            return []
 
     def get_value(self, key):
         """
