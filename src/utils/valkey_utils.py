@@ -293,15 +293,22 @@ class ValkeyService:
         try:
             client = self.get_client()
 
-            # In cluster mode, we need to use scan_iter instead of keys
-            if self.cluster_enabled:
-                # Use scan_iter for better performance in cluster mode
-                result = []
-                for key in client.scan_iter(match=pattern):
-                    result.append(key)
-                return result
-            else:
-                return client.keys(pattern)
+            # Use scan_iter for better performance with large datasets
+            result = []
+            # Limit the number of keys to prevent memory issues
+            max_keys = 10000
+            count = 0
+
+            for key in client.scan_iter(match=pattern, count=5000):
+                result.append(key)
+                count += 1
+                if count >= max_keys:
+                    logger.warning(
+                        f"Reached maximum key limit ({max_keys}) for pattern: {pattern}"
+                    )
+                    break
+
+            return result
         except Exception as e:
             logger.error(
                 f"Failed to get keys with pattern {pattern} from {self.instance_id}: {e}"
