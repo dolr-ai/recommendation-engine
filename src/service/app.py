@@ -135,15 +135,6 @@ async def get_recommendations(request: RecommendationRequest):
         # Get recommendations
         recommendations = service.get_recommendations(
             user_profile=user_profile,
-            top_k=request.top_k,
-            fallback_top_k=request.fallback_top_k,
-            threshold=request.threshold,
-            enable_deduplication=request.enable_deduplication,
-            max_workers=request.max_workers,
-            max_fallback_candidates=request.max_fallback_candidates,
-            min_similarity_threshold=request.min_similarity_threshold,
-            recency_weight=request.recency_weight,
-            watch_percentage_weight=request.watch_percentage_weight,
         )
 
         # Return response directly to avoid validation issues
@@ -204,15 +195,6 @@ async def get_batch_recommendations(
             # Get recommendations
             recommendations = service.get_recommendations(
                 user_profile=user_profile,
-                top_k=request.top_k,
-                fallback_top_k=request.fallback_top_k,
-                threshold=request.threshold,
-                enable_deduplication=request.enable_deduplication,
-                max_workers=request.max_workers,
-                max_fallback_candidates=request.max_fallback_candidates,
-                min_similarity_threshold=request.min_similarity_threshold,
-                recency_weight=request.recency_weight,
-                watch_percentage_weight=request.watch_percentage_weight,
             )
 
             results.append(recommendations)

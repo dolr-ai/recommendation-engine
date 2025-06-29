@@ -108,30 +108,12 @@ class RecommendationService:
     def get_recommendations(
         self,
         user_profile: Dict[str, Any],
-        top_k: int = 50,
-        fallback_top_k: int = 100,
-        threshold: float = 0.1,
-        enable_deduplication: bool = True,
-        max_workers: int = 4,
-        max_fallback_candidates: int = 200,
-        min_similarity_threshold: float = 0.4,
-        recency_weight: float = 0.8,
-        watch_percentage_weight: float = 0.2,
     ) -> Dict[str, Any]:
         """
         Get recommendations for a user.
 
         Args:
             user_profile: User profile dictionary
-            top_k: Number of recommendations to return
-            fallback_top_k: Number of fallback recommendations to return
-            threshold: Minimum watch percentage threshold
-            enable_deduplication: Whether to enable deduplication
-            max_workers: Maximum number of worker threads
-            max_fallback_candidates: Maximum number of fallback candidates to sample
-            min_similarity_threshold: Minimum similarity threshold
-            recency_weight: Weight for recency in recommendation scoring
-            watch_percentage_weight: Weight for watch percentage in recommendation scoring
 
         Returns:
             Dictionary with recommendations and metadata
@@ -175,26 +157,12 @@ class RecommendationService:
             recommendations = self._engine.get_recommendations(
                 user_profile=enriched_profile,
                 candidate_types=candidate_types,
-                threshold=threshold,
-                top_k=top_k,
-                fallback_top_k=fallback_top_k,
-                enable_deduplication=enable_deduplication,
-                max_workers=max_workers,
-                max_fallback_candidates=max_fallback_candidates,
-                min_similarity_threshold=min_similarity_threshold,
-                recency_weight=recency_weight,
-                watch_percentage_weight=watch_percentage_weight,
             )
 
             # Add processing time
             processing_time_ms = (time.time() - start_time) * 1000
             recommendations["processing_time_ms"] = processing_time_ms
 
-            logger.info(
-                f"Generated {len(recommendations['recommendations'])} recommendations "
-                f"and {len(recommendations['fallback_recommendations'])} fallback recommendations "
-                f"in {processing_time_ms:.2f} ms"
-            )
             return recommendations
 
         except Exception as e:

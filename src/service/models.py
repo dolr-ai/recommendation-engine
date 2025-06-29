@@ -37,33 +37,6 @@ class RecommendationRequest(BaseModel):
     watch_history: Optional[List[WatchHistoryItem]] = Field(
         default=[], description="User's watch history (optional)"
     )
-    top_k: Optional[int] = Field(
-        default=50, description="Number of recommendations to return"
-    )
-    fallback_top_k: Optional[int] = Field(
-        default=100, description="Number of fallback recommendations to return"
-    )
-    threshold: Optional[float] = Field(
-        default=0.1, description="Minimum watch percentage threshold"
-    )
-    enable_deduplication: Optional[bool] = Field(
-        default=True, description="Whether to enable deduplication"
-    )
-    max_workers: Optional[int] = Field(
-        default=4, description="Maximum number of worker threads"
-    )
-    max_fallback_candidates: Optional[int] = Field(
-        default=200, description="Maximum number of fallback candidates to sample"
-    )
-    min_similarity_threshold: Optional[float] = Field(
-        default=0.4, description="Minimum similarity threshold"
-    )
-    recency_weight: Optional[float] = Field(
-        default=0.8, description="Weight for recency in recommendation scoring"
-    )
-    watch_percentage_weight: Optional[float] = Field(
-        default=0.2, description="Weight for watch percentage in recommendation scoring"
-    )
 
 
 class SourceItem(BaseModel):

@@ -12,6 +12,7 @@ from utils.common_utils import get_logger
 
 logger = get_logger(__name__)
 
+# Default candidate types
 DEFAULT_CANDIDATE_TYPES = {
     1: {"name": "watch_time_quantile", "weight": 1.0},
     2: {"name": "modified_iou", "weight": 0.8},
@@ -36,6 +37,18 @@ DEFAULT_VECTOR_DIM = 1408
 
 class RecommendationConfig:
     """Configuration class for recommendation engine."""
+
+    # Recommendation parameters
+    TOP_K = 25
+    FALLBACK_TOP_K = 50
+    THRESHOLD = 0.1
+    ENABLE_DEDUPLICATION = True
+    MAX_WORKERS = 4
+    MAX_FALLBACK_CANDIDATES = 200
+    MIN_SIMILARITY_THRESHOLD = 0.4
+    RECENCY_WEIGHT = 0.8
+    WATCH_PERCENTAGE_WEIGHT = 0.2
+    MAX_CANDIDATES_PER_QUERY = 5
 
     def __init__(
         self,
