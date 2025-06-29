@@ -58,6 +58,7 @@ def get_video_metadata(video_ids, gcp_utils):
             uri,
             post_id,
             canister_id,
+            publisher_user_id,
             `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(uri) as video_id
         FROM `{video_index_table}`
         WHERE `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(uri) IN ({video_ids_str})
@@ -76,6 +77,7 @@ def get_video_metadata(video_ids, gcp_utils):
                     "video_id": row["video_id"],
                     "canister_id": row["canister_id"],
                     "post_id": int(row["post_id"]),
+                    "publisher_user_id": row["publisher_user_id"],
                     # todo: add nsfw probability
                     "nsfw_probability": 0.0,
                 }
