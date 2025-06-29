@@ -88,17 +88,13 @@ def main():
 
         # Print recommendations
         logger.info("Recommendation results:")
-        logger.info(f"Main recommendations: {len(recommendations['recommendations'])}")
-        logger.info(
-            f"Fallback recommendations: {len(recommendations['fallback_recommendations'])}"
-        )
+        logger.info(f"Total recommendations: {len(recommendations['posts'])}")
 
         # Print top 5 recommendations
-        if recommendations["recommendations"]:
+        if recommendations["posts"]:
             logger.info("Top 5 recommendations:")
-            for i, video_id in enumerate(recommendations["recommendations"][:5]):
-                score = recommendations["scores"][video_id]
-                logger.info(f"  {i+1}. Video ID: {video_id}, Score: {score:.4f}")
+            for i, post in enumerate(recommendations["posts"][:5]):
+                logger.info(f"  {i+1}. Post ID: {post['post_id']}")
 
         return recommendations
 

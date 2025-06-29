@@ -5,14 +5,14 @@ This module provides the main RecommendationEngine class that orchestrates the e
 recommendation process.
 """
 
-import time
+import datetime
 from utils.common_utils import get_logger
-from utils.valkey_utils import ValkeyVectorService
 from recommendation.similarity_bq import SimilarityService
 from recommendation.candidates import CandidateService
 from recommendation.reranking import RerankingService
 from recommendation.mixer import MixerService
-from recommendation.config import RecommendationConfig, DEFAULT_VECTOR_DIM
+from recommendation.config import RecommendationConfig
+from recommendation.backend import transform_recommendations_with_metadata
 
 logger = get_logger(__name__)
 
@@ -27,31 +27,11 @@ class RecommendationEngine:
         Args:
             config: RecommendationConfig instance or None to use default config
         """
-        start_time = time.time()
+        start_time = datetime.datetime.now()
         logger.info("Initializing RecommendationEngine")
 
         # Use provided config or create default config
         self.config = config if config is not None else RecommendationConfig()
-
-        # Initialize vector service for embeddings
-        if self.config.vector_service:
-            self.vector_service = self.config.vector_service
-        else:
-            # Create a new vector service if not available in config
-            self.vector_service = ValkeyVectorService(
-                core=self.config.gcp_utils.core,
-                host=self.config.valkey_config["valkey"]["host"],
-                port=self.config.valkey_config["valkey"]["port"],
-                instance_id=self.config.valkey_config["valkey"]["instance_id"],
-                ssl_enabled=self.config.valkey_config["valkey"]["ssl_enabled"],
-                socket_timeout=self.config.valkey_config["valkey"]["socket_timeout"],
-                socket_connect_timeout=self.config.valkey_config["valkey"][
-                    "socket_connect_timeout"
-                ],
-                vector_dim=DEFAULT_VECTOR_DIM,
-                prefix="video_id:",
-                cluster_enabled=self.config.valkey_config["valkey"]["cluster_enabled"],
-            )
 
         # Initialize services
         self.similarity_service = SimilarityService(
@@ -69,14 +49,7 @@ class RecommendationEngine:
 
         self.mixer_service = MixerService()
 
-        # Verify vector service connection
-        try:
-            self.vector_service.verify_connection()
-        except Exception as e:
-            logger.error(f"Failed to verify vector service connection: {e}")
-            raise
-
-        init_time = time.time() - start_time
+        init_time = (datetime.datetime.now() - start_time).total_seconds()
         logger.info(
             f"RecommendationEngine initialized successfully in {init_time:.2f} seconds"
         )
@@ -118,7 +91,7 @@ class RecommendationEngine:
         Returns:
             Dictionary with recommendations and fallback recommendations
         """
-        start_time = time.time()
+        start_time = datetime.datetime.now()
         user_id = user_profile.get("user_id", "unknown")
 
         # Use provided candidate types or default from config
@@ -126,7 +99,7 @@ class RecommendationEngine:
             candidate_types = self.config.candidate_types
 
         # Step 1: Run reranking logic
-        rerank_start = time.time()
+        rerank_start = datetime.datetime.now()
         df_reranked = self.reranking_service.reranking_logic(
             user_profile=user_profile,
             candidate_types_dict=candidate_types,
@@ -135,11 +108,12 @@ class RecommendationEngine:
             max_workers=max_workers,
             max_fallback_candidates=max_fallback_candidates,
         )
-        rerank_time = time.time() - rerank_start
+        rerank_time = (datetime.datetime.now() - rerank_start).total_seconds()
+        logger.info(f"Reranking completed in {rerank_time:.2f} seconds")
 
         # Step 2: Run mixer algorithm
-        mixer_start = time.time()
-        recommendations = self.mixer_service.mixer_algorithm(
+        mixer_start = datetime.datetime.now()
+        mixer_output = self.mixer_service.mixer_algorithm(
             df_reranked=df_reranked,
             candidate_types_dict=candidate_types,
             top_k=top_k,
@@ -150,7 +124,16 @@ class RecommendationEngine:
             enable_deduplication=enable_deduplication,
             min_similarity_threshold=min_similarity_threshold,
         )
-        mixer_time = time.time() - mixer_start
+        mixer_time = (datetime.datetime.now() - mixer_start).total_seconds()
+        logger.info(f"Mixer algorithm completed in {mixer_time:.2f} seconds")
+
+        # Step 3: Transform mixer output to backend format
+        backend_start = datetime.datetime.now()
+        recommendations = transform_recommendations_with_metadata(
+            mixer_output, self.config.gcp_utils
+        )
+        backend_time = (datetime.datetime.now() - backend_start).total_seconds()
+        logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")
 
         # Log recommendation results
         main_rec_count = len(recommendations.get("recommendations", []))
@@ -159,7 +142,13 @@ class RecommendationEngine:
             f"Generated {main_rec_count} main recommendations and {fallback_rec_count} fallback recommendations"
         )
 
-        total_time = time.time() - start_time
-        logger.info(f"Recommendation process completed in {total_time:.2f} seconds")
+        total_time = (datetime.datetime.now() - start_time).total_seconds()
+
+        # Log all timing information in one place
+        logger.info("Recommendation process timing summary:")
+        logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
+        logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
+        logger.info(f"  - Backend transformation step: {backend_time:.2f} seconds")
+        logger.info(f"  - Total process time: {total_time:.2f} seconds")
 
         return recommendations

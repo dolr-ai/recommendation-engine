@@ -4,7 +4,6 @@ Mixer module for recommendation engine.
 This module provides functionality for mixing and ranking recommendations from different sources.
 """
 
-from collections import defaultdict, Counter
 import pandas as pd
 import numpy as np
 from utils.common_utils import get_logger
@@ -317,7 +316,7 @@ class MixerService:
             )
 
         logger.info("Mixer algorithm completed successfully")
-        return {
+        mixer_output = {
             "recommendations": top_recommendations,
             "scores": final_scores,
             "sources": final_sources,
@@ -325,3 +324,4 @@ class MixerService:
             "fallback_scores": final_fallback_scores,
             "fallback_sources": final_fallback_sources,
         }
+        return mixer_output
