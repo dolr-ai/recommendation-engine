@@ -6,7 +6,7 @@ This module provides a service layer that interfaces with the recommendation eng
 
 import time
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 
 from utils.common_utils import get_logger
 from recommendation.config import RecommendationConfig
@@ -108,12 +108,14 @@ class RecommendationService:
     def get_recommendations(
         self,
         user_profile: Dict[str, Any],
+        exclude_watched_items: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Get recommendations for a user.
 
         Args:
             user_profile: User profile dictionary
+            exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
 
         Returns:
             Dictionary with recommendations and metadata
@@ -153,10 +155,11 @@ class RecommendationService:
         }
 
         try:
-            # Get recommendations from engine
+            # Get recommendations from engine with watched items filtering
             recommendations = self._engine.get_recommendations(
                 user_profile=enriched_profile,
                 candidate_types=candidate_types,
+                exclude_watched_items=exclude_watched_items,
             )
 
             # Add processing time

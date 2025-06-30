@@ -135,10 +135,16 @@ async def get_recommendations(request: RecommendationRequest):
         # Get recommendations
         recommendations = service.get_recommendations(
             user_profile=user_profile,
+            exclude_watched_items=request.exclude_watched_items,
         )
 
-        # Return response directly to avoid validation issues
-        return JSONResponse(content=recommendations)
+        # Only include the fields present in the new RecommendationResponse model
+        response = {
+            "posts": recommendations.get("posts", []),
+            "processing_time_ms": recommendations.get("processing_time_ms", 0),
+            "error": recommendations.get("error"),
+        }
+        return JSONResponse(content=response)
 
     except Exception as e:
         logger.error(f"Error processing recommendation request: {e}", exc_info=True)
@@ -195,21 +201,23 @@ async def get_batch_recommendations(
             # Get recommendations
             recommendations = service.get_recommendations(
                 user_profile=user_profile,
+                exclude_watched_items=request.exclude_watched_items,
             )
 
-            results.append(recommendations)
+            # Only include the fields present in the new RecommendationResponse model
+            response = {
+                "posts": recommendations.get("posts", []),
+                "processing_time_ms": recommendations.get("processing_time_ms", 0),
+                "error": recommendations.get("error"),
+            }
+            results.append(response)
 
         except Exception as e:
             logger.error(f"Error processing batch request item: {e}", exc_info=True)
             # Return error response for this item
             results.append(
                 {
-                    "recommendations": [],
-                    "scores": {},
-                    "sources": {},
-                    "fallback_recommendations": [],
-                    "fallback_scores": {},
-                    "fallback_sources": {},
+                    "posts": [],
                     "processing_time_ms": 0,
                     "error": str(e),
                 }
@@ -222,6 +230,7 @@ def start():
     """Start the FastAPI application."""
     uvicorn.run(
         "service.app:app",
+        # host="localhost",
         host="0.0.0.0",
         port=8000,
         reload=False,

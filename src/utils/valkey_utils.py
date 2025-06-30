@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from datetime import datetime
 
 import redis
@@ -389,6 +389,165 @@ class ValkeyService:
         except Exception as e:
             logger.error(f"Failed to create pipeline for {self.instance_id}: {e}")
             raise
+
+    # Redis Set Operations
+    def sadd(self, key: str, *members: str) -> int:
+        """Add one or more members to a set"""
+        try:
+            client = self.get_client()
+            return client.sadd(key, *members)
+        except Exception as e:
+            logger.error(
+                f"Failed to add members to set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def srem(self, key: str, *members: str) -> int:
+        """Remove one or more members from a set"""
+        try:
+            client = self.get_client()
+            return client.srem(key, *members)
+        except Exception as e:
+            logger.error(
+                f"Failed to remove members from set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def sismember(self, key: str, member: str) -> bool:
+        """Check if a member exists in a set"""
+        try:
+            client = self.get_client()
+            return bool(client.sismember(key, member))
+        except Exception as e:
+            logger.error(
+                f"Failed to check membership of {member} in set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def smembers(self, key: str) -> Set[str]:
+        """Get all members of a set (use with caution for large sets)"""
+        try:
+            client = self.get_client()
+            return client.smembers(key)
+        except Exception as e:
+            logger.error(
+                f"Failed to get members of set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def scard(self, key: str) -> int:
+        """Get the cardinality (size) of a set"""
+        try:
+            client = self.get_client()
+            return client.scard(key)
+        except Exception as e:
+            logger.error(
+                f"Failed to get cardinality of set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def sscan_iter(
+        self, key: str, match: Optional[str] = None, count: Optional[int] = None
+    ):
+        """Iterate over set members using SSCAN for better performance with large sets"""
+        try:
+            client = self.get_client()
+            return client.sscan_iter(key, match=match, count=count)
+        except Exception as e:
+            logger.error(f"Failed to scan set {key} in {self.instance_id}: {e}")
+            raise
+
+    @time_execution
+    def batch_sadd(
+        self,
+        user_sets_data: Dict[str, List[str]],
+        expire_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Batch add members to multiple sets using pipeline for performance
+
+        Args:
+            user_sets_data: Dictionary mapping set keys to lists of members to add
+            expire_seconds: Optional expiration time in seconds for the sets
+
+        Returns:
+            Dict with stats about the operation
+        """
+        stats = {
+            "total_sets": len(user_sets_data),
+            "total_members": 0,
+            "successful": 0,
+            "failed": 0,
+            "time_ms": 0,
+        }
+
+        if not user_sets_data:
+            logger.warning("No set data provided for batch sadd")
+            return stats
+
+        # Count total members
+        stats["total_members"] = sum(
+            len(members) for members in user_sets_data.values()
+        )
+        start_time = datetime.now()
+
+        try:
+            # Use pipeline for all operations
+            pipe = self.pipeline()
+            pipe_commands = 0
+
+            # Add each set's members to the pipeline
+            for set_key, members in user_sets_data.items():
+                try:
+                    if not members:
+                        continue
+
+                    # Add all members to the set at once
+                    pipe.sadd(set_key, *members)
+                    pipe_commands += 1
+
+                    # Set expiration if specified
+                    if expire_seconds:
+                        pipe.expire(set_key, expire_seconds)
+                        pipe_commands += 1
+
+                except Exception as e:
+                    logger.error(f"Error adding set {set_key} to pipeline: {e}")
+                    stats["failed"] += 1
+
+            # Execute the pipeline
+            if pipe_commands > 0:
+                try:
+                    results = pipe.execute()
+
+                    # Count successful operations
+                    if expire_seconds:
+                        # Every other result is for expire operation
+                        sadd_results = results[::2]  # Even indices are sadd results
+                        stats["successful"] = sum(
+                            1 for r in sadd_results if isinstance(r, int) and r >= 0
+                        )
+                    else:
+                        stats["successful"] = sum(
+                            1 for r in results if isinstance(r, int) and r >= 0
+                        )
+
+                except Exception as e:
+                    logger.error(f"Error executing batch sadd pipeline: {e}")
+                    stats["failed"] = len(user_sets_data)
+
+            logger.info(
+                f"Processed {len(user_sets_data)} sets with {stats['total_members']} total members"
+            )
+
+        except Exception as e:
+            logger.error(f"Batch sadd failed: {e}")
+            stats["failed"] = len(user_sets_data) - stats["successful"]
+
+        stats["time_ms"] = (datetime.now() - start_time).total_seconds() * 1000
+        logger.info(f"Batch sadd completed: {stats}")
+
+        return stats
 
     @time_execution
     def batch_upload(

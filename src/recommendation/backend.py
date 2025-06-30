@@ -92,22 +92,51 @@ def get_video_metadata(video_ids, gcp_utils):
 
 def transform_recommendations_with_metadata(mixer_output, gcp_utils):
     """
-    Transform mixer output into backend format with metadata from BigQuery.
+    Transform mixer output while preserving the original format with recommendations and fallback_recommendations.
 
     Args:
-        mixer_output: Dictionary with recommendations from mixer algorithm
+        mixer_output: Dictionary with recommendations and fallback_recommendations from mixer algorithm
         gcp_utils: GCPUtils instance for BigQuery operations
 
     Returns:
-        List of dictionaries with video metadata for recommendations
+        Dictionary with combined recommendations as metadata objects
     """
-    # Get combined list of video IDs
-    video_ids = transform_mixer_output(mixer_output)
+    # Get all video IDs from both main and fallback recommendations
+    main_recs = mixer_output.get("recommendations", [])
+    fallback_recs = mixer_output.get("fallback_recommendations", [])
 
-    # Fetch metadata for these video IDs
-    video_metadata = get_video_metadata(video_ids, gcp_utils)
+    # Combine main and fallback recommendations into a single list
+    all_video_ids = main_recs + fallback_recs
 
-    return {"posts": video_metadata}
+    # Fetch metadata for all video IDs
+    video_metadata = get_video_metadata(all_video_ids, gcp_utils)
+
+    # Create a mapping of video_id to metadata for quick lookup
+    metadata_map = {item["video_id"]: item for item in video_metadata}
+
+    # Convert video IDs to metadata objects, preserving the order
+    recommendations_with_metadata = []
+    for video_id in all_video_ids:
+        if video_id in metadata_map:
+            recommendations_with_metadata.append(metadata_map[video_id])
+        else:
+            # If metadata not found, create a minimal object with just video_id
+            recommendations_with_metadata.append(
+                {
+                    "video_id": video_id,
+                    "canister_id": None,
+                    "post_id": None,
+                    "publisher_user_id": None,
+                    "nsfw_probability": 0.0,
+                }
+            )
+
+    # Create the result with metadata objects as recommendations
+    result = {
+        "posts": recommendations_with_metadata,
+    }
+
+    return result
 
 
 if __name__ == "__main__":

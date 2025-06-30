@@ -49,6 +49,7 @@ class RecommendationConfig:
     RECENCY_WEIGHT = 0.8
     WATCH_PERCENTAGE_WEIGHT = 0.2
     MAX_CANDIDATES_PER_QUERY = 5
+    EXCLUDE_WATCHED_ITEMS = True
 
     def __init__(
         self,

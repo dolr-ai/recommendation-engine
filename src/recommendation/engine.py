@@ -6,6 +6,7 @@ recommendation process.
 """
 
 import datetime
+from typing import List, Optional
 from utils.common_utils import get_logger
 from recommendation.similarity_bq import SimilarityService
 from recommendation.candidates import CandidateService
@@ -13,6 +14,7 @@ from recommendation.reranking import RerankingService
 from recommendation.mixer import MixerService
 from recommendation.config import RecommendationConfig
 from recommendation.backend import transform_recommendations_with_metadata
+from service.history_service import HistoryService
 
 logger = get_logger(__name__)
 
@@ -49,10 +51,99 @@ class RecommendationEngine:
 
         self.mixer_service = MixerService()
 
+        # Initialize history service for watched items filtering
+        self.history_service = HistoryService.get_instance()
+
         init_time = (datetime.datetime.now() - start_time).total_seconds()
         logger.info(
             f"RecommendationEngine initialized successfully in {init_time:.2f} seconds"
         )
+
+    def _filter_watched_items(
+        self,
+        user_id: str,
+        recommendations: dict,
+        exclude_watched_items: Optional[List[str]] = None,
+    ) -> dict:
+        """
+        Filter out watched items from recommendations.
+
+        Args:
+            user_id: The user ID
+            recommendations: Dictionary containing recommendations and fallback recommendations
+            exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
+
+        Returns:
+            Filtered recommendations dictionary
+        """
+        if not exclude_watched_items:
+            exclude_watched_items = []
+
+        logger.info(f"Filtering watched items for user {user_id}")
+        logger.info(f"Real-time exclude list: {len(exclude_watched_items)} items")
+
+        # Get all video IDs from recommendations
+        all_video_ids = set()
+        all_video_ids.update(recommendations.get("recommendations", []))
+        all_video_ids.update(recommendations.get("fallback_recommendations", []))
+
+        if not all_video_ids:
+            logger.info("No recommendations to filter")
+            return recommendations
+
+        # Check watch history for all video IDs
+        watch_status = self.history_service.has_watched(user_id, list(all_video_ids))
+
+        # Combine historical watch status with real-time exclude list
+        watched_videos = set()
+
+        if isinstance(watch_status, dict):
+            # Add historically watched videos
+            for video_id, is_watched in watch_status.items():
+                if is_watched:
+                    watched_videos.add(video_id)
+
+        # Add real-time exclude items
+        watched_videos.update(exclude_watched_items)
+
+        logger.info(f"Total watched items to exclude: {len(watched_videos)}")
+
+        # Filter main recommendations
+        main_recommendations = recommendations.get("recommendations", [])
+        filtered_main = [
+            vid for vid in main_recommendations if vid not in watched_videos
+        ]
+
+        # Filter fallback recommendations
+        fallback_recommendations = recommendations.get("fallback_recommendations", [])
+        filtered_fallback = [
+            vid for vid in fallback_recommendations if vid not in watched_videos
+        ]
+
+        # Log filtering results
+        original_main_count = len(main_recommendations)
+        original_fallback_count = len(fallback_recommendations)
+        filtered_main_count = len(filtered_main)
+        filtered_fallback_count = len(filtered_fallback)
+
+        logger.info(
+            f"Filtering results for user {user_id}: "
+            f"Main: {original_main_count} -> {filtered_main_count} "
+            f"({original_main_count - filtered_main_count} removed), "
+            f"Fallback: {original_fallback_count} -> {filtered_fallback_count} "
+            f"({original_fallback_count - filtered_fallback_count} removed)"
+        )
+
+        # Return filtered recommendations (only recommendations and fallback_recommendations)
+        filtered_recommendations = recommendations.copy()
+        filtered_recommendations.update(
+            {
+                "recommendations": filtered_main,
+                "fallback_recommendations": filtered_fallback,
+            }
+        )
+
+        return filtered_recommendations
 
     def get_recommendations(
         self,
@@ -68,6 +159,7 @@ class RecommendationEngine:
         watch_percentage_weight=RecommendationConfig.WATCH_PERCENTAGE_WEIGHT,
         max_candidates_per_query=RecommendationConfig.MAX_CANDIDATES_PER_QUERY,
         min_similarity_threshold=RecommendationConfig.MIN_SIMILARITY_THRESHOLD,
+        exclude_watched_items=RecommendationConfig.EXCLUDE_WATCHED_ITEMS,
     ):
         """
         Get recommendations for a user.
@@ -87,6 +179,7 @@ class RecommendationEngine:
             watch_percentage_weight: Weight given to videos with higher watch percentages (0-1)
             max_candidates_per_query: Maximum number of candidates to consider from each query video
             min_similarity_threshold: Minimum similarity score to consider a candidate (0-1)
+            exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
 
         Returns:
             Dictionary with recommendations and fallback recommendations
@@ -127,10 +220,32 @@ class RecommendationEngine:
         mixer_time = (datetime.datetime.now() - mixer_start).total_seconds()
         logger.info(f"Mixer algorithm completed in {mixer_time:.2f} seconds")
 
-        # Step 3: Transform mixer output to backend format
+        # Remove scores and sources fields to avoid unnecessary processing
+        for key in ["scores", "sources", "fallback_scores", "fallback_sources"]:
+            if key in mixer_output:
+                del mixer_output[key]
+
+        # for testing realtime exclusion purposes
+        # mixer_output["recommendations"] += [
+        #     "8ae0d8edcd06453194024c53e99aea87",
+        #     "f81ae0243d7a40d5aac01d474bf2fd5a",
+        #     "b9215270bfee4a0aaa268335d7f536b1",
+        # ]
+
+        # Step 3: Filter watched items
+        filter_start = datetime.datetime.now()
+        filtered_recommendations = self._filter_watched_items(
+            user_id=user_id,
+            recommendations=mixer_output,
+            exclude_watched_items=exclude_watched_items,
+        )
+        filter_time = (datetime.datetime.now() - filter_start).total_seconds()
+        logger.info(f"Watched items filtering completed in {filter_time:.2f} seconds")
+
+        # Step 4: Transform filtered recommendations to backend format with metadata
         backend_start = datetime.datetime.now()
         recommendations = transform_recommendations_with_metadata(
-            mixer_output, self.config.gcp_utils
+            filtered_recommendations, self.config.gcp_utils
         )
         backend_time = (datetime.datetime.now() - backend_start).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")
@@ -148,6 +263,7 @@ class RecommendationEngine:
         logger.info("Recommendation process timing summary:")
         logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
         logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
+        logger.info(f"  - Watched items filtering step: {filter_time:.2f} seconds")
         logger.info(f"  - Backend transformation step: {backend_time:.2f} seconds")
         logger.info(f"  - Total process time: {total_time:.2f} seconds")
 

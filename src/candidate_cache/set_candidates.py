@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
         "cluster_enabled": True,  # Enable cluster mode
     },
     # todo: configure this as per CRON jobs
-    "expire_seconds": 86400 * 7,
+    "expire_seconds": 86400 * 30,
     "verify_sample_size": 5,
     # todo: add vector index as config
     "vector_index_name": "video_embeddings",
@@ -674,26 +674,36 @@ class CandidateEmbeddingPopulator:
         except Exception as e:
             logger.info(f"Error checking if index exists: {e}")
 
-                # Check if data exists with the configured prefix (for logging purposes only)
+            # Check if data exists with the configured prefix (for logging purposes only)
         data_exists = False
         try:
             # Use keys method with the prefix to check if data exists
-            keys_with_prefix = self.vector_service.keys(f"{self.config['vector_key_prefix']}*")
+            keys_with_prefix = self.vector_service.keys(
+                f"{self.config['vector_key_prefix']}*"
+            )
             data_exists = len(keys_with_prefix) > 0
-            logger.info(f"Vector data exists: {data_exists} (found {len(keys_with_prefix)} keys)")
+            logger.info(
+                f"Vector data exists: {data_exists} (found {len(keys_with_prefix)} keys)"
+            )
             if data_exists:
-                logger.info("Existing vector data will be preserved and updated as needed")
+                logger.info(
+                    "Existing vector data will be preserved and updated as needed"
+                )
         except Exception as e:
             logger.info(f"Error checking if data exists: {e}")
 
-                # Create vector index only if it doesn't exist
+            # Create vector index only if it doesn't exist
         if not index_exists:
-            logger.info(f"Creating vector index '{self.config['vector_index_name']}'...")
+            logger.info(
+                f"Creating vector index '{self.config['vector_index_name']}'..."
+            )
             self.vector_service.create_vector_index(
                 id_field="video_id", index_name=self.config["vector_index_name"]
             )
         else:
-            logger.info(f"Using existing vector index '{self.config['vector_index_name']}'...")
+            logger.info(
+                f"Using existing vector index '{self.config['vector_index_name']}'..."
+            )
 
         # Always upload embeddings to Valkey, which will update existing entries or add new ones
         logger.info(f"Uploading {len(embeddings)} video embeddings to Valkey...")
@@ -761,7 +771,8 @@ if __name__ == "__main__":
     stats = multi_populator.populate_all()
     print(f"Upload complete with stats: {stats}")
 
+    # deprecated
     # Option 3: Populate vector embeddings for candidates
-    embedding_populator = CandidateEmbeddingPopulator(multi_populator=multi_populator)
-    embedding_stats = embedding_populator.populate_vector_store()
-    print(f"Embedding upload complete with stats: {embedding_stats}")
+    # embedding_populator = CandidateEmbeddingPopulator(multi_populator=multi_populator)
+    # embedding_stats = embedding_populator.populate_vector_store()
+    # print(f"Embedding upload complete with stats: {embedding_stats}")

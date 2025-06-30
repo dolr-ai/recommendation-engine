@@ -34,7 +34,7 @@ DEFAULT_CONFIG = {
         "cluster_enabled": True,  # Enable cluster mode
     },
     # todo: configure this as per CRON jobs
-    "expire_seconds": 86400 * 7,
+    "expire_seconds": 86400 * 30,
     "verify_sample_size": 5,
 }
 

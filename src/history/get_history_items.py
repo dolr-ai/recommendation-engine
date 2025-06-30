@@ -1,0 +1,178 @@
+"""
+This script provides a simple method to check if users have watched specific videos
+using Redis sets stored in the candidate cache.
+"""
+
+import os
+from typing import Dict, List, Optional, Any, Union
+
+# utils
+from utils.gcp_utils import GCPUtils
+from utils.common_utils import get_logger
+from utils.valkey_utils import ValkeyService
+from utils.common_utils import time_execution
+
+logger = get_logger(__name__)
+
+# Default configuration
+DEFAULT_CONFIG = {
+    "valkey": {
+        "host": "10.128.15.210",
+        "port": 6379,
+        "instance_id": "candidate-cache",
+        "ssl_enabled": True,
+        "socket_timeout": 15,
+        "socket_connect_timeout": 15,
+        "cluster_enabled": True,
+    },
+}
+
+
+class UserHistoryChecker:
+    """
+    Simple class to check if users have watched specific videos using Redis sets.
+    """
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize the history checker.
+
+        Args:
+            config: Optional configuration dictionary to override defaults
+        """
+        self.config = DEFAULT_CONFIG.copy()
+        if config:
+            self.config.update(config)
+
+        # Setup GCP utils
+        self.gcp_utils = self._setup_gcp_utils()
+
+        # Initialize Valkey service
+        self.valkey_service = ValkeyService(
+            core=self.gcp_utils.core, **self.config["valkey"]
+        )
+
+    def _setup_gcp_utils(self):
+        """Setup GCP utils from environment variable."""
+        gcp_credentials = os.getenv("GCP_CREDENTIALS")
+        if not gcp_credentials:
+            raise ValueError("GCP_CREDENTIALS environment variable is required")
+        return GCPUtils(gcp_credentials=gcp_credentials)
+
+    def _format_key(self, user_id: str) -> str:
+        """Format key for user history Redis set."""
+        return f"history:{user_id}:videos"
+
+    @time_execution
+    def has_watched(
+        self, user_id: str, video_ids: Union[str, List[str]]
+    ) -> Union[bool, Dict[str, bool]]:
+        """
+        Check if a user has watched specific video(s).
+
+        Args:
+            user_id: The user ID
+            video_ids: Single video ID (str) or list of video IDs
+
+        Returns:
+            - If video_ids is str: Returns bool (True if watched, False otherwise)
+            - If video_ids is list: Returns dict mapping video_id -> bool
+        """
+        if isinstance(video_ids, str):
+            # Single video check
+            try:
+                key = self._format_key(user_id)
+                return self.valkey_service.sismember(key, video_ids)
+            except Exception as e:
+                logger.error(
+                    f"Error checking if user {user_id} watched video {video_ids}: {e}"
+                )
+                return False
+
+        elif isinstance(video_ids, list):
+            # Multiple videos check - use sscan_iter for efficiency with large sets
+            if not video_ids:
+                return {}
+
+            try:
+                key = self._format_key(user_id)
+
+                # Check if user history exists
+                if not self.valkey_service.exists(key):
+                    return {video_id: False for video_id in video_ids}
+
+                # Convert video_ids to set for faster lookup
+                video_ids_set = set(video_ids)
+                watched_videos = set()
+
+                # Use sscan_iter to scan through user's watch history
+                for watched_video in self.valkey_service.sscan_iter(key, count=1000):
+                    if watched_video in video_ids_set:
+                        watched_videos.add(watched_video)
+                        # Early exit if we found all videos
+                        if len(watched_videos) == len(video_ids_set):
+                            break
+
+                # Return results for all requested videos
+                return {video_id: video_id in watched_videos for video_id in video_ids}
+
+            except Exception as e:
+                logger.error(
+                    f"Error checking if user {user_id} watched videos {video_ids}: {e}"
+                )
+                return {video_id: False for video_id in video_ids}
+
+        else:
+            raise ValueError("video_ids must be either a string or a list of strings")
+
+
+# Convenience function for quick usage
+def check_user_watched_videos(
+    user_id: str,
+    video_ids: Union[str, List[str]],
+    config: Optional[Dict[str, Any]] = None,
+) -> Union[bool, Dict[str, bool]]:
+    """
+    Convenience function to quickly check if a user has watched specific videos.
+
+    Args:
+        user_id: The user ID
+        video_ids: Single video ID (str) or list of video IDs
+        config: Optional configuration dictionary
+
+    Returns:
+        - If video_ids is str: Returns bool (True if watched, False otherwise)
+        - If video_ids is list: Returns dict mapping video_id -> bool
+    """
+    checker = UserHistoryChecker(config=config)
+    return checker.has_watched(user_id, video_ids)
+
+
+# Example usage
+if __name__ == "__main__":
+    # Create history checker
+    checker = UserHistoryChecker()
+
+    # Example user and videos
+    test_user = "igog5-xjp3p-voffx-7kr6d-k3q3a-t5hsi-iw3cj-5prao-puh4p-fhphr-tqe"
+    test_video = "335215b0b845499796d30a5c4601eb5c"
+    test_videos = [
+        "517e47f9dd18487eb15161179e63a5b2",
+        "708a86d388b040b5a66715d880884e38",
+        "bad7cb64f4374b91b6370c9a80204c1b",
+        "v1",
+        "v2",
+        "v3",
+    ]
+
+    # Check single video
+    has_watched_single = checker.has_watched(test_user, test_video)
+    logger.info(f"User {test_user} has watched {test_video}: {has_watched_single}")
+
+    # Check multiple videos
+    has_watched_multiple = checker.has_watched(test_user, test_videos)
+    logger.info(f"User {test_user} watch history: {has_watched_multiple}")
+
+    # Using convenience function
+    quick_check = check_user_watched_videos(test_user, test_videos)
+    logger.info(f"Quick check - User {test_user} watched {test_video}: {quick_check}")
