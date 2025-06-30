@@ -6,6 +6,7 @@ recommendation process.
 """
 
 import datetime
+import asyncio
 from typing import List, Optional
 from utils.common_utils import get_logger
 from recommendation.similarity_bq import SimilarityService
@@ -241,6 +242,18 @@ class RecommendationEngine:
         )
         filter_time = (datetime.datetime.now() - filter_start).total_seconds()
         logger.info(f"Watched items filtering completed in {filter_time:.2f} seconds")
+
+        # Step 3.5: Asynchronously update Redis cache with real-time watched items
+        if exclude_watched_items:
+            # Fire and forget - don't wait for completion
+            asyncio.create_task(
+                self.history_service.update_watched_items_async(
+                    user_id, exclude_watched_items
+                )
+            )
+            logger.info(
+                f"Triggered async Redis cache update for user {user_id} with {len(exclude_watched_items)} items"
+            )
 
         # Step 4: Transform filtered recommendations to backend format with metadata
         backend_start = datetime.datetime.now()

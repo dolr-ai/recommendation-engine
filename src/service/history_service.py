@@ -6,6 +6,7 @@ and filter recommendations based on watch history.
 """
 
 import os
+import asyncio
 from typing import Dict, Any, Optional, List, Union
 from history.get_history_items import UserHistoryChecker, DEFAULT_CONFIG
 from utils.common_utils import get_logger
@@ -86,6 +87,61 @@ class HistoryService:
                 return False
             else:
                 return {video_id: False for video_id in video_ids}
+
+    async def update_watched_items_async(
+        self, user_id: str, video_ids: List[str]
+    ) -> None:
+        """
+        Asynchronously update Redis cache with new watched items.
+        This method runs in the background and doesn't block the main recommendation flow.
+
+        Args:
+            user_id: The user ID
+            video_ids: List of video IDs to add to user's watch history
+        """
+        if not video_ids:
+            return
+
+        try:
+            # Run the Redis update in a thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None, self._update_watched_items_sync, user_id, video_ids
+            )
+        except Exception as e:
+            logger.error(f"Error in async watched items update for user {user_id}: {e}")
+
+    def _update_watched_items_sync(self, user_id: str, video_ids: List[str]) -> None:
+        """
+        Synchronously update Redis cache with new watched items.
+        This method runs in a thread pool to avoid blocking the main flow.
+
+        Args:
+            user_id: The user ID
+            video_ids: List of video IDs to add to user's watch history
+        """
+        try:
+            logger.info(
+                f"Updating Redis cache for user {user_id} with {len(video_ids)} new watched items"
+            )
+
+            # Format the Redis key (same as in set_history_items.py)
+            key = f"history:{user_id}:videos"
+
+            # Add video IDs to the Redis set
+            added_count = self._history_checker.valkey_service.sadd(key, *video_ids)
+
+            # Set expiration if not already set (60 days as per set_history_items.py)
+            ttl = self._history_checker.valkey_service.ttl(key)
+            if ttl == -1:  # No expiration set
+                self._history_checker.valkey_service.expire(key, 86400 * 60)  # 60 days
+
+            logger.info(
+                f"Successfully added {added_count} new items to Redis cache for user {user_id}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to update Redis cache for user {user_id}: {e}")
 
     def filter_watched_recommendations(
         self, user_id: str, recommendations: List[str]
