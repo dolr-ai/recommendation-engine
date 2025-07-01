@@ -5,10 +5,8 @@ This module provides a service to check if users have watched specific videos
 and filter recommendations based on watch history.
 """
 
-import os
-import asyncio
 from typing import Dict, Any, Optional, List, Union
-from history.get_history_items import UserHistoryChecker, DEFAULT_CONFIG
+from recommendation.history import HistoryManager
 from utils.common_utils import get_logger
 
 logger = get_logger(__name__)
@@ -18,7 +16,7 @@ class HistoryService:
     """Service for checking user watch history and filtering recommendations."""
 
     _instance = None
-    _history_checker = None
+    _history_manager = None
 
     @classmethod
     def get_instance(cls):
@@ -26,36 +24,19 @@ class HistoryService:
         if cls._instance is None:
             logger.info("Creating new HistoryService instance")
             cls._instance = cls()
-            cls._initialize_history_checker()
+            cls._initialize_history_manager()
         return cls._instance
 
     @classmethod
-    def _initialize_history_checker(cls):
-        """Initialize history checker."""
+    def _initialize_history_manager(cls):
+        """Initialize history manager."""
         try:
-            logger.info("Initializing history checker")
+            logger.info("Initializing history manager")
 
-            # Get configuration from environment or use defaults
-            config = DEFAULT_CONFIG.copy()
+            # Initialize history manager
+            cls._history_manager = HistoryManager()
 
-            # Allow environment variable overrides
-            valkey_host = os.getenv("VALKEY_HOST")
-            if valkey_host:
-                config["valkey"]["host"] = valkey_host
-
-            valkey_port = os.getenv("VALKEY_PORT")
-            if valkey_port:
-                try:
-                    config["valkey"]["port"] = int(valkey_port)
-                except ValueError:
-                    logger.warning(
-                        f"Invalid VALKEY_PORT value: {valkey_port}, using default"
-                    )
-
-            # Initialize history checker
-            cls._history_checker = UserHistoryChecker(config=config)
-
-            logger.info("History checker initialized successfully")
+            logger.info("History manager initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize history service: {e}")
             raise
@@ -74,19 +55,7 @@ class HistoryService:
             - If video_ids is str: Returns bool (True if watched, False otherwise)
             - If video_ids is list: Returns dict mapping video_id -> bool
         """
-        logger.info(f"Checking watch history for user {user_id}")
-
-        try:
-            return self._history_checker.has_watched(user_id, video_ids)
-        except Exception as e:
-            error_msg = f"Error checking watch history for user {user_id}: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-
-            # Return default values on error
-            if isinstance(video_ids, str):
-                return False
-            else:
-                return {video_id: False for video_id in video_ids}
+        return self._history_manager.has_watched(user_id, video_ids)
 
     async def update_watched_items_async(
         self, user_id: str, video_ids: List[str]
@@ -99,49 +68,7 @@ class HistoryService:
             user_id: The user ID
             video_ids: List of video IDs to add to user's watch history
         """
-        if not video_ids:
-            return
-
-        try:
-            # Run the Redis update in a thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None, self._update_watched_items_sync, user_id, video_ids
-            )
-        except Exception as e:
-            logger.error(f"Error in async watched items update for user {user_id}: {e}")
-
-    def _update_watched_items_sync(self, user_id: str, video_ids: List[str]) -> None:
-        """
-        Synchronously update Redis cache with new watched items.
-        This method runs in a thread pool to avoid blocking the main flow.
-
-        Args:
-            user_id: The user ID
-            video_ids: List of video IDs to add to user's watch history
-        """
-        try:
-            logger.info(
-                f"Updating Redis cache for user {user_id} with {len(video_ids)} new watched items"
-            )
-
-            # Format the Redis key (same as in set_history_items.py)
-            key = f"history:{user_id}:videos"
-
-            # Add video IDs to the Redis set
-            added_count = self._history_checker.valkey_service.sadd(key, *video_ids)
-
-            # Set expiration if not already set (60 days as per set_history_items.py)
-            ttl = self._history_checker.valkey_service.ttl(key)
-            if ttl == -1:  # No expiration set
-                self._history_checker.valkey_service.expire(key, 86400 * 60)  # 60 days
-
-            logger.info(
-                f"Successfully added {added_count} new items to Redis cache for user {user_id}"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to update Redis cache for user {user_id}: {e}")
+        await self._history_manager.update_watched_items_async(user_id, video_ids)
 
     def filter_watched_recommendations(
         self, user_id: str, recommendations: List[str]
@@ -160,56 +87,6 @@ class HistoryService:
             - watch_status: Dictionary mapping video_id -> bool (watched status)
             - error: Error message if any occurred
         """
-        logger.info(f"Filtering watched recommendations for user {user_id}")
-
-        if not recommendations:
-            logger.info(f"No recommendations to filter for user {user_id}")
-            return {
-                "unwatched_recommendations": [],
-                "watched_recommendations": [],
-                "watch_status": {},
-                "error": None,
-            }
-
-        try:
-            # Check watch status for all recommendations
-            watch_status = self.has_watched(user_id, recommendations)
-
-            # If error occurred, watch_status will be all False
-            if isinstance(watch_status, dict):
-                unwatched = [
-                    vid for vid, watched in watch_status.items() if not watched
-                ]
-                watched = [vid for vid, watched in watch_status.items() if watched]
-
-                logger.info(
-                    f"User {user_id} filtering results: {len(unwatched)} unwatched, "
-                    f"{len(watched)} watched out of {len(recommendations)} total"
-                )
-
-                return {
-                    "unwatched_recommendations": unwatched,
-                    "watched_recommendations": watched,
-                    "watch_status": watch_status,
-                    "error": None,
-                }
-            else:
-                # This shouldn't happen with list input, but handle gracefully
-                error_msg = f"Unexpected response type from watch history check for user {user_id}"
-                logger.error(error_msg)
-                return {
-                    "unwatched_recommendations": recommendations,
-                    "watched_recommendations": [],
-                    "watch_status": {vid: False for vid in recommendations},
-                    "error": error_msg,
-                }
-
-        except Exception as e:
-            error_msg = f"Error filtering recommendations for user {user_id}: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            return {
-                "unwatched_recommendations": recommendations,  # Return all as unwatched on error
-                "watched_recommendations": [],
-                "watch_status": {vid: False for vid in recommendations},
-                "error": error_msg,
-            }
+        return self._history_manager.filter_simple_recommendations(
+            user_id, recommendations
+        )

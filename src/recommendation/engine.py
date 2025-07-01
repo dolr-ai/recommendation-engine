@@ -15,7 +15,8 @@ from recommendation.reranking import RerankingService
 from recommendation.mixer import MixerService
 from recommendation.config import RecommendationConfig
 from recommendation.backend import transform_recommendations_with_metadata
-from service.history_service import HistoryService
+from recommendation.history import HistoryManager
+from recommendation.metadata import MetadataManager
 
 logger = get_logger(__name__)
 
@@ -52,8 +53,11 @@ class RecommendationEngine:
 
         self.mixer_service = MixerService()
 
-        # Initialize history service for watched items filtering
-        self.history_service = HistoryService.get_instance()
+        # Initialize history manager for watched items filtering
+        self.history_manager = HistoryManager()
+
+        # Initialize metadata manager for user metadata
+        self.metadata_manager = MetadataManager()
 
         init_time = (datetime.datetime.now() - start_time).total_seconds()
         logger.info(
@@ -77,74 +81,58 @@ class RecommendationEngine:
         Returns:
             Filtered recommendations dictionary
         """
-        if not exclude_watched_items:
-            exclude_watched_items = []
-
-        logger.info(f"Filtering watched items for user {user_id}")
-        logger.info(f"Real-time exclude list: {len(exclude_watched_items)} items")
-
-        # Get all video IDs from recommendations
-        all_video_ids = set()
-        all_video_ids.update(recommendations.get("recommendations", []))
-        all_video_ids.update(recommendations.get("fallback_recommendations", []))
-
-        if not all_video_ids:
-            logger.info("No recommendations to filter")
-            return recommendations
-
-        # Check watch history for all video IDs
-        watch_status = self.history_service.has_watched(user_id, list(all_video_ids))
-
-        # Combine historical watch status with real-time exclude list
-        watched_videos = set()
-
-        if isinstance(watch_status, dict):
-            # Add historically watched videos
-            for video_id, is_watched in watch_status.items():
-                if is_watched:
-                    watched_videos.add(video_id)
-
-        # Add real-time exclude items
-        watched_videos.update(exclude_watched_items)
-
-        logger.info(f"Total watched items to exclude: {len(watched_videos)}")
-
-        # Filter main recommendations
-        main_recommendations = recommendations.get("recommendations", [])
-        filtered_main = [
-            vid for vid in main_recommendations if vid not in watched_videos
-        ]
-
-        # Filter fallback recommendations
-        fallback_recommendations = recommendations.get("fallback_recommendations", [])
-        filtered_fallback = [
-            vid for vid in fallback_recommendations if vid not in watched_videos
-        ]
-
-        # Log filtering results
-        original_main_count = len(main_recommendations)
-        original_fallback_count = len(fallback_recommendations)
-        filtered_main_count = len(filtered_main)
-        filtered_fallback_count = len(filtered_fallback)
-
-        logger.info(
-            f"Filtering results for user {user_id}: "
-            f"Main: {original_main_count} -> {filtered_main_count} "
-            f"({original_main_count - filtered_main_count} removed), "
-            f"Fallback: {original_fallback_count} -> {filtered_fallback_count} "
-            f"({original_fallback_count - filtered_fallback_count} removed)"
+        return self.history_manager.filter_watched_recommendations(
+            user_id=user_id,
+            recommendations=recommendations,
+            exclude_watched_items=exclude_watched_items,
         )
 
-        # Return filtered recommendations (only recommendations and fallback_recommendations)
-        filtered_recommendations = recommendations.copy()
-        filtered_recommendations.update(
-            {
-                "recommendations": filtered_main,
-                "fallback_recommendations": filtered_fallback,
-            }
-        )
+    def _enrich_user_profile(self, user_profile):
+        """
+        Enrich user profile with metadata if cluster_id or watch_time_quantile_bin_id are missing.
 
-        return filtered_recommendations
+        Args:
+            user_profile: User profile dictionary
+
+        Returns:
+            Enriched user profile dictionary
+        """
+        user_id = user_profile.get("user_id")
+        cluster_id = user_profile.get("cluster_id")
+        watch_time_quantile_bin_id = user_profile.get("watch_time_quantile_bin_id")
+
+        # If both metadata fields are provided, return as is
+        if cluster_id is not None and watch_time_quantile_bin_id is not None:
+            logger.info(
+                f"User {user_id} metadata already provided: cluster_id={cluster_id}, watch_time_quantile_bin_id={watch_time_quantile_bin_id}"
+            )
+            return user_profile
+
+        # Fetch metadata directly from the metadata manager
+        logger.info(f"Fetching metadata for user {user_id}")
+        metadata = self.metadata_manager.get_user_metadata(user_id)
+
+        # Update user profile with fetched metadata or fallback values
+        enriched_profile = user_profile.copy()
+
+        if metadata.get("error"):
+            logger.warning(
+                f"Failed to fetch metadata for user {user_id}: {metadata['error']}. Using fallback values."
+            )
+            # Use fallback values instead of failing
+            enriched_profile["cluster_id"] = -1  # Default cluster
+            enriched_profile["watch_time_quantile_bin_id"] = -1  # Default bin
+        else:
+            enriched_profile["cluster_id"] = metadata["cluster_id"]
+            enriched_profile["watch_time_quantile_bin_id"] = metadata[
+                "watch_time_quantile_bin_id"
+            ]
+            logger.info(
+                f"Enriched user {user_id} profile: cluster_id={metadata['cluster_id']}, "
+                f"watch_time_quantile_bin_id={metadata['watch_time_quantile_bin_id']}"
+            )
+
+        return enriched_profile
 
     def get_recommendations(
         self,
@@ -188,6 +176,31 @@ class RecommendationEngine:
         start_time = datetime.datetime.now()
         user_id = user_profile.get("user_id", "unknown")
 
+        # Enrich user profile with metadata if needed
+        enriched_profile = self._enrich_user_profile(user_profile)
+
+        # Check if metadata fetching failed (cluster_id or watch_time_quantile_bin_id is -1)
+        if (
+            enriched_profile.get("cluster_id") == -1
+            or enriched_profile.get("watch_time_quantile_bin_id") == -1
+        ):
+            logger.warning(
+                f"Returning empty recommendations for user {user_id} due to missing metadata"
+            )
+            processing_time_ms = (
+                datetime.datetime.now() - start_time
+            ).total_seconds() * 1000
+            return {
+                "recommendations": [],
+                "scores": {},
+                "sources": {},
+                "fallback_recommendations": [],
+                "fallback_scores": {},
+                "fallback_sources": {},
+                "processing_time_ms": processing_time_ms,
+                "error": "user id not found in cluster / metadata could not be fetched",
+            }
+
         # Use provided candidate types or default from config
         if candidate_types is None:
             candidate_types = self.config.candidate_types
@@ -195,7 +208,7 @@ class RecommendationEngine:
         # Step 1: Run reranking logic
         rerank_start = datetime.datetime.now()
         df_reranked = self.reranking_service.reranking_logic(
-            user_profile=user_profile,
+            user_profile=enriched_profile,
             candidate_types_dict=candidate_types,
             threshold=threshold,
             enable_deduplication=enable_deduplication,
@@ -227,11 +240,11 @@ class RecommendationEngine:
                 del mixer_output[key]
 
         # for testing realtime exclusion purposes
-        # mixer_output["recommendations"] += [
-        #     "8ae0d8edcd06453194024c53e99aea87",
-        #     "f81ae0243d7a40d5aac01d474bf2fd5a",
-        #     "b9215270bfee4a0aaa268335d7f536b1",
-        # ]
+        mixer_output["recommendations"] += [
+            "test_video1",
+            "test_video2",
+            "test_video3",
+        ]
 
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()
@@ -247,7 +260,7 @@ class RecommendationEngine:
         if exclude_watched_items:
             # Fire and forget - don't wait for completion
             asyncio.create_task(
-                self.history_service.update_watched_items_async(
+                self.history_manager.update_watched_items_async(
                     user_id, exclude_watched_items
                 )
             )
@@ -279,5 +292,8 @@ class RecommendationEngine:
         logger.info(f"  - Watched items filtering step: {filter_time:.2f} seconds")
         logger.info(f"  - Backend transformation step: {backend_time:.2f} seconds")
         logger.info(f"  - Total process time: {total_time:.2f} seconds")
+
+        # Add processing time
+        recommendations["processing_time_ms"] = total_time * 1000
 
         return recommendations

@@ -230,8 +230,8 @@ def start():
     """Start the FastAPI application."""
     uvicorn.run(
         "service.app:app",
-        # host="localhost",
-        host="0.0.0.0",
+        host="localhost",
+        # host="0.0.0.0",
         port=8000,
         reload=False,
         log_level="info",
