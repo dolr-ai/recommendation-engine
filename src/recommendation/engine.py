@@ -9,10 +9,10 @@ import datetime
 import asyncio
 from typing import List, Optional
 from utils.common_utils import get_logger
-from recommendation.similarity_bq import SimilarityService
-from recommendation.candidates import CandidateService
-from recommendation.reranking import RerankingService
-from recommendation.mixer import MixerService
+from recommendation.similarity_bq import SimilarityManager
+from recommendation.candidates import CandidateManager
+from recommendation.reranking import RerankingManager
+from recommendation.mixer import MixerManager
 from recommendation.config import RecommendationConfig
 from recommendation.backend import transform_recommendations_with_metadata
 from recommendation.history import HistoryManager
@@ -38,20 +38,20 @@ class RecommendationEngine:
         self.config = config if config is not None else RecommendationConfig()
 
         # Initialize services
-        self.similarity_service = SimilarityService(
+        self.similarity_manager = SimilarityManager(
             gcp_utils=self.config.gcp_utils,
         )
 
-        self.candidate_service = CandidateService(
+        self.candidate_manager = CandidateManager(
             valkey_config=self.config.valkey_config,
         )
 
-        self.reranking_service = RerankingService(
-            similarity_service=self.similarity_service,
-            candidate_service=self.candidate_service,
+        self.reranking_manager = RerankingManager(
+            similarity_manager=self.similarity_manager,
+            candidate_manager=self.candidate_manager,
         )
 
-        self.mixer_service = MixerService()
+        self.mixer_manager = MixerManager()
 
         # Initialize history manager for watched items filtering
         self.history_manager = HistoryManager()
@@ -207,7 +207,7 @@ class RecommendationEngine:
 
         # Step 1: Run reranking logic
         rerank_start = datetime.datetime.now()
-        df_reranked = self.reranking_service.reranking_logic(
+        df_reranked = self.reranking_manager.reranking_logic(
             user_profile=enriched_profile,
             candidate_types_dict=candidate_types,
             threshold=threshold,
@@ -220,7 +220,7 @@ class RecommendationEngine:
 
         # Step 2: Run mixer algorithm
         mixer_start = datetime.datetime.now()
-        mixer_output = self.mixer_service.mixer_algorithm(
+        mixer_output = self.mixer_manager.mixer_algorithm(
             df_reranked=df_reranked,
             candidate_types_dict=candidate_types,
             top_k=top_k,

@@ -18,12 +18,12 @@ from candidate_cache.get_candidates import (
 logger = get_logger(__name__)
 
 
-class CandidateService:
-    """Service for fetching and processing recommendation candidates."""
+class CandidateManager:
+    """Core manager for fetching and processing recommendation candidates."""
 
     def __init__(self, valkey_config):
         """
-        Initialize candidate service.
+        Initialize candidate manager.
 
         Args:
             valkey_config: Valkey configuration dictionary
@@ -33,7 +33,7 @@ class CandidateService:
         self.wt_fetcher = None
         self.fallback_fetcher = None
 
-        logger.info("CandidateService initialized")
+        logger.info("CandidateManager initialized")
 
     def _initialize_fetchers(self, candidate_types_dict):
         """

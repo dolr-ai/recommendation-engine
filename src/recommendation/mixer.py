@@ -11,12 +11,12 @@ from utils.common_utils import get_logger
 logger = get_logger(__name__)
 
 
-class MixerService:
+class MixerManager:
     """Service for mixing recommendation candidates."""
 
     def __init__(self):
         """Initialize mixer service."""
-        logger.info("MixerService initialized")
+        logger.info("MixerManager initialized")
 
     def mixer_algorithm(
         self,

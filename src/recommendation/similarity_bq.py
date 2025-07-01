@@ -12,7 +12,7 @@ import os
 logger = get_logger(__name__)
 
 
-class SimilarityService:
+class SimilarityManager:
     """Service for calculating similarity between video embeddings using BigQuery."""
 
     def __init__(self, gcp_utils):
@@ -23,7 +23,7 @@ class SimilarityService:
             gcp_utils: GCPUtils instance for BigQuery operations
         """
         self.gcp_utils = gcp_utils
-        logger.info("BigQuery SimilarityService initialized")
+        logger.info("BigQuery SimilarityManager initialized")
 
         # The BigQuery table containing video embeddings
         self.embedding_table = os.environ.get(
@@ -82,7 +82,7 @@ class SimilarityService:
             # Execute the query
             results_df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
 
-            # Convert results to the expected format (same as the original SimilarityService)
+            # Convert results to the expected format (same as the original SimilarityManager)
             formatted_results = {}
 
             for _, row in results_df.iterrows():

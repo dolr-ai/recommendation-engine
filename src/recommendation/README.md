@@ -92,9 +92,9 @@ user_profile = {
 
 The system implements caching for fallback candidates to avoid repeatedly fetching the same data:
 
-- Fallback candidates are cached by cluster_id in the CandidateService
+- Fallback candidates are cached by cluster_id in the CandidateManager
 - Once fetched, the same fallback candidates are reused for all subsequent operations
-- Video embeddings are also cached in the SimilarityService to avoid repeated vector lookups
+- Video embeddings are also cached in the SimilarityManager to avoid repeated vector lookups
 - This significantly improves performance when processing recommendations for a user
 
 To specify the maximum number of fallback candidates to cache:

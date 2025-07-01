@@ -13,20 +13,20 @@ from utils.common_utils import get_logger
 logger = get_logger(__name__)
 
 
-class RerankingService:
+class RerankingManager:
     """Service for reranking recommendation candidates."""
 
-    def __init__(self, similarity_service, candidate_service):
+    def __init__(self, similarity_manager, candidate_manager):
         """
         Initialize reranking service.
 
         Args:
-            similarity_service: SimilarityService instance for calculating similarity scores
-            candidate_service: CandidateService instance for fetching candidates
+            similarity_manager: SimilarityManager instance for calculating similarity scores
+            candidate_manager: CandidateManager instance for fetching candidates
         """
-        self.similarity_service = similarity_service
-        self.candidate_service = candidate_service
-        logger.info("RerankingService initialized")
+        self.similarity_manager = similarity_manager
+        self.candidate_manager = candidate_manager
+        logger.info("RerankingManager initialized")
 
     def _process_single_candidate_type(
         self,
@@ -115,7 +115,7 @@ class RerankingService:
             return type_num, {}
 
         # Calculate similarity scores for all query videos against all candidates at once
-        similarity_results = self.similarity_service.calculate_similarity(
+        similarity_results = self.similarity_manager.calculate_similarity(
             query_videos_with_candidates, all_search_space
         )
 
@@ -265,7 +265,7 @@ class RerankingService:
 
         # 1. Filter and sort watch history items by threshold and last_watched_timestamp
         query_videos, watch_percentages = (
-            self.candidate_service.filter_and_sort_watch_history(
+            self.candidate_manager.filter_and_sort_watch_history(
                 watch_history, threshold
             )
         )
@@ -282,7 +282,7 @@ class RerankingService:
             return pd.DataFrame(columns=columns)
 
         # 2. Fetch candidates for all query videos
-        all_candidates = self.candidate_service.fetch_candidates(
+        all_candidates = self.candidate_manager.fetch_candidates(
             query_videos,
             cluster_id,
             bin_id,
