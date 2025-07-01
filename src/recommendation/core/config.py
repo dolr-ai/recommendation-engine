@@ -39,8 +39,8 @@ class RecommendationConfig:
     """Configuration class for recommendation engine."""
 
     # Recommendation parameters
-    TOP_K = 25
-    FALLBACK_TOP_K = 50
+    TOP_K = 50
+    FALLBACK_TOP_K = 100
     THRESHOLD = 0.1
     ENABLE_DEDUPLICATION = True
     MAX_WORKERS = 4

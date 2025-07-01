@@ -268,6 +268,9 @@ class RecommendationEngine:
         #     "test_video4",
         # ]
 
+        # output of mixer algorithm after deleting scores and sources
+        # {'recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4'], 'fallback_recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4']}
+
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()
         filtered_recommendations = self._filter_watched_items(
@@ -322,6 +325,15 @@ class RecommendationEngine:
             dedup_time = 0
             logger.info("Deduplication skipped (disabled in config)")
 
+        # Log recommendation results
+        main_rec_count = len(filtered_recommendations.get("recommendations", []))
+        fallback_rec_count = len(
+            filtered_recommendations.get("fallback_recommendations", [])
+        )
+        logger.info(
+            f"Generated {main_rec_count} main recommendations and {fallback_rec_count} fallback recommendations"
+        )
+
         # Step 5: Transform filtered recommendations to backend format with metadata
         backend_start = datetime.datetime.now()
         recommendations = transform_recommendations_with_metadata(
@@ -329,13 +341,6 @@ class RecommendationEngine:
         )
         backend_time = (datetime.datetime.now() - backend_start).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")
-
-        # Log recommendation results
-        main_rec_count = len(recommendations.get("recommendations", []))
-        fallback_rec_count = len(recommendations.get("fallback_recommendations", []))
-        logger.info(
-            f"Generated {main_rec_count} main recommendations and {fallback_rec_count} fallback recommendations"
-        )
 
         total_time = (datetime.datetime.now() - start_time).total_seconds()
 
