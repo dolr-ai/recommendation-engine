@@ -9,6 +9,7 @@ from utils.common_utils import get_logger
 logger = get_logger(__name__)
 logger.info("Recommendation engine package initialized")
 
-from recommendation.engine import RecommendationEngine
+# Import main engine class from core submodule
+from recommendation.core.engine import RecommendationEngine
 
 __version__ = "0.1.0"

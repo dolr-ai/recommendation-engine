@@ -8,8 +8,8 @@ import time
 from typing import Dict, Any, Optional, List
 
 from utils.common_utils import get_logger
-from recommendation.config import RecommendationConfig
-from recommendation.engine import RecommendationEngine
+from recommendation.core.config import RecommendationConfig
+from recommendation.core.engine import RecommendationEngine
 
 logger = get_logger(__name__)
 

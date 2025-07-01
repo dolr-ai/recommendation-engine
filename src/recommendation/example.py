@@ -9,8 +9,8 @@ import json
 import pandas as pd
 from utils.common_utils import get_logger
 from utils.gcp_utils import GCPUtils
-from recommendation.config import RecommendationConfig
-from recommendation.engine import RecommendationEngine
+from recommendation.core.config import RecommendationConfig
+from recommendation.core.engine import RecommendationEngine
 
 logger = get_logger(__name__)
 
@@ -84,6 +84,7 @@ def main():
             max_workers=4,
             max_fallback_candidates=200,
             min_similarity_threshold=0.4,
+            exclude_watched_items=["test_video1"],
         )
 
         # Print recommendations

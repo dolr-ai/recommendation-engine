@@ -4,13 +4,30 @@ This module provides a modular recommendation engine for generating personalized
 
 ## Module Structure
 
+The recommendation engine is organized into the following submodules:
+
+### Core
+- `core/engine.py`: Main recommendation engine class
+- `core/config.py`: Configuration management
+
+### Data
+- `data/metadata.py`: User metadata management
+- `data/backend.py`: Backend data transformation utilities
+
+### Processing
+- `processing/candidates.py`: Candidate fetching and processing
+- `processing/reranking.py`: Reranking logic for candidates
+- `processing/mixer.py`: Mixer algorithm for blending candidates
+
+### Filter
+- `filter/history.py`: User watch history filtering
+- `filter/deduplication.py`: Deduplication utilities
+
+### Utils
+- `utils/similarity_bq.py`: Vector similarity operations using BigQuery
+
+### Root Level
 - `__init__.py`: Package initialization
-- `config.py`: Configuration management
-- `similarity.py`: Vector similarity operations
-- `candidates.py`: Candidate fetching and processing
-- `reranking.py`: Reranking logic for candidates
-- `mixer.py`: Mixer algorithm for blending candidates
-- `engine.py`: Main recommendation engine class
 - `example.py`: Example script demonstrating usage
 
 ## Prerequisites
@@ -27,10 +44,10 @@ export GCP_CREDENTIALS=$(jq -c . '/path/to/credentials.json')
 The recommendation engine can be used as follows:
 
 ```python
-from recommendation.engine import create_recommendation_engine
+from recommendation import RecommendationEngine
 
 # Create recommendation engine
-engine = create_recommendation_engine()
+engine = RecommendationEngine()
 
 # Verify connection to vector service
 if not engine.verify_connection():
@@ -97,16 +114,6 @@ The system implements caching for fallback candidates to avoid repeatedly fetchi
 - Video embeddings are also cached in the SimilarityManager to avoid repeated vector lookups
 - This significantly improves performance when processing recommendations for a user
 
-To specify the maximum number of fallback candidates to cache:
-
-```python
-recommendations = engine.get_recommendations(
-    user_profile,
-    max_fallback_candidates=200,  # Will cache up to 200 fallback candidates per cluster/type
-    # Other parameters...
-)
-```
-
 ## Configuration
 
 The recommendation engine can be configured with custom candidate types and weights:
@@ -119,8 +126,8 @@ candidate_types = {
     4: {"name": "fallback_modified_iou", "weight": 0.5},
 }
 
-engine = create_recommendation_engine(
-    candidate_types=candidate_types,
+engine = RecommendationEngine(
+    config=RecommendationConfig(candidate_types=candidate_types)
 )
 ```
 

@@ -9,14 +9,14 @@ import datetime
 import asyncio
 from typing import List, Optional
 from utils.common_utils import get_logger
-from recommendation.similarity_bq import SimilarityManager
-from recommendation.candidates import CandidateManager
-from recommendation.reranking import RerankingManager
-from recommendation.mixer import MixerManager
-from recommendation.config import RecommendationConfig
-from recommendation.backend import transform_recommendations_with_metadata
-from recommendation.history import HistoryManager
-from recommendation.metadata import MetadataManager
+from recommendation.utils.similarity_bq import SimilarityManager
+from recommendation.processing.candidates import CandidateManager
+from recommendation.processing.reranking import RerankingManager
+from recommendation.processing.mixer import MixerManager
+from recommendation.core.config import RecommendationConfig
+from recommendation.data.backend import transform_recommendations_with_metadata
+from recommendation.filter.history import HistoryManager
+from recommendation.data.metadata import MetadataManager
 
 logger = get_logger(__name__)
 
@@ -256,17 +256,37 @@ class RecommendationEngine:
         filter_time = (datetime.datetime.now() - filter_start).total_seconds()
         logger.info(f"Watched items filtering completed in {filter_time:.2f} seconds")
 
-        # Step 3.5: Asynchronously update Redis cache with real-time watched items
+        # Step 3.5: Handle real-time watched items update
         if exclude_watched_items:
-            # Fire and forget - don't wait for completion
-            asyncio.create_task(
-                self.history_manager.update_watched_items_async(
-                    user_id, exclude_watched_items
+            try:
+                # Try to use asyncio if there's a running event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we get here, there's a running event loop
+                    asyncio.create_task(
+                        self.history_manager.update_watched_items_async(
+                            user_id, exclude_watched_items
+                        )
+                    )
+                    logger.info(
+                        f"Triggered async Redis cache update for user {user_id} with {len(exclude_watched_items)} items"
+                    )
+                except RuntimeError:
+                    # No running event loop, use synchronous version instead
+                    logger.info(
+                        f"No running event loop, using synchronous update for user {user_id}"
+                    )
+                    self.history_manager._update_watched_items_sync(
+                        user_id, exclude_watched_items
+                    )
+                    logger.info(
+                        f"Completed synchronous Redis cache update for user {user_id}"
+                    )
+            except Exception as e:
+                # Don't fail the recommendation process if history update fails
+                logger.warning(
+                    f"Failed to update watch history for user {user_id}: {e}"
                 )
-            )
-            logger.info(
-                f"Triggered async Redis cache update for user {user_id} with {len(exclude_watched_items)} items"
-            )
 
         # Step 4: Transform filtered recommendations to backend format with metadata
         backend_start = datetime.datetime.now()
