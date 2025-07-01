@@ -16,6 +16,7 @@ from recommendation.processing.mixer import MixerManager
 from recommendation.core.config import RecommendationConfig
 from recommendation.data.backend import transform_recommendations_with_metadata
 from recommendation.filter.history import HistoryManager
+from recommendation.filter.deduplication import DeduplicationManager
 from recommendation.data.metadata import MetadataManager
 
 logger = get_logger(__name__)
@@ -56,6 +57,9 @@ class RecommendationEngine:
         # Initialize history manager for watched items filtering
         self.history_manager = HistoryManager()
 
+        # Initialize deduplication manager for filtering duplicate videos
+        self.deduplication_manager = DeduplicationManager()
+
         # Initialize metadata manager for user metadata
         self.metadata_manager = MetadataManager()
 
@@ -85,6 +89,23 @@ class RecommendationEngine:
             user_id=user_id,
             recommendations=recommendations,
             exclude_watched_items=exclude_watched_items,
+        )
+
+    def _filter_duplicate_videos(
+        self,
+        recommendations: dict,
+    ) -> dict:
+        """
+        Filter out duplicate videos from recommendations.
+
+        Args:
+            recommendations: Dictionary containing recommendations and fallback recommendations
+
+        Returns:
+            Filtered recommendations dictionary
+        """
+        return self.deduplication_manager.filter_duplicate_recommendations(
+            recommendations=recommendations,
         )
 
     def _enrich_user_profile(self, user_profile):
@@ -239,12 +260,13 @@ class RecommendationEngine:
             if key in mixer_output:
                 del mixer_output[key]
 
-        # for testing realtime exclusion purposes
-        mixer_output["recommendations"] += [
-            "test_video1",
-            "test_video2",
-            "test_video3",
-        ]
+        # for testing realtime exclusion of watched items and dedup
+        # mixer_output["recommendations"] += [
+        #     "test_video1",
+        #     "test_video2",
+        #     "test_video3",
+        #     "test_video4",
+        # ]
 
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()
@@ -288,7 +310,19 @@ class RecommendationEngine:
                     f"Failed to update watch history for user {user_id}: {e}"
                 )
 
-        # Step 4: Transform filtered recommendations to backend format with metadata
+        # Step 4: Filter duplicate videos (only if deduplication is enabled)
+        dedup_start = datetime.datetime.now()
+        if enable_deduplication:
+            filtered_recommendations = self._filter_duplicate_videos(
+                recommendations=filtered_recommendations,
+            )
+            dedup_time = (datetime.datetime.now() - dedup_start).total_seconds()
+            logger.info(f"Deduplication completed in {dedup_time:.2f} seconds")
+        else:
+            dedup_time = 0
+            logger.info("Deduplication skipped (disabled in config)")
+
+        # Step 5: Transform filtered recommendations to backend format with metadata
         backend_start = datetime.datetime.now()
         recommendations = transform_recommendations_with_metadata(
             filtered_recommendations, self.config.gcp_utils
@@ -310,6 +344,8 @@ class RecommendationEngine:
         logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
         logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
         logger.info(f"  - Watched items filtering step: {filter_time:.2f} seconds")
+        if enable_deduplication:
+            logger.info(f"  - Deduplication step: {dedup_time:.2f} seconds")
         logger.info(f"  - Backend transformation step: {backend_time:.2f} seconds")
         logger.info(f"  - Total process time: {total_time:.2f} seconds")
 

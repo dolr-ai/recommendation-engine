@@ -6,5 +6,6 @@ and deduplication logic.
 """
 
 from recommendation.filter.history import HistoryManager
+from recommendation.filter.deduplication import DeduplicationManager
 
-__all__ = ["HistoryManager"]
+__all__ = ["HistoryManager", "DeduplicationManager"]
