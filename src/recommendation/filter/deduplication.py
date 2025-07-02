@@ -113,7 +113,7 @@ class DeduplicationManager:
                     duplicate_videos.add(video_id)
 
         logger.info(f"Total duplicate videos to exclude: {len(duplicate_videos)}")
-
+        logger.info(f"duplicate_videos: {duplicate_videos}")
         # Filter main recommendations
         main_recommendations = recommendations.get("recommendations", [])
         filtered_main = [

@@ -269,7 +269,7 @@ class RerankingManager:
                 watch_history, threshold
             )
         )
-
+        logger.info(f"total query_videos: {len(query_videos)} for user: {user_id}")
         if not query_videos:
             logger.warning(
                 f"No videos in watch history meet the threshold of {threshold}"
@@ -290,6 +290,7 @@ class RerankingManager:
             max_fallback_candidates,
             max_workers=max_workers,  # Pass max_workers to enable parallel fetching
         )
+        logger.info(f"total all_candidates: {len(all_candidates)} for user: {user_id}")
 
         # 3. Process all query videos in batch, with parallel processing for candidate types
         similarity_matrix = self.process_query_candidates_batch(
@@ -313,5 +314,5 @@ class RerankingManager:
 
         # Create DataFrame with query videos ordered from latest to oldest watched
         result_df = pd.DataFrame(df_data)
-
+        logger.info(f"total rows in result_df: {len(result_df)} for user: {user_id}")
         return result_df

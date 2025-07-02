@@ -312,7 +312,7 @@ class RecommendationEngine:
             user_profile=enriched_profile,
             candidate_types_dict=candidate_types,
             threshold=threshold,
-            enable_deduplication=enable_deduplication,
+            enable_deduplication=enable_deduplication,  # this is just video_id level dedup
             max_workers=max_workers,
             max_fallback_candidates=max_fallback_candidates,
         )
