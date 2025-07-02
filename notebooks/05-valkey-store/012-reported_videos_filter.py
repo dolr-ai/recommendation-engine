@@ -153,4 +153,4 @@ def print_report_stats(df_reports_grp):
 # Uncomment to print stats
 print_report_stats(df_reports_grp)
 # %%
-df_reports_grp.shape
+df_reports_grp[df_reports_grp["video_id"].apply(lambda x: len(x)) > 10]

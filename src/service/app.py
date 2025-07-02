@@ -101,7 +101,8 @@ async def get_recommendations(request: RecommendationRequest):
     Metadata (cluster_id and watch_time_quantile_bin_id) will be automatically fetched if not provided.
 
     Args:
-        request: Recommendation request containing user_id and optional parameters
+        request: Recommendation request containing user_id and optional parameters including
+                exclude_watched_items and exclude_reported_items for real-time filtering
 
     Returns:
         RecommendationResponse with recommendations and metadata
@@ -136,6 +137,7 @@ async def get_recommendations(request: RecommendationRequest):
         recommendations = service.get_recommendations(
             user_profile=user_profile,
             exclude_watched_items=request.exclude_watched_items,
+            exclude_reported_items=request.exclude_reported_items,
         )
 
         # Only include the fields present in the new RecommendationResponse model
@@ -165,7 +167,7 @@ async def get_batch_recommendations(
     Metadata (cluster_id and watch_time_quantile_bin_id) will be automatically fetched if not provided.
 
     Args:
-        requests: List of recommendation requests
+        requests: List of recommendation requests with optional exclude_watched_items and exclude_reported_items
         background_tasks: FastAPI background tasks
 
     Returns:
@@ -202,6 +204,7 @@ async def get_batch_recommendations(
             recommendations = service.get_recommendations(
                 user_profile=user_profile,
                 exclude_watched_items=request.exclude_watched_items,
+                exclude_reported_items=request.exclude_reported_items,
             )
 
             # Only include the fields present in the new RecommendationResponse model

@@ -16,6 +16,7 @@ from recommendation.processing.mixer import MixerManager
 from recommendation.core.config import RecommendationConfig
 from recommendation.data.backend import transform_recommendations_with_metadata
 from recommendation.filter.history import HistoryManager
+from recommendation.filter.reported import ReportedManager
 from recommendation.filter.deduplication import DeduplicationManager
 from recommendation.data.metadata import MetadataManager
 
@@ -57,6 +58,9 @@ class RecommendationEngine:
         # Initialize history manager for watched items filtering
         self.history_manager = HistoryManager()
 
+        # Initialize reported videos manager for filtering reported videos
+        self.reported_manager = ReportedManager()
+
         # Initialize deduplication manager for filtering duplicate videos
         self.deduplication_manager = DeduplicationManager()
 
@@ -91,6 +95,29 @@ class RecommendationEngine:
             exclude_watched_items=exclude_watched_items,
         )
 
+    def _filter_reported_videos(
+        self,
+        user_id: str,
+        recommendations: dict,
+        exclude_reported_items: Optional[List[str]] = None,
+    ) -> dict:
+        """
+        Filter out reported videos from recommendations.
+
+        Args:
+            user_id: The user ID
+            recommendations: Dictionary containing recommendations and fallback recommendations
+            exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
+
+        Returns:
+            Filtered recommendations dictionary
+        """
+        return self.reported_manager.filter_reported_recommendations(
+            user_id=user_id,
+            recommendations=recommendations,
+            exclude_reported_items=exclude_reported_items,
+        )
+
     def _filter_duplicate_videos(
         self,
         recommendations: dict,
@@ -107,6 +134,55 @@ class RecommendationEngine:
         return self.deduplication_manager.filter_duplicate_recommendations(
             recommendations=recommendations,
         )
+
+    def _update_cache_async_safe(
+        self, manager, user_id: str, items: List[str], cache_type: str
+    ):
+        """
+        Safely update cache (watched or reported items) with proper async/sync handling.
+
+        Args:
+            manager: The manager instance (history_manager or reported_manager)
+            user_id: The user ID
+            items: List of items to update in cache
+            cache_type: Type of cache for logging ("watched" or "reported")
+        """
+        if not items:
+            return
+
+        try:
+            # Try to use asyncio if there's a running event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # If we get here, there's a running event loop
+                if cache_type == "watched":
+                    asyncio.create_task(
+                        manager.update_watched_items_async(user_id, items)
+                    )
+                else:  # reported
+                    asyncio.create_task(
+                        manager.update_reported_items_async(user_id, items)
+                    )
+                logger.info(
+                    f"Triggered async Redis cache update for {cache_type} items for user {user_id} with {len(items)} items"
+                )
+            except RuntimeError:
+                # No running event loop, use synchronous version instead
+                logger.info(
+                    f"No running event loop, using synchronous update for {cache_type} items for user {user_id}"
+                )
+                if cache_type == "watched":
+                    manager._update_watched_items_sync(user_id, items)
+                else:  # reported
+                    manager._update_reported_items_sync(user_id, items)
+                logger.info(
+                    f"Completed synchronous Redis cache update for {cache_type} items for user {user_id}"
+                )
+        except Exception as e:
+            # Don't fail the recommendation process if cache update fails
+            logger.warning(
+                f"Failed to update {cache_type} cache for user {user_id}: {e}"
+            )
 
     def _enrich_user_profile(self, user_profile):
         """
@@ -163,6 +239,7 @@ class RecommendationEngine:
         top_k=RecommendationConfig.TOP_K,
         fallback_top_k=RecommendationConfig.FALLBACK_TOP_K,
         enable_deduplication=RecommendationConfig.ENABLE_DEDUPLICATION,
+        enable_reported_items_filtering=RecommendationConfig.ENABLE_REPORTED_ITEMS_FILTERING,
         max_workers=RecommendationConfig.MAX_WORKERS,
         max_fallback_candidates=RecommendationConfig.MAX_FALLBACK_CANDIDATES,
         recency_weight=RecommendationConfig.RECENCY_WEIGHT,
@@ -170,6 +247,7 @@ class RecommendationEngine:
         max_candidates_per_query=RecommendationConfig.MAX_CANDIDATES_PER_QUERY,
         min_similarity_threshold=RecommendationConfig.MIN_SIMILARITY_THRESHOLD,
         exclude_watched_items=RecommendationConfig.EXCLUDE_WATCHED_ITEMS,
+        exclude_reported_items=RecommendationConfig.EXCLUDE_REPORTED_ITEMS,
     ):
         """
         Get recommendations for a user.
@@ -181,6 +259,7 @@ class RecommendationEngine:
             top_k: Number of final recommendations to return
             fallback_top_k: Number of fallback recommendations to return
             enable_deduplication: Whether to remove duplicates from candidates
+            enable_reported_items_filtering: Whether to filter out reported items
             max_workers: Maximum number of worker threads for parallel processing
             max_fallback_candidates: Maximum number of fallback candidates to sample
                                     (if more are available). Fallback candidates are cached
@@ -190,6 +269,7 @@ class RecommendationEngine:
             max_candidates_per_query: Maximum number of candidates to consider from each query video
             min_similarity_threshold: Minimum similarity score to consider a candidate (0-1)
             exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
+            exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
 
         Returns:
             Dictionary with recommendations and fallback recommendations
@@ -260,12 +340,14 @@ class RecommendationEngine:
             if key in mixer_output:
                 del mixer_output[key]
 
-        # for testing realtime exclusion of watched items and dedup
+        # for testing realtime exclusion of watched items/ dedup/ reported items
         # mixer_output["recommendations"] += [
-        #     "test_video1",
-        #     "test_video2",
-        #     "test_video3",
+        #     "v1",
+        #     "v2",
+        #     "v3",
         #     "test_video4",
+        #     "d8c2964eee1346fb8820f596fec387e9",  # reported by some user x
+        #     "480c57236fa445b99877efb3f3393f4c",  # reported by some user x
         # ]
 
         # output of mixer algorithm after deleting scores and sources
@@ -281,39 +363,12 @@ class RecommendationEngine:
         filter_time = (datetime.datetime.now() - filter_start).total_seconds()
         logger.info(f"Watched items filtering completed in {filter_time:.2f} seconds")
 
-        # Step 3.5: Handle real-time watched items update
-        if exclude_watched_items:
-            try:
-                # Try to use asyncio if there's a running event loop
-                try:
-                    loop = asyncio.get_running_loop()
-                    # If we get here, there's a running event loop
-                    asyncio.create_task(
-                        self.history_manager.update_watched_items_async(
-                            user_id, exclude_watched_items
-                        )
-                    )
-                    logger.info(
-                        f"Triggered async Redis cache update for user {user_id} with {len(exclude_watched_items)} items"
-                    )
-                except RuntimeError:
-                    # No running event loop, use synchronous version instead
-                    logger.info(
-                        f"No running event loop, using synchronous update for user {user_id}"
-                    )
-                    self.history_manager._update_watched_items_sync(
-                        user_id, exclude_watched_items
-                    )
-                    logger.info(
-                        f"Completed synchronous Redis cache update for user {user_id}"
-                    )
-            except Exception as e:
-                # Don't fail the recommendation process if history update fails
-                logger.warning(
-                    f"Failed to update watch history for user {user_id}: {e}"
-                )
+        # Step 4: Handle real-time watched items update
+        self._update_cache_async_safe(
+            self.history_manager, user_id, exclude_watched_items, "watched"
+        )
 
-        # Step 4: Filter duplicate videos (only if deduplication is enabled)
+        # Step 5: Filter duplicate videos (only if deduplication is enabled)
         dedup_start = datetime.datetime.now()
         if enable_deduplication:
             filtered_recommendations = self._filter_duplicate_videos(
@@ -325,6 +380,27 @@ class RecommendationEngine:
             dedup_time = 0
             logger.info("Deduplication skipped (disabled in config)")
 
+        # Step 6: Filter reported videos
+        reported_start = datetime.datetime.now()
+        if enable_reported_items_filtering:
+            filtered_recommendations = self._filter_reported_videos(
+                user_id=user_id,
+                recommendations=filtered_recommendations,
+                exclude_reported_items=exclude_reported_items,
+            )
+            reported_time = (datetime.datetime.now() - reported_start).total_seconds()
+            logger.info(
+                f"Reported videos filtering completed in {reported_time:.2f} seconds"
+            )
+        else:
+            reported_time = 0
+            logger.info("Reported videos filtering skipped (disabled in config)")
+
+        # Step 7: Handle real-time reported items update
+        self._update_cache_async_safe(
+            self.reported_manager, user_id, exclude_reported_items, "reported"
+        )
+
         # Log recommendation results
         main_rec_count = len(filtered_recommendations.get("recommendations", []))
         fallback_rec_count = len(
@@ -334,7 +410,7 @@ class RecommendationEngine:
             f"Generated {main_rec_count} main recommendations and {fallback_rec_count} fallback recommendations"
         )
 
-        # Step 5: Transform filtered recommendations to backend format with metadata
+        # Step 8: Transform filtered recommendations to backend format with metadata
         backend_start = datetime.datetime.now()
         recommendations = transform_recommendations_with_metadata(
             filtered_recommendations, self.config.gcp_utils
@@ -351,6 +427,10 @@ class RecommendationEngine:
         logger.info(f"  - Watched items filtering step: {filter_time:.2f} seconds")
         if enable_deduplication:
             logger.info(f"  - Deduplication step: {dedup_time:.2f} seconds")
+        if enable_reported_items_filtering:
+            logger.info(
+                f"  - Reported videos filtering step: {reported_time:.2f} seconds"
+            )
         logger.info(f"  - Backend transformation step: {backend_time:.2f} seconds")
         logger.info(f"  - Total process time: {total_time:.2f} seconds")
 

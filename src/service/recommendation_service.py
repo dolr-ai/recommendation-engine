@@ -47,6 +47,7 @@ class RecommendationService:
         self,
         user_profile: Dict[str, Any],
         exclude_watched_items: Optional[List[str]] = None,
+        exclude_reported_items: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Get recommendations for a user.
@@ -54,6 +55,7 @@ class RecommendationService:
         Args:
             user_profile: User profile dictionary
             exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
+            exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
 
         Returns:
             Dictionary with recommendations and metadata
@@ -70,11 +72,12 @@ class RecommendationService:
         }
 
         try:
-            # Get recommendations from engine with watched items filtering
+            # Get recommendations from engine with watched and reported items filtering
             recommendations = self._engine.get_recommendations(
                 user_profile=user_profile,
                 candidate_types=candidate_types,
                 exclude_watched_items=exclude_watched_items,
+                exclude_reported_items=exclude_reported_items,
             )
 
             return recommendations

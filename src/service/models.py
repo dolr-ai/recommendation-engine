@@ -50,6 +50,10 @@ class RecommendationRequest(BaseModel):
     exclude_watched_items: Optional[List[str]] = Field(
         default=[], description="List of video IDs to exclude (real-time watched items)"
     )
+    exclude_reported_items: Optional[List[str]] = Field(
+        default=[],
+        description="List of video IDs to exclude (real-time reported items)",
+    )
 
 
 class RecommendationResponse(BaseModel):
