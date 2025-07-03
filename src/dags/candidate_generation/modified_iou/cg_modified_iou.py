@@ -107,9 +107,11 @@ def get_cluster_ids(**kwargs):
         client = get_bigquery_client()
 
         # SQL query to get unique cluster IDs for both NSFW and clean content
+        # Filter out records where nsfw_label is NULL
         query = f"""
         SELECT DISTINCT cluster_id, nsfw_label
         FROM `{SOURCE_TABLE}`
+        WHERE nsfw_label IS NOT NULL
         ORDER BY cluster_id, nsfw_label
         """
 
@@ -234,6 +236,9 @@ def generate_cluster_query(cluster_id, content_type, nsfw_label):
     """Generate the modified IoU query for a specific cluster ID and content type."""
     destination_table = get_destination_table(content_type)
 
+    # Convert Python boolean to SQL boolean string
+    nsfw_sql_value = "true" if nsfw_label else "false"
+
     # Template query with the current cluster ID and content type filter
     query = f"""
     -- Modified IoU Score Calculation for Video Recommendation Candidates
@@ -287,7 +292,8 @@ def generate_cluster_query(cluster_id, content_type, nsfw_label):
         WHERE
           mean_percentage_watched > {WATCH_PERCENTAGE_THRESHOLD_MIN}
           AND cluster_id = {cluster_id} -- FOCUS ONLY ON THIS CLUSTER
-          AND nsfw_label = {nsfw_label} -- FILTER BY CONTENT TYPE
+          AND nsfw_label = {nsfw_sql_value} -- FILTER BY CONTENT TYPE
+          AND nsfw_label IS NOT NULL -- EXCLUDE NULL VALUES
       ),
       -- Filter data for success watch threshold
       success_threshold_data AS (
@@ -301,7 +307,8 @@ def generate_cluster_query(cluster_id, content_type, nsfw_label):
         WHERE
           mean_percentage_watched > {WATCH_PERCENTAGE_THRESHOLD_SUCCESS}
           AND cluster_id = {cluster_id} -- FOCUS ONLY ON THIS CLUSTER
-          AND nsfw_label = {nsfw_label} -- FILTER BY CONTENT TYPE
+          AND nsfw_label = {nsfw_sql_value} -- FILTER BY CONTENT TYPE
+          AND nsfw_label IS NOT NULL -- EXCLUDE NULL VALUES
       ),
       -- Group by video for minimum threshold
       min_grouped AS (
