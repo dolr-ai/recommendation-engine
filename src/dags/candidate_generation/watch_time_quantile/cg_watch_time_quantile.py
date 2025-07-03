@@ -361,7 +361,6 @@ def generate_intermediate_table_for_content(content_type, nsfw_label, **kwargs):
               last_liked_timestamp,
               shared,
               last_shared_timestamp,
-              cluster_label,
               updated_at
             FROM
               `{SOURCE_TABLE}`
