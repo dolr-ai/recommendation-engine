@@ -6,6 +6,7 @@ This DAG performs watch time quantile-based candidate generation in two parts:
 2. Then it identifies candidate videos using nearest neighbor search based on video embeddings
 
 The DAG follows a sequential workflow to ensure proper data generation.
+Now handles both NSFW and clean content by splitting into separate destination tables.
 """
 
 import os
@@ -44,13 +45,20 @@ PROJECT_ID = "jay-dhanwant-experiments"
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters"
-INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate"
-USER_BINS_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.user_watch_time_quantile_bins"
+SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_clean_and_nsfw_split"
+NSFW_INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.nsfw_watch_time_quantile_comparison_intermediate"
+CLEAN_INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.clean_watch_time_quantile_comparison_intermediate"
+NSFW_USER_BINS_TABLE = (
+    "jay-dhanwant-experiments.stage_test_tables.nsfw_user_watch_time_quantile_bins"
 )
-DESTINATION_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates"
+CLEAN_USER_BINS_TABLE = (
+    "jay-dhanwant-experiments.stage_test_tables.clean_user_watch_time_quantile_bins"
+)
+NSFW_DESTINATION_TABLE = (
+    "jay-dhanwant-experiments.stage_test_tables.nsfw_watch_time_quantile_candidates"
+)
+CLEAN_DESTINATION_TABLE = (
+    "jay-dhanwant-experiments.stage_test_tables.clean_watch_time_quantile_candidates"
 )
 
 # Algorithm configuration
@@ -70,8 +78,13 @@ MIN_SHIFTED_LIST_VIDEOS_WATCHED = 100  # Minimum number of videos in previous bi
 TOP_PERCENTILE = 0.15  # Sample from top 15 percentile (reduced from 25%)
 SAMPLE_SIZE = 30  # Sample size from top percentile (reduced from 100)
 
-# Status variable name
+# Status variable names
 WATCH_TIME_QUANTILE_STATUS_VARIABLE = "cg_watch_time_quantile_completed"
+CLUSTER_IDS_VARIABLE = "watch_time_quantile_cluster_ids"
+
+# Content type constants
+CONTENT_TYPE_NSFW = "nsfw"
+CONTENT_TYPE_CLEAN = "clean"
 
 
 # Function to create BigQuery client with GCP credentials
@@ -90,6 +103,70 @@ def get_bigquery_client():
     except Exception as e:
         print(f"Error creating BigQuery client: {str(e)}")
         raise AirflowException(f"Failed to create BigQuery client: {str(e)}")
+
+
+# Function to get appropriate tables based on content type
+def get_tables_for_content_type(content_type):
+    """Get the appropriate tables based on content type."""
+    if content_type == CONTENT_TYPE_NSFW:
+        return {
+            "intermediate": NSFW_INTERMEDIATE_TABLE,
+            "user_bins": NSFW_USER_BINS_TABLE,
+            "destination": NSFW_DESTINATION_TABLE,
+        }
+    elif content_type == CONTENT_TYPE_CLEAN:
+        return {
+            "intermediate": CLEAN_INTERMEDIATE_TABLE,
+            "user_bins": CLEAN_USER_BINS_TABLE,
+            "destination": CLEAN_DESTINATION_TABLE,
+        }
+    else:
+        raise ValueError(f"Invalid content type: {content_type}")
+
+
+# Function to get all cluster IDs from the test_clean_and_nsfw_split table
+def get_cluster_ids(**kwargs):
+    """Get all unique cluster IDs from the test_clean_and_nsfw_split table."""
+    try:
+        # Create BigQuery client
+        client = get_bigquery_client()
+
+        # SQL query to get unique cluster IDs for both NSFW and clean content
+        # Filter out records where nsfw_label is NULL
+        query = f"""
+        SELECT DISTINCT cluster_id, nsfw_label
+        FROM `{SOURCE_TABLE}`
+        WHERE nsfw_label IS NOT NULL
+        ORDER BY cluster_id, nsfw_label
+        """
+
+        # Run the query
+        query_job = client.query(query)
+        results = query_job.result()
+
+        # Convert to list of dictionaries with cluster_id and content type
+        cluster_data = []
+        for row in results:
+            content_type = CONTENT_TYPE_NSFW if row.nsfw_label else CONTENT_TYPE_CLEAN
+            cluster_data.append(
+                {
+                    "cluster_id": row.cluster_id,
+                    "content_type": content_type,
+                    "nsfw_label": row.nsfw_label,
+                }
+            )
+
+        print(
+            f"Found {len(cluster_data)} unique cluster-content combinations: {cluster_data}"
+        )
+
+        # Store the cluster data as a variable
+        Variable.set(CLUSTER_IDS_VARIABLE, json.dumps(cluster_data))
+
+        return cluster_data
+    except Exception as e:
+        print(f"Error getting cluster IDs: {str(e)}")
+        raise AirflowException(f"Failed to get cluster IDs: {str(e)}")
 
 
 # Function to initialize status variable
@@ -116,22 +193,31 @@ def set_status_completed(**kwargs):
         raise AirflowException(f"Failed to set status variable: {str(e)}")
 
 
-# Function to create intermediate table structure
-# Function to create and populate the intermediate table
-def generate_intermediate_table(**kwargs):
-    """Create and populate the intermediate table with watch time quantiles."""
+# Function to generate intermediate table for specific content type
+def generate_intermediate_table_for_content(content_type, nsfw_label, **kwargs):
+    """Create and populate the intermediate table with watch time quantiles for specific content type."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
 
+        # Convert Python boolean to SQL boolean string
+        nsfw_sql_value = "true" if nsfw_label else "false"
+
+        # Get tables for this content type
+        tables = get_tables_for_content_type(content_type)
+        intermediate_table = tables["intermediate"]
+        user_bins_table = tables["user_bins"]
+
         # First, create and populate the user bins table
-        print(f"=== CREATING AND POPULATING USER BINS TABLE: {USER_BINS_TABLE} ===")
+        print(
+            f"=== CREATING AND POPULATING USER BINS TABLE FOR {content_type.upper()}: {user_bins_table} ==="
+        )
 
         # SQL query: Create and populate the user bins table
         user_bins_query = f"""
         -- Create or replace the user bins table
         CREATE OR REPLACE TABLE
-          `{USER_BINS_TABLE}` (
+          `{user_bins_table}` (
             cluster_id INT64,
             percentile_25 FLOAT64,
             percentile_50 FLOAT64,
@@ -142,9 +228,9 @@ def generate_intermediate_table(**kwargs):
 
         -- Insert data into the user bins table
         INSERT INTO
-          `{USER_BINS_TABLE}`
+          `{user_bins_table}`
         WITH
-          -- Read data from the clusters table
+          -- Read data from the clusters table with content type filter
           clusters AS (
             SELECT
               cluster_id,
@@ -153,6 +239,9 @@ def generate_intermediate_table(**kwargs):
               mean_percentage_watched
             FROM
               `{SOURCE_TABLE}`
+            WHERE
+              nsfw_label = {nsfw_sql_value}
+              AND nsfw_label IS NOT NULL
           ),
           -- Get approx seconds watched per user
           clusters_with_time AS (
@@ -197,46 +286,46 @@ def generate_intermediate_table(**kwargs):
           cluster_id;
         """
 
-        print("Running query to create and populate user bins table...")
-        print("=== USER BINS QUERY START ===")
-        print(user_bins_query)
-        print("=== USER BINS QUERY END ===")
-
+        print(
+            f"Running query to create and populate user bins table for {content_type}..."
+        )
         # Run the user bins query
         user_bins_job = client.query(user_bins_query)
         user_bins_job.result()  # Wait for the query to complete
-        print("=== USER BINS TABLE CREATION AND POPULATION COMPLETED ===")
+        print(
+            f"=== USER BINS TABLE CREATION AND POPULATION COMPLETED FOR {content_type.upper()} ==="
+        )
 
         # Verify user bins data was inserted
         verify_user_bins_query = f"""
         SELECT COUNT(*) as row_count
-        FROM `{USER_BINS_TABLE}`
+        FROM `{user_bins_table}`
         """
 
-        print("Verifying data was inserted into user bins table...")
+        print(f"Verifying data was inserted into user bins table for {content_type}...")
         verify_user_bins_job = client.query(verify_user_bins_query)
         user_bins_result = list(verify_user_bins_job.result())[0]
         user_bins_row_count = user_bins_result.row_count
 
         print(
-            f"=== VERIFICATION: Found {user_bins_row_count} rows in user bins table ==="
+            f"=== VERIFICATION: Found {user_bins_row_count} rows in user bins table for {content_type} ==="
         )
 
         if user_bins_row_count == 0:
-            error_msg = f"No data was inserted into {USER_BINS_TABLE}"
+            error_msg = f"No data was inserted into {user_bins_table}"
             print(f"=== ERROR: {error_msg} ===")
             raise AirflowException(error_msg)
 
         # Next, create and populate the intermediate table for comparison between bins
         print(
-            f"=== CREATING AND POPULATING INTERMEDIATE TABLE: {INTERMEDIATE_TABLE} ==="
+            f"=== CREATING AND POPULATING INTERMEDIATE TABLE FOR {content_type.upper()}: {intermediate_table} ==="
         )
 
         # SQL query: Create and generate the intermediate comparison table
         query = f"""
         -- First create or replace the table structure
         CREATE OR REPLACE TABLE
-          `{INTERMEDIATE_TABLE}` (
+          `{intermediate_table}` (
             cluster_id INT64,
             bin INT64,
             list_videos_watched ARRAY<STRING>,
@@ -251,7 +340,7 @@ def generate_intermediate_table(**kwargs):
 
         -- Then insert data into the table
         INSERT INTO
-          `{INTERMEDIATE_TABLE}` -- VARIABLES
+          `{intermediate_table}` -- VARIABLES
           -- Hardcoded values - equivalent to n_bins=4 in Python code
         WITH
           variables AS (
@@ -260,7 +349,7 @@ def generate_intermediate_table(**kwargs):
               {MIN_LIST_VIDEOS_WATCHED} AS min_list_videos_watched,
               {MIN_SHIFTED_LIST_VIDEOS_WATCHED} AS min_shifted_list_videos_watched
           ),
-          -- Read data from the clusters table
+          -- Read data from the clusters table with content type filter
           clusters AS (
             SELECT
               cluster_id,
@@ -276,6 +365,9 @@ def generate_intermediate_table(**kwargs):
               updated_at
             FROM
               `{SOURCE_TABLE}`
+            WHERE
+              nsfw_label = {nsfw_sql_value}
+              AND nsfw_label IS NOT NULL
           ),
           -- Get approx seconds watched per user
           clusters_with_time AS (
@@ -483,182 +575,255 @@ def generate_intermediate_table(**kwargs):
           bin;
         """
 
-        print("Running query to create and populate intermediate table...")
-        print("=== QUERY START ===")
-        print(query)
-        print("=== QUERY END ===")
+        print(
+            f"Running query to create and populate intermediate table for {content_type}..."
+        )
         # Run the query
         query_job = client.query(query)
         query_job.result()  # Wait for the query to complete
-        print("=== INTERMEDIATE TABLE CREATION AND POPULATION COMPLETED ===")
+        print(
+            f"=== INTERMEDIATE TABLE CREATION AND POPULATION COMPLETED FOR {content_type.upper()} ==="
+        )
 
         # Verify intermediate data was inserted
         verify_query = f"""
         SELECT COUNT(*) as row_count
-        FROM `{INTERMEDIATE_TABLE}`
+        FROM `{intermediate_table}`
         """
 
-        print("Verifying data was inserted correctly...")
-        print("=== VERIFICATION QUERY ===")
-        print(verify_query)
-        print("=== END VERIFICATION QUERY ===")
+        print(f"Verifying data was inserted correctly for {content_type}...")
         verify_job = client.query(verify_query)
         result = list(verify_job.result())[0]
         row_count = result.row_count
 
-        print(f"=== VERIFICATION: Found {row_count} rows in intermediate table ===")
+        print(
+            f"=== VERIFICATION: Found {row_count} rows in intermediate table for {content_type} ==="
+        )
 
         if row_count == 0:
-            error_msg = f"No data was inserted into {INTERMEDIATE_TABLE}"
+            error_msg = f"No data was inserted into {intermediate_table}"
             print(f"=== ERROR: {error_msg} ===")
             raise AirflowException(error_msg)
 
         return True
     except Exception as e:
-        error_msg = f"Failed to create and populate intermediate table: {str(e)}"
+        error_msg = f"Failed to create and populate intermediate table for {content_type}: {str(e)}"
+        print(f"=== ERROR: {error_msg} ===")
+        raise AirflowException(error_msg)
+
+
+# Function to create intermediate table structure
+def generate_intermediate_table(**kwargs):
+    """Process all content types to create intermediate tables."""
+    try:
+        # Get cluster data from variable
+        cluster_data = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
+
+        # Get unique content types
+        content_types = list(set(item["content_type"] for item in cluster_data))
+
+        print(f"Processing intermediate tables for content types: {content_types}")
+
+        # Process each content type
+        for item in cluster_data:
+            content_type = item["content_type"]
+            nsfw_label = item["nsfw_label"]
+
+            # Check if we already processed this content type
+            if hasattr(generate_intermediate_table, f"processed_{content_type}"):
+                continue
+
+            print(f"Processing content type: {content_type}")
+            generate_intermediate_table_for_content(content_type, nsfw_label)
+
+            # Mark this content type as processed
+            setattr(generate_intermediate_table, f"processed_{content_type}", True)
+
+        # Reset processed flags for next run
+        if hasattr(generate_intermediate_table, f"processed_{CONTENT_TYPE_NSFW}"):
+            delattr(generate_intermediate_table, f"processed_{CONTENT_TYPE_NSFW}")
+        if hasattr(generate_intermediate_table, f"processed_{CONTENT_TYPE_CLEAN}"):
+            delattr(generate_intermediate_table, f"processed_{CONTENT_TYPE_CLEAN}")
+
+        return True
+    except Exception as e:
+        error_msg = f"Failed to generate intermediate tables: {str(e)}"
         print(f"=== ERROR: {error_msg} ===")
         raise AirflowException(error_msg)
 
 
 # Function to check if intermediate table exists and has data
 def check_intermediate_table(**kwargs):
-    """Check if the intermediate table exists and has data. If not, processing cannot continue."""
+    """Check if the intermediate tables exist and have data. If not, processing cannot continue."""
     try:
         client = get_bigquery_client()
 
-        print(f"=== CHECKING INTERMEDIATE TABLE: {INTERMEDIATE_TABLE} ===")
+        # Check both content types
+        for content_type in [CONTENT_TYPE_NSFW, CONTENT_TYPE_CLEAN]:
+            tables = get_tables_for_content_type(content_type)
+            intermediate_table = tables["intermediate"]
 
-        # Check if table exists and print key stats by running a query
-        query = f"""
-        SELECT
-            cluster_id,
-            bin,
-            num_cx,
-            num_cy
-        FROM `{INTERMEDIATE_TABLE}`
-        ORDER BY cluster_id, bin
-        """
-
-        try:
-            print(f"Executing query to check intermediate table data...")
-            print("=== INTERMEDIATE TABLE CHECK QUERY ===")
-            print(query)
-            print("=== END INTERMEDIATE TABLE CHECK QUERY ===")
-            query_job = client.query(query)
-            results = query_job.result()
-
-            # Convert to list to check if empty
-            rows = list(results)
-            row_count = len(rows)
-
-            print(f"=== INTERMEDIATE TABLE CHECK RESULT: Found {row_count} rows ===")
-
-            if row_count == 0:
-                print("=== WARNING: Intermediate table exists but has no data! ===")
-                raise AirflowException(
-                    "Intermediate table has no data. Cannot proceed."
-                )
-            else:
-                print("=== INTERMEDIATE TABLE CONTENTS SAMPLE ===")
-                # Print only up to 5 rows as a sample
-                for i, row in enumerate(rows[:5]):
-                    print(
-                        f"Row {i + 1}: Cluster: {row.cluster_id}, Bin: {row.bin}, Videos X: {row.num_cx}, Videos Y: {row.num_cy}"
-                    )
-                if row_count > 5:
-                    print(f"... and {row_count - 5} more rows")
-                print("=== END INTERMEDIATE TABLE CONTENTS SAMPLE ===")
-
-            return True
-        except Exception as e:
-            error_msg = (
-                f"Error: Intermediate table doesn't exist or has issues: {str(e)}"
+            print(
+                f"=== CHECKING INTERMEDIATE TABLE FOR {content_type.upper()}: {intermediate_table} ==="
             )
-            print(f"=== {error_msg} ===")
-            raise AirflowException(error_msg)
 
+            # Check if table exists and print key stats by running a query
+            query = f"""
+            SELECT
+                cluster_id,
+                bin,
+                num_cx,
+                num_cy
+            FROM `{intermediate_table}`
+            ORDER BY cluster_id, bin
+            """
+
+            try:
+                print(
+                    f"Executing query to check intermediate table data for {content_type}..."
+                )
+                query_job = client.query(query)
+                results = query_job.result()
+
+                # Convert to list to check if empty
+                rows = list(results)
+                row_count = len(rows)
+
+                print(
+                    f"=== INTERMEDIATE TABLE CHECK RESULT FOR {content_type.upper()}: Found {row_count} rows ==="
+                )
+
+                if row_count == 0:
+                    print(
+                        f"=== WARNING: Intermediate table for {content_type} exists but has no data! ==="
+                    )
+                    raise AirflowException(
+                        f"Intermediate table for {content_type} has no data. Cannot proceed."
+                    )
+                else:
+                    print(
+                        f"=== INTERMEDIATE TABLE CONTENTS SAMPLE FOR {content_type.upper()} ==="
+                    )
+                    # Print only up to 3 rows as a sample
+                    for i, row in enumerate(rows[:3]):
+                        print(
+                            f"Row {i + 1}: Cluster: {row.cluster_id}, Bin: {row.bin}, Videos X: {row.num_cx}, Videos Y: {row.num_cy}"
+                        )
+                    if row_count > 3:
+                        print(f"... and {row_count - 3} more rows")
+                    print(
+                        f"=== END INTERMEDIATE TABLE CONTENTS SAMPLE FOR {content_type.upper()} ==="
+                    )
+
+            except Exception as e:
+                error_msg = f"Error: Intermediate table for {content_type} doesn't exist or has issues: {str(e)}"
+                print(f"=== {error_msg} ===")
+                raise AirflowException(error_msg)
+
+        return True
     except Exception as e:
-        error_msg = f"Failed to check intermediate table: {str(e)}"
+        error_msg = f"Failed to check intermediate tables: {str(e)}"
         print(f"=== ERROR: {error_msg} ===")
         raise AirflowException(error_msg)
 
 
 # Function to check if user bins table exists and has data
 def check_user_bins_table(**kwargs):
-    """Check if the user bins table exists and has data. If not, processing cannot continue."""
+    """Check if the user bins tables exist and have data. If not, processing cannot continue."""
     try:
         client = get_bigquery_client()
 
-        print(f"=== CHECKING USER BINS TABLE: {USER_BINS_TABLE} ===")
+        # Check both content types
+        for content_type in [CONTENT_TYPE_NSFW, CONTENT_TYPE_CLEAN]:
+            tables = get_tables_for_content_type(content_type)
+            user_bins_table = tables["user_bins"]
 
-        # Check if table exists and print key stats by running a query
-        query = f"""
-        SELECT
-            cluster_id,
-            percentile_25,
-            percentile_50,
-            percentile_75,
-            percentile_100,
-            user_count
-        FROM `{USER_BINS_TABLE}`
-        ORDER BY cluster_id
-        """
+            print(
+                f"=== CHECKING USER BINS TABLE FOR {content_type.upper()}: {user_bins_table} ==="
+            )
 
-        try:
-            print(f"Executing query to check user bins table data...")
-            print("=== USER BINS TABLE CHECK QUERY ===")
-            print(query)
-            print("=== END USER BINS TABLE CHECK QUERY ===")
-            query_job = client.query(query)
-            results = query_job.result()
+            # Check if table exists and print key stats by running a query
+            query = f"""
+            SELECT
+                cluster_id,
+                percentile_25,
+                percentile_50,
+                percentile_75,
+                percentile_100,
+                user_count
+            FROM `{user_bins_table}`
+            ORDER BY cluster_id
+            """
 
-            # Convert to list to check if empty
-            rows = list(results)
-            row_count = len(rows)
+            try:
+                print(
+                    f"Executing query to check user bins table data for {content_type}..."
+                )
+                query_job = client.query(query)
+                results = query_job.result()
 
-            print(f"=== USER BINS TABLE CHECK RESULT: Found {row_count} rows ===")
+                # Convert to list to check if empty
+                rows = list(results)
+                row_count = len(rows)
 
-            if row_count == 0:
-                print("=== WARNING: User bins table exists but has no data! ===")
-                raise AirflowException("User bins table has no data. Cannot proceed.")
-            else:
-                print("=== USER BINS TABLE CONTENTS SAMPLE ===")
-                # Print only up to 5 rows as a sample
-                for i, row in enumerate(rows[:5]):
+                print(
+                    f"=== USER BINS TABLE CHECK RESULT FOR {content_type.upper()}: Found {row_count} rows ==="
+                )
+
+                if row_count == 0:
                     print(
-                        f"Row {i + 1}: Cluster: {row.cluster_id}, "
-                        f"P25: {row.percentile_25:.2f}, P50: {row.percentile_50:.2f}, "
-                        f"P75: {row.percentile_75:.2f}, P100: {row.percentile_100:.2f}, "
-                        f"Users: {row.user_count}"
+                        f"=== WARNING: User bins table for {content_type} exists but has no data! ==="
                     )
-                if row_count > 5:
-                    print(f"... and {row_count - 5} more rows")
-                print("=== END USER BINS TABLE CONTENTS SAMPLE ===")
+                    raise AirflowException(
+                        f"User bins table for {content_type} has no data. Cannot proceed."
+                    )
+                else:
+                    print(
+                        f"=== USER BINS TABLE CONTENTS SAMPLE FOR {content_type.upper()} ==="
+                    )
+                    # Print only up to 3 rows as a sample
+                    for i, row in enumerate(rows[:3]):
+                        print(
+                            f"Row {i + 1}: Cluster: {row.cluster_id}, "
+                            f"P25: {row.percentile_25:.2f}, P50: {row.percentile_50:.2f}, "
+                            f"P75: {row.percentile_75:.2f}, P100: {row.percentile_100:.2f}, "
+                            f"Users: {row.user_count}"
+                        )
+                    if row_count > 3:
+                        print(f"... and {row_count - 3} more rows")
+                    print(
+                        f"=== END USER BINS TABLE CONTENTS SAMPLE FOR {content_type.upper()} ==="
+                    )
 
-            return True
-        except Exception as e:
-            error_msg = f"Error: User bins table doesn't exist or has issues: {str(e)}"
-            print(f"=== {error_msg} ===")
-            raise AirflowException(error_msg)
+            except Exception as e:
+                error_msg = f"Error: User bins table for {content_type} doesn't exist or has issues: {str(e)}"
+                print(f"=== {error_msg} ===")
+                raise AirflowException(error_msg)
 
+        return True
     except Exception as e:
-        error_msg = f"Failed to check user bins table: {str(e)}"
+        error_msg = f"Failed to check user bins tables: {str(e)}"
         print(f"=== ERROR: {error_msg} ===")
         raise AirflowException(error_msg)
 
 
-# Function to run part 2: generate candidates using nearest neighbors
-def generate_candidates(**kwargs):
-    """Execute the second SQL query to generate candidate videos using nearest neighbors."""
+# Function to run part 2: generate candidates using nearest neighbors for specific content type
+def generate_candidates_for_content(content_type, **kwargs):
+    """Execute the second SQL query to generate candidate videos using nearest neighbors for specific content type."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
+
+        # Get tables for this content type
+        tables = get_tables_for_content_type(content_type)
+        intermediate_table = tables["intermediate"]
+        destination_table = tables["destination"]
 
         # Second SQL query: Generate the watch time quantile candidates using nearest neighbors
         query = f"""
         -- Create table for nearest neighbors results - flattened structure
         CREATE OR REPLACE TABLE
-          `{DESTINATION_TABLE}` (
+          `{destination_table}` (
             cluster_id INT64,
             bin INT64,
             query_video_id STRING,
@@ -670,7 +835,7 @@ def generate_candidates(**kwargs):
 
         -- Insert nearest neighbors results (flattened at the end for efficiency)
         INSERT INTO
-          `{DESTINATION_TABLE}`
+          `{destination_table}`
         WITH
           variables AS (
             SELECT
@@ -700,7 +865,7 @@ def generate_candidates(**kwargs):
                   bin
               ) AS source_bin
             FROM
-              `{INTERMEDIATE_TABLE}`
+              `{intermediate_table}`
             WHERE
               flag_compare = TRUE -- Only process rows where comparison is flagged
           ),
@@ -913,186 +1078,113 @@ def generate_candidates(**kwargs):
         -- then sample randomly from the top 25 percentile of the results
         """
 
-        print("Running query to generate candidates using nearest neighbors...")
-        print("=== CANDIDATES QUERY START ===")
-        print(query)
-        print("=== CANDIDATES QUERY END ===")
+        print(
+            f"Running query to generate candidates using nearest neighbors for {content_type}..."
+        )
         # Run the query
         query_job = client.query(query)
         query_job.result()  # Wait for the query to complete
-        print("Candidate generation completed")
+        print(f"Candidate generation completed for {content_type}")
 
         return True
     except Exception as e:
-        print(f"Error generating candidates: {str(e)}")
-        raise AirflowException(f"Failed to generate candidates: {str(e)}")
+        print(f"Error generating candidates for {content_type}: {str(e)}")
+        raise AirflowException(
+            f"Failed to generate candidates for {content_type}: {str(e)}"
+        )
+
+
+# Function to generate all candidates
+def generate_candidates(**kwargs):
+    """Process all content types to generate candidates."""
+    try:
+        # Get cluster data from variable
+        cluster_data = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
+
+        # Get unique content types
+        content_types = list(set(item["content_type"] for item in cluster_data))
+
+        print(f"Processing candidates for content types: {content_types}")
+
+        # Process each content type
+        for content_type in content_types:
+            print(f"Generating candidates for content type: {content_type}")
+            generate_candidates_for_content(content_type)
+
+        return True
+    except Exception as e:
+        error_msg = f"Failed to generate candidates: {str(e)}"
+        print(f"=== ERROR: {error_msg} ===")
+        raise AirflowException(error_msg)
 
 
 # Function to verify final data
 def verify_destination_data(**kwargs):
-    """Verify that data exists in the destination table."""
+    """Verify that data exists in both destination tables."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
 
-        print(f"=== VERIFYING DESTINATION TABLE: {DESTINATION_TABLE} ===")
+        # Check both content types
+        for content_type in [CONTENT_TYPE_NSFW, CONTENT_TYPE_CLEAN]:
+            tables = get_tables_for_content_type(content_type)
+            destination_table = tables["destination"]
 
-        # Query to count total rows
-        query = f"""
-        SELECT COUNT(*) as total_rows
-        FROM `{DESTINATION_TABLE}`
-        """
-
-        print("Executing query to count rows in destination table...")
-        print("=== COUNT QUERY ===")
-        print(query)
-        print("=== END COUNT QUERY ===")
-        # Run the query
-        query_job = client.query(query)
-        result = list(query_job.result())[0]
-        total_rows = result.total_rows
-
-        print(f"=== DESTINATION TABLE VERIFICATION: Found {total_rows} total rows ===")
-
-        if total_rows == 0:
-            error_msg = f"No data found in {DESTINATION_TABLE}"
-            print(f"=== ERROR: {error_msg} ===")
-            raise AirflowException(error_msg)
-
-        # Query to get comparison flow counts with candidate metrics
-        print(
-            "Executing query to get comparison flow statistics with candidate counts..."
-        )
-        comparison_flow_query = f"""
-        SELECT
-            comparison_flow,
-            COUNT(comparison_flow) as cmpf_count,
-            COUNT(query_video_id) as qvid_count,
-            COUNT(DISTINCT query_video_id) as unique_qvid_count,
-            COUNT(candidate_video_id) as candidate_count,
-            COUNT(DISTINCT candidate_video_id) as unique_candidate_count,
-            COUNT(DISTINCT query_video_id) / COUNT(query_video_id) * 100 as qvid_uniqueness_pct,
-            COUNT(DISTINCT candidate_video_id) / COUNT(candidate_video_id) * 100 as candidate_uniqueness_pct
-        FROM `{DESTINATION_TABLE}`
-        GROUP BY comparison_flow
-        ORDER BY comparison_flow
-        """
-
-        print("=== FLOW STATS QUERY ===")
-        print(comparison_flow_query)
-        print("=== END FLOW STATS QUERY ===")
-
-        # Run the comparison flow query
-        flow_query_job = client.query(comparison_flow_query)
-        flow_results = flow_query_job.result()
-
-        print("=== COMPARISON FLOW STATISTICS ===")
-        flow_rows = list(flow_results)
-        for row in flow_rows:
             print(
-                f"Flow: {row.comparison_flow}, Total: {row.cmpf_count}, "
-                + f"Query Videos: {row.qvid_count} (Unique: {row.unique_qvid_count}, {row.qvid_uniqueness_pct:.1f}%), "
-                + f"Candidates: {row.candidate_count} (Unique: {row.unique_candidate_count}, {row.candidate_uniqueness_pct:.1f}%)"
+                f"=== VERIFYING DESTINATION TABLE FOR {content_type.upper()}: {destination_table} ==="
             )
-        print("=== END COMPARISON FLOW STATISTICS ===")
 
-        # Get per-cluster statistics
-        print("Executing query to get per-cluster statistics...")
-        cluster_stats_query = f"""
-        SELECT
-            cluster_id,
-            COUNT(*) as total_rows,
-            COUNT(DISTINCT query_video_id) as unique_qvids,
-            COUNT(DISTINCT candidate_video_id) as unique_candidates,
-            COUNT(DISTINCT bin) as num_bins,
-            COUNT(DISTINCT CONCAT(bin, '-', query_video_id)) as unique_bin_qvid_pairs
-        FROM `{DESTINATION_TABLE}`
-        GROUP BY cluster_id
-        ORDER BY cluster_id
-        """
+            # Query to count total rows
+            query = f"""
+            SELECT COUNT(*) as total_rows
+            FROM `{destination_table}`
+            """
 
-        print("=== CLUSTER STATS QUERY ===")
-        print(cluster_stats_query)
-        print("=== END CLUSTER STATS QUERY ===")
-
-        # Run the cluster statistics query
-        cluster_stats_job = client.query(cluster_stats_query)
-        cluster_stats_results = cluster_stats_job.result()
-
-        print("=== PER-CLUSTER STATISTICS ===")
-        cluster_rows = list(cluster_stats_results)
-        for row in cluster_rows:
             print(
-                f"Cluster {row.cluster_id}: Rows: {row.total_rows}, "
-                + f"Unique Query Videos: {row.unique_qvids}, Unique Candidates: {row.unique_candidates}, "
-                + f"Bins: {row.num_bins}, Unique Bin-Query Pairs: {row.unique_bin_qvid_pairs}"
+                f"Executing query to count rows in destination table for {content_type}..."
             )
-        print("=== END PER-CLUSTER STATISTICS ===")
+            # Run the query
+            query_job = client.query(query)
+            result = list(query_job.result())[0]
+            total_rows = result.total_rows
 
-        # Get overall candidate metrics
-        print("Executing query to get overall candidate metrics...")
-        candidate_metrics_query = f"""
-        SELECT
-            COUNT(query_video_id) as total_qvids,
-            COUNT(DISTINCT query_video_id) as unique_qvids,
-            COUNT(DISTINCT CONCAT(CAST(cluster_id AS STRING), '-', CAST(bin AS STRING), '-', query_video_id)) as unique_cluster_bin_qvid_combos,
-            COUNT(candidate_video_id) as total_candidates,
-            COUNT(DISTINCT candidate_video_id) as total_unique_candidates,
-            COUNT(DISTINCT query_video_id) / COUNT(query_video_id) * 100 as qvid_uniqueness_pct,
-            COUNT(DISTINCT candidate_video_id) / COUNT(candidate_video_id) * 100 as candidate_uniqueness_pct
-        FROM `{DESTINATION_TABLE}`
-        """
-
-        print("=== OVERALL METRICS QUERY ===")
-        print(candidate_metrics_query)
-        print("=== END OVERALL METRICS QUERY ===")
-
-        # Run the candidate metrics query
-        candidate_metrics_job = client.query(candidate_metrics_query)
-        candidate_metrics_result = list(candidate_metrics_job.result())[0]
-
-        print("=== OVERALL CANDIDATE METRICS ===")
-        print(
-            f"Total query videos: {candidate_metrics_result.total_qvids} (Unique: {candidate_metrics_result.unique_qvids}, {candidate_metrics_result.qvid_uniqueness_pct:.1f}%)"
-        )
-        print(
-            f"Unique cluster-bin-query combinations: {candidate_metrics_result.unique_cluster_bin_qvid_combos}"
-        )
-        print(
-            f"Total candidate recommendations: {candidate_metrics_result.total_candidates} (Unique: {candidate_metrics_result.total_unique_candidates}, {candidate_metrics_result.candidate_uniqueness_pct:.1f}%)"
-        )
-        print("=== END OVERALL CANDIDATE METRICS ===")
-
-        # Sample some data
-        print("Executing query to sample destination table data...")
-        sample_query = f"""
-        SELECT
-            cluster_id,
-            bin,
-            query_video_id,
-            comparison_flow,
-            candidate_video_id,
-            distance
-        FROM `{DESTINATION_TABLE}`
-        ORDER BY cluster_id, bin, query_video_id, distance
-        LIMIT 5
-        """
-
-        print("=== SAMPLE QUERY ===")
-        print(sample_query)
-        print("=== END SAMPLE QUERY ===")
-
-        sample_job = client.query(sample_query)
-        sample_results = sample_job.result()
-
-        print("=== DESTINATION TABLE SAMPLE ===")
-        sample_rows = list(sample_results)
-        for i, row in enumerate(sample_rows):
             print(
-                f"Row {i + 1}: Cluster: {row.cluster_id}, Bin: {row.bin}, Query: {row.query_video_id}, "
-                + f"Candidate: {row.candidate_video_id}, Distance: {row.distance}"
+                f"=== DESTINATION TABLE VERIFICATION FOR {content_type.upper()}: Found {total_rows} total rows ==="
             )
-        print("=== END DESTINATION TABLE SAMPLE ===")
+
+            if total_rows == 0:
+                print(f"=== WARNING: No data found in {destination_table} ===")
+            else:
+                # Sample some data for this content type
+                print(
+                    f"Executing query to sample destination table data for {content_type}..."
+                )
+                sample_query = f"""
+                SELECT
+                    cluster_id,
+                    bin,
+                    query_video_id,
+                    comparison_flow,
+                    candidate_video_id,
+                    distance
+                FROM `{destination_table}`
+                ORDER BY cluster_id, bin, query_video_id, distance
+                LIMIT 3
+                """
+
+                sample_job = client.query(sample_query)
+                sample_results = sample_job.result()
+
+                print(f"=== DESTINATION TABLE SAMPLE FOR {content_type.upper()} ===")
+                sample_rows = list(sample_results)
+                for i, row in enumerate(sample_rows):
+                    print(
+                        f"Row {i + 1}: Cluster: {row.cluster_id}, Bin: {row.bin}, Query: {row.query_video_id}, "
+                        + f"Candidate: {row.candidate_video_id}, Distance: {row.distance}"
+                    )
+                print(
+                    f"=== END DESTINATION TABLE SAMPLE FOR {content_type.upper()} ==="
+                )
 
         print(f"=== VERIFICATION COMPLETED SUCCESSFULLY ===")
         return True
@@ -1106,7 +1198,7 @@ def verify_destination_data(**kwargs):
 with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
-    description="Watch Time Quantile Candidate Generation",
+    description="Watch Time Quantile Candidate Generation with NSFW/Clean Split",
     schedule_interval=None,
     catchup=False,
     tags=["candidate_generation"],
@@ -1117,6 +1209,12 @@ with DAG(
     init_status = PythonOperator(
         task_id="task-init_status",
         python_callable=initialize_status_variable,
+    )
+
+    # Get unique cluster IDs with content types
+    get_clusters = PythonOperator(
+        task_id="task-get_cluster_ids",
+        python_callable=get_cluster_ids,
     )
 
     # Create and populate intermediate table
@@ -1161,10 +1259,11 @@ with DAG(
     (
         start
         >> init_status
-        >> generate_intermediate  # Create and populate intermediate table
-        >> check_intermediate  # Verify table has data after generation
-        >> check_user_bins  # Verify user bins table has data
-        >> generate_nn_candidates  # Calculate nearest neighbors
+        >> get_clusters  # Get cluster-content combinations
+        >> generate_intermediate  # Create and populate intermediate tables for both content types
+        >> check_intermediate  # Verify tables have data after generation
+        >> check_user_bins  # Verify user bins tables have data
+        >> generate_nn_candidates  # Calculate nearest neighbors for both content types
         >> verify_data
         >> set_status
         >> end
