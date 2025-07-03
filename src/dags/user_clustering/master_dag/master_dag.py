@@ -143,7 +143,7 @@ with DAG(
     dag_id="master_dag",
     default_args=default_args,
     description="Master DAG to orchestrate all recommendation engine DAGs",
-    schedule_interval=None,  # Triggered manually
+    schedule_interval="0 0 * * 1,5",  # "At 00:00 on Monday and Friday."
     catchup=False,
     tags=["user_clustering"],
 ) as dag:
