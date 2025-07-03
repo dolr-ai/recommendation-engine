@@ -28,9 +28,8 @@ default_args = {
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2025, 5, 19),
 }
-PREFIX = "candidate_generation"
 
-DAG_ID = f"{PREFIX}-create_dataproc_cluster"
+DAG_ID = "cg_create_dataproc_cluster"
 
 # Cluster variables
 CLUSTER_NAME_TEMPLATE = "staging-cluster-candidate-generation-{ds_nodash}"
@@ -131,14 +130,14 @@ with DAG(
 
     # Set the cluster name variable for other DAGs to use
     set_cluster_variable = PythonOperator(
-        task_id=f"task-{PREFIX}-set_cluster_variable",
+        task_id=f"task-set_cluster_variable",
         python_callable=set_cluster_name,
         provide_context=True,
     )
 
     # Create a Dataproc cluster
     create_cluster = DataprocCreateClusterOperator(
-        task_id=f"task-{PREFIX}-create_dataproc_cluster",
+        task_id=f"task-create_dataproc_cluster",
         project_id=PROJECT_ID,
         region=REGION,
         cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),

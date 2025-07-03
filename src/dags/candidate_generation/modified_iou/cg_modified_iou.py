@@ -2,7 +2,8 @@
 Modified IoU Candidate Generation DAG
 
 This DAG uses BigQuery to calculate modified IoU scores for video recommendation candidates.
-It runs the calculation for each cluster ID found in the test_user_clusters table.
+It runs the calculation for each cluster ID found in the test_clean_and_nsfw_split table.
+Now handles both NSFW and clean content by splitting into separate destination tables.
 
 NOTE: For very small data sets, this percentile calculation might not work as expected.
 Some extremely small clusters with say 2 elements will give 0 candidates
@@ -45,8 +46,13 @@ PROJECT_ID = "jay-dhanwant-experiments"
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters"
-DESTINATION_TABLE = "jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates"
+SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_clean_and_nsfw_split"
+NSFW_DESTINATION_TABLE = (
+    "jay-dhanwant-experiments.stage_test_tables.nsfw_modified_iou_candidates"
+)
+CLEAN_DESTINATION_TABLE = (
+    "jay-dhanwant-experiments.stage_test_tables.clean_modified_iou_candidates"
+)
 
 # Threshold configuration
 WATCH_PERCENTAGE_THRESHOLD_MIN = 0.5
@@ -55,9 +61,13 @@ MIN_REQ_USERS_FOR_VIDEO = 2
 SAMPLE_FACTOR = 1.0
 PERCENTILE_THRESHOLD = 95
 
-# Status variable name
+# Status variable names
 MODIFIED_IOU_STATUS_VARIABLE = "cg_modified_iou_completed"
 CLUSTER_IDS_VARIABLE = "modified_iou_cluster_ids"
+
+# Content type constants
+CONTENT_TYPE_NSFW = "nsfw"
+CONTENT_TYPE_CLEAN = "clean"
 
 
 # Function to create BigQuery client with GCP credentials
@@ -78,33 +88,55 @@ def get_bigquery_client():
         raise AirflowException(f"Failed to create BigQuery client: {str(e)}")
 
 
-# Function to get all cluster IDs from the test_user_clusters table
+# Function to get destination table based on content type
+def get_destination_table(content_type):
+    """Get the appropriate destination table based on content type."""
+    if content_type == CONTENT_TYPE_NSFW:
+        return NSFW_DESTINATION_TABLE
+    elif content_type == CONTENT_TYPE_CLEAN:
+        return CLEAN_DESTINATION_TABLE
+    else:
+        raise ValueError(f"Invalid content type: {content_type}")
+
+
+# Function to get all cluster IDs from the test_clean_and_nsfw_split table
 def get_cluster_ids(**kwargs):
-    """Get all unique cluster IDs from the test_user_clusters table."""
+    """Get all unique cluster IDs from the test_clean_and_nsfw_split table."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
 
-        # SQL query to get unique cluster IDs
+        # SQL query to get unique cluster IDs for both NSFW and clean content
         query = f"""
-        SELECT DISTINCT cluster_id
+        SELECT DISTINCT cluster_id, nsfw_label
         FROM `{SOURCE_TABLE}`
-        ORDER BY cluster_id
+        ORDER BY cluster_id, nsfw_label
         """
 
         # Run the query
         query_job = client.query(query)
         results = query_job.result()
 
-        # Convert to list
-        cluster_ids = [row.cluster_id for row in results]
+        # Convert to list of dictionaries with cluster_id and content type
+        cluster_data = []
+        for row in results:
+            content_type = CONTENT_TYPE_NSFW if row.nsfw_label else CONTENT_TYPE_CLEAN
+            cluster_data.append(
+                {
+                    "cluster_id": row.cluster_id,
+                    "content_type": content_type,
+                    "nsfw_label": row.nsfw_label,
+                }
+            )
 
-        print(f"Found {len(cluster_ids)} unique cluster IDs: {cluster_ids}")
+        print(
+            f"Found {len(cluster_data)} unique cluster-content combinations: {cluster_data}"
+        )
 
-        # Store the cluster IDs as a variable
-        Variable.set(CLUSTER_IDS_VARIABLE, json.dumps(cluster_ids))
+        # Store the cluster data as a variable
+        Variable.set(CLUSTER_IDS_VARIABLE, json.dumps(cluster_data))
 
-        return cluster_ids
+        return cluster_data
     except Exception as e:
         print(f"Error getting cluster IDs: {str(e)}")
         raise AirflowException(f"Failed to get cluster IDs: {str(e)}")
@@ -135,22 +167,22 @@ def set_status_completed(**kwargs):
 
 
 # Function to check if destination table exists, create if not
-def ensure_destination_table_exists(**kwargs):
+def ensure_destination_table_exists(destination_table, **kwargs):
     """Check if destination table exists, create if not."""
     try:
         client = get_bigquery_client()
 
         # Get table reference
-        table_ref = client.dataset(DESTINATION_TABLE.split(".")[1]).table(
-            DESTINATION_TABLE.split(".")[2]
+        table_ref = client.dataset(destination_table.split(".")[1]).table(
+            destination_table.split(".")[2]
         )
 
         try:
             # Check if table exists
             client.get_table(table_ref)
-            print(f"Table {DESTINATION_TABLE} exists")
+            print(f"Table {destination_table} exists")
         except Exception as e:
-            print(f"Table {DESTINATION_TABLE} does not exist, creating: {str(e)}")
+            print(f"Table {destination_table} does not exist, creating: {str(e)}")
 
             # Create table schema
             schema = [
@@ -175,7 +207,7 @@ def ensure_destination_table_exists(**kwargs):
             # Create the table
             table = bigquery.Table(table_ref, schema=schema)
             client.create_table(table, exists_ok=True)
-            print(f"Table {DESTINATION_TABLE} created")
+            print(f"Table {destination_table} created")
 
         return True
     except Exception as e:
@@ -183,25 +215,41 @@ def ensure_destination_table_exists(**kwargs):
         raise AirflowException(f"Failed to ensure destination table exists: {str(e)}")
 
 
-# Function to generate modified IoU query for a specific cluster
-def generate_cluster_query(cluster_id):
-    """Generate the modified IoU query for a specific cluster ID."""
-    # Template query with the current cluster ID instead of hardcoded cluster 1
+# Function to ensure both destination tables exist
+def ensure_all_destination_tables_exist(**kwargs):
+    """Ensure both NSFW and clean destination tables exist."""
+    try:
+        ensure_destination_table_exists(NSFW_DESTINATION_TABLE)
+        ensure_destination_table_exists(CLEAN_DESTINATION_TABLE)
+        return True
+    except Exception as e:
+        print(f"Error ensuring all destination tables exist: {str(e)}")
+        raise AirflowException(
+            f"Failed to ensure all destination tables exist: {str(e)}"
+        )
+
+
+# Function to generate modified IoU query for a specific cluster and content type
+def generate_cluster_query(cluster_id, content_type, nsfw_label):
+    """Generate the modified IoU query for a specific cluster ID and content type."""
+    destination_table = get_destination_table(content_type)
+
+    # Template query with the current cluster ID and content type filter
     query = f"""
     -- Modified IoU Score Calculation for Video Recommendation Candidates
     -- This SQL replicates the logic from the Python code in 002-iou_algorithm_prep_data.py
-    -- FOCUS ON CLUSTER {cluster_id} and returns the exact same result as res_dict[{cluster_id}]["candidates"]
+    -- FOCUS ON CLUSTER {cluster_id} with content type {content_type} (nsfw_label = {nsfw_label})
     -- Delete any existing data for the target cluster
     -- This ensures we don't have duplicate entries when we re-run the calculation
     DELETE FROM
-      `{DESTINATION_TABLE}`
+      `{destination_table}`
     WHERE
       cluster_id = {cluster_id};
 
 
     -- Insert the results from the modified_iou_intermediate_table.sql calculation
     INSERT INTO
-      `{DESTINATION_TABLE}` (
+      `{destination_table}` (
         cluster_id,
         video_id_x,
         user_id_list_min_x,
@@ -239,6 +287,7 @@ def generate_cluster_query(cluster_id):
         WHERE
           mean_percentage_watched > {WATCH_PERCENTAGE_THRESHOLD_MIN}
           AND cluster_id = {cluster_id} -- FOCUS ONLY ON THIS CLUSTER
+          AND nsfw_label = {nsfw_label} -- FILTER BY CONTENT TYPE
       ),
       -- Filter data for success watch threshold
       success_threshold_data AS (
@@ -252,6 +301,7 @@ def generate_cluster_query(cluster_id):
         WHERE
           mean_percentage_watched > {WATCH_PERCENTAGE_THRESHOLD_SUCCESS}
           AND cluster_id = {cluster_id} -- FOCUS ONLY ON THIS CLUSTER
+          AND nsfw_label = {nsfw_label} -- FILTER BY CONTENT TYPE
       ),
       -- Group by video for minimum threshold
       min_grouped AS (
@@ -455,29 +505,34 @@ def generate_cluster_query(cluster_id):
     return query
 
 
-# Function to process a single cluster
-def process_cluster(cluster_id, **kwargs):
-    """Execute the modified IoU query for a specific cluster ID."""
+# Function to process a single cluster with content type
+def process_cluster_content(cluster_id, content_type, nsfw_label, **kwargs):
+    """Execute the modified IoU query for a specific cluster ID and content type."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
 
-        # Generate the query for this cluster
-        query = generate_cluster_query(cluster_id)
+        # Generate the query for this cluster and content type
+        query = generate_cluster_query(cluster_id, content_type, nsfw_label)
 
-        print(f"Processing cluster ID: {cluster_id}")
+        print(
+            f"Processing cluster ID: {cluster_id}, content type: {content_type}, nsfw_label: {nsfw_label}"
+        )
         print(f"Running query...")
 
         # Run the query
         query_job = client.query(query)
         query_job.result()  # Wait for the query to complete
 
-        print(f"Query completed for cluster ID: {cluster_id}")
+        print(
+            f"Query completed for cluster ID: {cluster_id}, content type: {content_type}"
+        )
 
         # Verify data was inserted
+        destination_table = get_destination_table(content_type)
         verify_query = f"""
         SELECT COUNT(*) as row_count
-        FROM `{DESTINATION_TABLE}`
+        FROM `{destination_table}`
         WHERE cluster_id = {cluster_id}
         """
 
@@ -485,39 +540,51 @@ def process_cluster(cluster_id, **kwargs):
         result = list(verify_job.result())[0]
         row_count = result.row_count
 
-        print(f"Verification: Found {row_count} rows for cluster ID: {cluster_id}")
+        print(
+            f"Verification: Found {row_count} rows for cluster ID: {cluster_id}, content type: {content_type}"
+        )
 
         if row_count == 0:
-            print(f"Warning: No data was inserted for cluster ID: {cluster_id}")
+            print(
+                f"Warning: No data was inserted for cluster ID: {cluster_id}, content type: {content_type}"
+            )
 
         return True
     except Exception as e:
-        print(f"Error processing cluster {cluster_id}: {str(e)}")
-        raise AirflowException(f"Failed to process cluster {cluster_id}: {str(e)}")
+        print(
+            f"Error processing cluster {cluster_id}, content type {content_type}: {str(e)}"
+        )
+        raise AirflowException(
+            f"Failed to process cluster {cluster_id}, content type {content_type}: {str(e)}"
+        )
 
 
-# Function to verify data in destination table
+# Function to verify data in destination tables
 def verify_destination_data(**kwargs):
-    """Verify that data exists in the destination table."""
+    """Verify that data exists in both destination tables."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
 
-        # Query to count total rows
-        query = f"""
-        SELECT COUNT(*) as total_rows
-        FROM `{DESTINATION_TABLE}`
-        """
+        # Check both tables
+        for table_name, content_type in [
+            (NSFW_DESTINATION_TABLE, "NSFW"),
+            (CLEAN_DESTINATION_TABLE, "Clean"),
+        ]:
+            # Query to count total rows
+            query = f"""
+            SELECT COUNT(*) as total_rows
+            FROM `{table_name}`
+            """
 
-        # Run the query
-        query_job = client.query(query)
-        result = list(query_job.result())[0]
-        total_rows = result.total_rows
+            # Run the query
+            query_job = client.query(query)
+            result = list(query_job.result())[0]
+            total_rows = result.total_rows
 
-        print(f"Verification: Found {total_rows} total rows in {DESTINATION_TABLE}")
-
-        if total_rows == 0:
-            raise AirflowException(f"No data found in {DESTINATION_TABLE}")
+            print(
+                f"Verification: Found {total_rows} total rows in {table_name} ({content_type} content)"
+            )
 
         return True
     except Exception as e:
@@ -527,16 +594,21 @@ def verify_destination_data(**kwargs):
 
 # Function to process all clusters
 def process_all_clusters(**kwargs):
-    """Process all clusters one by one."""
+    """Process all cluster-content combinations one by one."""
     try:
-        # Get cluster IDs from variable
-        cluster_ids = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
+        # Get cluster data from variable
+        cluster_data = Variable.get(CLUSTER_IDS_VARIABLE, deserialize_json=True)
 
-        print(f"Processing {len(cluster_ids)} clusters: {cluster_ids}")
+        print(
+            f"Processing {len(cluster_data)} cluster-content combinations: {cluster_data}"
+        )
 
-        # Process each cluster
-        for cluster_id in cluster_ids:
-            process_cluster(cluster_id)
+        # Process each cluster-content combination
+        for item in cluster_data:
+            cluster_id = item["cluster_id"]
+            content_type = item["content_type"]
+            nsfw_label = item["nsfw_label"]
+            process_cluster_content(cluster_id, content_type, nsfw_label)
 
         return True
     except Exception as e:
@@ -548,7 +620,7 @@ def process_all_clusters(**kwargs):
 with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
-    description="Modified IoU Candidate Generation",
+    description="Modified IoU Candidate Generation with NSFW/Clean Split",
     schedule_interval=None,
     catchup=False,
     tags=["candidate_generation"],
@@ -561,25 +633,25 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
-    # Get unique cluster IDs
+    # Get unique cluster IDs with content types
     get_clusters = PythonOperator(
         task_id="task-get_cluster_ids",
         python_callable=get_cluster_ids,
     )
 
-    # Ensure destination table exists
-    ensure_table = PythonOperator(
-        task_id="task-ensure_destination_table",
-        python_callable=ensure_destination_table_exists,
+    # Ensure both destination tables exist
+    ensure_tables = PythonOperator(
+        task_id="task-ensure_destination_tables",
+        python_callable=ensure_all_destination_tables_exist,
     )
 
-    # Process all clusters
+    # Process all clusters with content types
     process_clusters = PythonOperator(
         task_id="task-process_all_clusters",
         python_callable=process_all_clusters,
     )
 
-    # Verify final data
+    # Verify final data in both tables
     verify_data = PythonOperator(
         task_id="task-verify_data",
         python_callable=verify_destination_data,
@@ -598,7 +670,7 @@ with DAG(
         start
         >> init_status
         >> get_clusters
-        >> ensure_table
+        >> ensure_tables
         >> process_clusters
         >> verify_data
         >> set_status
