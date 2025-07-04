@@ -1,8 +1,37 @@
 """
-This script is used to set the metadata for the candidates in the candidate cache.
-1. User Watch Time Quantile Bins
-2. todo: User Watch History
-3. todo: location
+This script populates Valkey cache with user metadata for recommendation candidates.
+
+The script processes two types of metadata for both NSFW and Clean content:
+1. User Watch Time Quantile Bins - Statistical quantiles (25th, 50th, 75th, 100th percentile)
+   of user watch times per cluster, used for candidate ranking and filtering
+2. User Watch Time - Individual user watch time data per cluster, used for personalized
+   candidate selection
+
+Data is sourced from BigQuery tables and uploaded to Valkey with appropriate key prefixes
+(nsfw: or clean:) for content type separation. The script processes both content types
+sequentially and verifies upload success through sample key validation.
+
+Sample Outputs:
+
+1. User Watch Time Quantile Bins:
+   Key: "{content_type}:{cluster_id}:user_watch_time_quantile_bins"
+   Value: {"percentile_25": {p25_value}, "percentile_50": {p50_value},
+           "percentile_75": {p75_value}, "percentile_100": {p100_value},
+           "user_count": {user_count}}
+
+   Examples:
+   - "nsfw:5:user_watch_time_quantile_bins" → {"percentile_25": 77.73, "percentile_50": 187.11,
+     "percentile_75": 470.24, "percentile_100": 2994.04, "user_count": 1556}
+   - "clean:2:user_watch_time_quantile_bins" → {"percentile_25": 19.32, "percentile_50": 27.75,
+     "percentile_75": 44.65, "percentile_100": 156.15, "user_count": 320}
+
+2. User Watch Time:
+   Key: "{content_type}:{user_id}:user_watch_time"
+   Value: {"{cluster_id}": {watch_time_seconds}}
+
+   Examples:
+   - "nsfw:{user_id}:user_watch_time" → {"0": 54.51}
+   - "clean:{user_id}:user_watch_time" → {"0": 40.55}
 """
 
 import os
@@ -47,12 +76,14 @@ class MetadataPopulator(ABC):
 
     def __init__(
         self,
+        nsfw_label: bool,
         config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the metadata populator.
 
         Args:
+            nsfw_label: Whether to use NSFW or clean metadata
             config: Optional configuration dictionary to override defaults
         """
         self.config = DEFAULT_CONFIG.copy()
@@ -67,6 +98,10 @@ class MetadataPopulator(ABC):
 
         # Store for metadata
         self.metadata = []
+
+        # Store nsfw_label for key prefixing
+        self.nsfw_label = nsfw_label
+        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
 
     def _update_nested_dict(self, d: Dict, u: Dict) -> Dict:
         """Recursively update nested dictionary."""
@@ -205,18 +240,23 @@ class UserWatchTimeQuantileBins(MetadataPopulator):
 
     def __init__(
         self,
-        table_name: str = "jay-dhanwant-experiments.stage_test_tables.user_watch_time_quantile_bins",
+        nsfw_label: bool,
         **kwargs,
     ):
         """
         Initialize User Watch Time Quantile Bins metadata populator.
 
         Args:
-            table_name: BigQuery table name for user watch time quantile bins
+            nsfw_label: Whether to use NSFW or clean metadata
             **kwargs: Additional arguments passed to parent class
         """
-        super().__init__(**kwargs)
-        self.table_name = table_name
+        super().__init__(nsfw_label=nsfw_label, **kwargs)
+        # Set the appropriate table based on nsfw_label
+        self.table_name = (
+            "jay-dhanwant-experiments.stage_test_tables.nsfw_user_watch_time_quantile_bins"
+            if nsfw_label
+            else "jay-dhanwant-experiments.stage_test_tables.clean_user_watch_time_quantile_bins"
+        )
 
     def format_key(
         self,
@@ -224,7 +264,7 @@ class UserWatchTimeQuantileBins(MetadataPopulator):
         metadata_type: str = "user_watch_time_quantile_bins",
     ) -> str:
         """Format key for User Watch Time Quantile Bins metadata."""
-        return f"meta:{cluster_id}:{metadata_type}"
+        return f"{self.key_prefix}{cluster_id}:{metadata_type}"
 
     def format_value(
         self,
@@ -284,18 +324,20 @@ class UserWatchTimeMetadata(MetadataPopulator):
 
     def __init__(
         self,
-        table_name: str = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters",
+        nsfw_label: bool,
         **kwargs,
     ):
         """
         Initialize User Watch Time metadata populator.
 
         Args:
-            table_name: BigQuery table name for user watch time data
+            nsfw_label: Whether to use NSFW or clean metadata
             **kwargs: Additional arguments passed to parent class
         """
-        super().__init__(**kwargs)
-        self.table_name = table_name
+        super().__init__(nsfw_label=nsfw_label, **kwargs)
+        self.table_name = (
+            "jay-dhanwant-experiments.stage_test_tables.test_clean_and_nsfw_split"
+        )
 
     def format_key(
         self,
@@ -303,7 +345,7 @@ class UserWatchTimeMetadata(MetadataPopulator):
         metadata_type: str = "user_watch_time",
     ) -> str:
         """Format key for User Watch Time metadata."""
-        return f"meta:{user_id}:{metadata_type}"
+        return f"{self.key_prefix}{user_id}:{metadata_type}"
 
     def format_value(
         self,
@@ -321,6 +363,8 @@ class UserWatchTimeMetadata(MetadataPopulator):
             SUM(mean_percentage_watched) * 60 as total_watch_time
         FROM
             `{self.table_name}`
+        WHERE
+            nsfw_label = {self.nsfw_label}
         GROUP BY
             cluster_id, user_id
         """
@@ -353,16 +397,21 @@ class UserWatchTimeMetadata(MetadataPopulator):
 
 # Example usage
 if __name__ == "__main__":
-    # Create metadata populator for user watch time quantile bins
-    user_bins_populator = UserWatchTimeQuantileBins()
+    for i in [True, False]:
+        use_nsfw = i  # Set to True for NSFW metadata, False for clean metadata
 
-    # Populate Valkey with user watch time quantile bins metadata
-    bins_stats = user_bins_populator.populate_valkey()
-    print(f"Bins upload complete with stats: {bins_stats}")
+        # Create metadata populator for user watch time quantile bins
+        user_bins_populator = UserWatchTimeQuantileBins(nsfw_label=use_nsfw)
 
-    # Create metadata populator for user watch times
-    user_watch_time_populator = UserWatchTimeMetadata()
+        # Populate Valkey with user watch time quantile bins metadata
+        bins_stats = user_bins_populator.populate_valkey()
+        print(f"Bins upload complete with stats: {bins_stats}")
+        print(f"Content type: {'NSFW' if use_nsfw else 'Clean'}")
 
-    # Populate Valkey with user watch time metadata
-    watch_time_stats = user_watch_time_populator.populate_valkey()
-    print(f"User watch time upload complete with stats: {watch_time_stats}")
+        # Create metadata populator for user watch times
+        user_watch_time_populator = UserWatchTimeMetadata(nsfw_label=use_nsfw)
+
+        # Populate Valkey with user watch time metadata
+        watch_time_stats = user_watch_time_populator.populate_valkey()
+        print(f"User watch time upload complete with stats: {watch_time_stats}")
+        print(f"Content type: {'NSFW' if use_nsfw else 'Clean'}")

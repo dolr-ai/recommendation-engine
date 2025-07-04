@@ -1,3 +1,38 @@
+"""
+This script retrieves recommendation candidates from Valkey cache for video content.
+
+The script fetches two types of candidates for both NSFW and Clean content:
+1. Watch Time Quantile Candidates - Video candidates grouped by watch time quantile bins,
+   used for time-based recommendation filtering and ranking
+2. Modified IoU Candidates - Video candidates based on intersection-over-union similarity,
+   used for content similarity-based recommendations
+
+Data is retrieved from Valkey with appropriate key prefixes (nsfw: or clean:) for content
+type separation. The script supports efficient batch retrieval using mget operations.
+
+Sample Key Formats:
+
+1. Watch Time Quantile Candidates:
+   Key: "{content_type}:{cluster_id}:{bin_id}:{query_video_id}:watch_time_quantile_bin_candidate"
+   Value: ["{candidate_video_id_1}", "{candidate_video_id_2}", ...]
+
+   Examples:
+   - "nsfw:1:3:{query_video_id}:watch_time_quantile_bin_candidate" →
+     ["d61ad75467924cf39305f7c80eb9731e", "67aa46c53b624f5cbd237e7a4cf10274", ...]
+   - "clean:0:1:{query_video_id}:watch_time_quantile_bin_candidate" →
+     ["190cbe93ecd54ae7ad675cbedf89fe22"]
+
+2. Modified IoU Candidates:
+   Key: "{content_type}:{cluster_id}:{video_id_x}:modified_iou_candidate"
+   Value: ["{video_id_y_1}", "{video_id_y_2}", ...]
+
+   Examples:
+   - "nsfw:{cluster_id}:{video_id_x}:modified_iou_candidate" →
+     ["{related_video_id_1}", "{related_video_id_2}", ...]
+   - "clean:{cluster_id}:{video_id_x}:modified_iou_candidate" →
+     ["{related_video_id_1}", "{related_video_id_2}", ...]
+"""
+
 import os
 import json
 import pandas as pd
@@ -36,12 +71,14 @@ class CandidateFetcher(ABC):
 
     def __init__(
         self,
+        nsfw_label: bool,
         config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the candidate fetcher.
 
         Args:
+            nsfw_label: Whether to use NSFW or clean candidates
             config: Optional configuration dictionary to override defaults
         """
         self.config = DEFAULT_CONFIG.copy()
@@ -53,6 +90,10 @@ class CandidateFetcher(ABC):
 
         # Initialize Valkey service
         self._init_valkey_service()
+
+        # Store nsfw_label for key prefixing
+        self.nsfw_label = nsfw_label
+        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
 
     def _update_nested_dict(self, d: Dict, u: Dict) -> Dict:
         """Recursively update nested dictionary."""
@@ -232,7 +273,7 @@ class ModifiedIoUCandidateFetcher(CandidateFetcher):
         Returns:
             Formatted key string
         """
-        return f"{cluster_id}:{query_video_id}:modified_iou_candidate"
+        return f"{self.key_prefix}{cluster_id}:{query_video_id}:modified_iou_candidate"
 
 
 class WatchTimeQuantileCandidateFetcher(CandidateFetcher):
@@ -275,35 +316,7 @@ class WatchTimeQuantileCandidateFetcher(CandidateFetcher):
         Returns:
             Formatted key string
         """
-        return (
-            f"{cluster_id}:{bin_id}:{query_video_id}:watch_time_quantile_bin_candidate"
-        )
-
-
-# Example usage
-if __name__ == "__main__":
-    # Create fetchers with default config
-    modified_iou_fetcher = ModifiedIoUCandidateFetcher()
-    watch_time_fetcher = WatchTimeQuantileCandidateFetcher()
-
-    # Example with Modified IoU candidates
-    iou_args = [
-        ("1", "0760296cbf4744c78259eaf4a03bb0bf"),  # (cluster_id, query_video_id)
-        ("1", "e98398885c28457985da19ee6dada1bd"),
-        ("1", "efb3001de03349c1be98df31352156f9"),
-    ]
-    miou_candidates = modified_iou_fetcher.get_candidates(iou_args)
-    logger.debug(f"Modified IoU candidates count: {len(miou_candidates)}")
-
-    # Example with Watch Time Quantile candidates
-    # (cluster_id, bin_id, query_video_id)
-    wt_args = [
-        ("1", "3", "8de5f0a02f6844fd87d82835355e8913"),
-        ("1", "3", "f1505a1510d34f7882398eaa76d1c8d6"),
-        ("1", "2", "7408509f03454f90938a18d7f428a0fe"),
-    ]
-    wt_candidates = watch_time_fetcher.get_candidates(wt_args)
-    logger.debug(f"Watch Time Quantile candidates count: {len(wt_candidates)}")
+        return f"{self.key_prefix}{cluster_id}:{bin_id}:{query_video_id}:watch_time_quantile_bin_candidate"
 
 
 class FallbackCandidateFetcher(CandidateFetcher):
@@ -342,9 +355,11 @@ class FallbackCandidateFetcher(CandidateFetcher):
             Formatted key pattern string
         """
         if candidate_type == "modified_iou":
-            return f"{cluster_id}:*:modified_iou_candidate"
+            return f"{self.key_prefix}{cluster_id}:*:modified_iou_candidate"
         elif candidate_type == "watch_time_quantile":
-            return f"{cluster_id}:*:*:watch_time_quantile_bin_candidate"
+            return (
+                f"{self.key_prefix}{cluster_id}:*:*:watch_time_quantile_bin_candidate"
+            )
         else:
             raise ValueError(f"Unsupported candidate type: {candidate_type}")
 
@@ -450,3 +465,51 @@ class FallbackCandidateFetcher(CandidateFetcher):
                 result[str(cluster_id)] = []
 
         return result
+
+
+# Example usage
+if __name__ == "__main__":
+    # Create fetchers with default config for both NSFW and Clean content
+    modified_iou_fetcher_nsfw = ModifiedIoUCandidateFetcher(nsfw_label=True)
+    watch_time_fetcher_nsfw = WatchTimeQuantileCandidateFetcher(nsfw_label=True)
+
+    modified_iou_fetcher_clean = ModifiedIoUCandidateFetcher(nsfw_label=False)
+    watch_time_fetcher_clean = WatchTimeQuantileCandidateFetcher(nsfw_label=False)
+
+    # Example with Modified IoU candidates (NSFW)
+    iou_args_nsfw = [
+        ("5", "0760296cbf4744c78259eaf4a03bb0bf"),  # (cluster_id, query_video_id)
+        ("5", "9d8cf9e839fa46eb823442c1726643de"),
+    ]
+
+    miou_candidates_nsfw = modified_iou_fetcher_nsfw.get_candidates(iou_args_nsfw)
+    logger.debug(f"NSFW Modified IoU candidates count: {len(miou_candidates_nsfw)}")
+
+    # Example with Watch Time Quantile candidates (NSFW)
+    # (cluster_id, bin_id, query_video_id)
+    wt_args_nsfw = [
+        ("5", "3", "98c1c8c903aa4b879bae6aa479d7e54c"),
+        ("5", "1", "6b1276a3863c4ef2a5ad522cebf89e70"),
+    ]
+    wt_candidates_nsfw = watch_time_fetcher_nsfw.get_candidates(wt_args_nsfw)
+    logger.debug(
+        f"NSFW Watch Time Quantile candidates count: {len(wt_candidates_nsfw)}"
+    )
+
+    # Example with Modified IoU candidates (Clean)
+    iou_args_clean = [
+        ("0", "10dd29db27544c8abe4eaf82dec43b1c"),  # (cluster_id, query_video_id)
+        ("0", "4c580b41b1c14852adbf9ebc0fda11c4"),
+    ]
+    miou_candidates_clean = modified_iou_fetcher_clean.get_candidates(iou_args_clean)
+    logger.debug(f"Clean Modified IoU candidates count: {len(miou_candidates_clean)}")
+
+    # Example with Watch Time Quantile candidates (Clean)
+    wt_args_clean = [
+        ("4", "1", "8413528a15c84c6cba2f341154d69d7b"),
+        ("1", "2", "dc003d3dfa0044f38b13cf530a0f8bee"),
+    ]
+    wt_candidates_clean = watch_time_fetcher_clean.get_candidates(wt_args_clean)
+    logger.debug(
+        f"Clean Watch Time Quantile candidates count: {len(wt_candidates_clean)}"
+    )
