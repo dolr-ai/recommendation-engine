@@ -54,6 +54,7 @@ class RecommendationRequest(BaseModel):
         default=[],
         description="List of video IDs to exclude (real-time reported items)",
     )
+    nsfw_label: bool = Field(description="Set true if nsfw recommendations are needed")
 
 
 class RecommendationResponse(BaseModel):

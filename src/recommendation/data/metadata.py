@@ -19,14 +19,18 @@ logger = get_logger(__name__)
 class MetadataManager:
     """Core manager for fetching user metadata."""
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, nsfw_label=None):
         """
         Initialize metadata manager.
 
         Args:
             config: Configuration dictionary or None to use default config
+            nsfw_label: Boolean flag to indicate if NSFW content needed
         """
         logger.info("Initializing MetadataManager")
+
+        # Store the nsfw_label parameter
+        self.nsfw_label = nsfw_label
 
         try:
             # Get configuration from environment or use defaults
@@ -47,9 +51,13 @@ class MetadataManager:
                             f"Invalid VALKEY_PORT value: {valkey_port}, using default"
                         )
 
-            # Initialize fetchers
-            self.user_fetcher = UserClusterWatchTimeFetcher(config=self.config)
-            self.bins_fetcher = UserWatchTimeQuantileBinsFetcher(config=self.config)
+            # Initialize fetchers with nsfw_label
+            self.user_fetcher = UserClusterWatchTimeFetcher(
+                config=self.config, nsfw_label=nsfw_label
+            )
+            self.bins_fetcher = UserWatchTimeQuantileBinsFetcher(
+                config=self.config, nsfw_label=nsfw_label
+            )
 
             logger.info("Metadata manager initialized successfully")
         except Exception as e:
