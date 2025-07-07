@@ -1,8 +1,36 @@
 """
-This script is used to get metadata for the candidates from the candidate cache.
-1. User Watch Time Quantile Bins
-2. todo: User Watch History
-3. todo: location
+This script retrieves user metadata from Valkey cache for recommendation candidates.
+
+The script fetches two types of metadata for both NSFW and Clean content:
+1. User Watch Time Quantile Bins - Statistical quantiles (25th, 50th, 75th, 100th percentile)
+   of user watch times per cluster, used for candidate ranking and filtering
+2. User Watch Time - Individual user watch time data per cluster, used for personalized
+   candidate selection
+
+Data is retrieved from Valkey with appropriate key prefixes (nsfw: or clean:) for content
+type separation. The script supports efficient batch retrieval using mget operations.
+
+Sample Key Formats:
+
+1. User Watch Time Quantile Bins:
+   Key: "{content_type}:{cluster_id}:user_watch_time_quantile_bins"
+   Value: {"percentile_25": {p25_value}, "percentile_50": {p50_value},
+           "percentile_75": {p75_value}, "percentile_100": {p100_value},
+           "user_count": {user_count}}
+
+   Examples:
+   - "nsfw:5:user_watch_time_quantile_bins" → {"percentile_25": 77.73, "percentile_50": 187.11,
+     "percentile_75": 470.24, "percentile_100": 2994.04, "user_count": 1556}
+   - "clean:2:user_watch_time_quantile_bins" → {"percentile_25": 19.32, "percentile_50": 27.75,
+     "percentile_75": 44.65, "percentile_100": 156.15, "user_count": 320}
+
+2. User Watch Time:
+   Key: "{content_type}:{user_id}:user_watch_time"
+   Value: {"{cluster_id}": {watch_time_seconds}}
+
+   Examples:
+   - "nsfw:{user_id}:user_watch_time" → {"0": 54.51}
+   - "clean:{user_id}:user_watch_time" → {"0": 40.55}
 """
 
 import os
@@ -50,12 +78,14 @@ class MetadataFetcher(ABC):
 
     def __init__(
         self,
+        nsfw_label: bool,
         config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the metadata fetcher.
 
         Args:
+            nsfw_label: Whether to use NSFW or clean metadata
             config: Optional configuration dictionary to override defaults
         """
         self.config = DEFAULT_CONFIG.copy()
@@ -67,6 +97,10 @@ class MetadataFetcher(ABC):
 
         # Initialize Valkey service
         self._init_valkey_service()
+
+        # Store nsfw_label for key prefixing
+        self.nsfw_label = nsfw_label
+        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
 
     def _update_nested_dict(self, d: Dict, u: Dict) -> Dict:
         """Recursively update nested dictionary."""
@@ -216,7 +250,7 @@ class UserWatchTimeQuantileBinsFetcher(MetadataFetcher):
         Returns:
             Formatted key string
         """
-        return f"meta:{cluster_id}:user_watch_time_quantile_bins"
+        return f"{self.key_prefix}{cluster_id}:user_watch_time_quantile_bins"
 
     def get_quantile_bins(self, cluster_id: Union[int, str]) -> Dict[str, Any]:
         """
@@ -288,7 +322,7 @@ class UserWatchTimeQuantileBinsFetcher(MetadataFetcher):
         Returns:
             List of cluster IDs
         """
-        keys = self.get_keys("meta:*:user_watch_time_quantile_bins")
+        keys = self.get_keys(f"{self.key_prefix}*:user_watch_time_quantile_bins")
         return [key.split(":")[1] for key in keys]
 
     def batch_get_quantile_bins(
@@ -351,7 +385,7 @@ class UserClusterWatchTimeFetcher(MetadataFetcher):
         Returns:
             Formatted key string
         """
-        return f"meta:{user_id}:user_watch_time"
+        return f"{self.key_prefix}{user_id}:user_watch_time"
 
     def get_user_cluster_and_watch_time(
         self, user_id: str
@@ -438,23 +472,108 @@ class UserClusterWatchTimeFetcher(MetadataFetcher):
 
 # Example usage
 if __name__ == "__main__":
-    # Create fetchers with default config
-    user_watch_time_fetcher = UserClusterWatchTimeFetcher(config=DEFAULT_CONFIG)
-    bins_fetcher = UserWatchTimeQuantileBinsFetcher(config=DEFAULT_CONFIG)
-
-    # Example: Get cluster_id and watch_time for a specific user
-    test_user = "user_id"  # Replace with an actual user ID
-    cluster_id, watch_time = user_watch_time_fetcher.get_user_cluster_and_watch_time(
-        test_user
+    # Create fetchers with default config for both NSFW and Clean content
+    user_watch_time_fetcher_nsfw = UserClusterWatchTimeFetcher(
+        nsfw_label=True, config=DEFAULT_CONFIG
+    )
+    bins_fetcher_nsfw = UserWatchTimeQuantileBinsFetcher(
+        nsfw_label=True, config=DEFAULT_CONFIG
     )
 
-    if cluster_id != -1:
-        logger.info(
-            f"User {test_user} belongs to cluster {cluster_id} with watch time {watch_time}"
+    user_watch_time_fetcher_clean = UserClusterWatchTimeFetcher(
+        nsfw_label=False, config=DEFAULT_CONFIG
+    )
+    bins_fetcher_clean = UserWatchTimeQuantileBinsFetcher(
+        nsfw_label=False, config=DEFAULT_CONFIG
+    )
+
+    # Example: Get cluster_id and watch_time for specific users (NSFW)
+    test_users_nsfw = [
+        "xgyuq-2zr5k-ol7cn-aw5q4-dselk-rncoz-mlnqc-tdwej-w24ku-ah2zq-vqe",
+        "mg4xz-mhxsh-d3mwg-e6mtl-f7ahj-buubu-53e27-3j33t-apwyu-rumso-qae",
+        "mf2yn-hnh2u-vph6i-wyne2-isawk-ric5t-yotm6-sxjot-lzi62-2y6lf-pae",
+        "44f4y-5orb7-kx2gv-vvurq-7mwmr-nkbjm-hs6ke-uqwiy-e2tjg-fbism-yqe",
+        "aagfn-3jdhk-3suqi-c6xnj-mqxec-winn5-q64qa-f2aeg-rnrko-rpage-qqe",
+    ]
+
+    for test_user_nsfw in test_users_nsfw:
+        cluster_id_nsfw, watch_time_nsfw = (
+            user_watch_time_fetcher_nsfw.get_user_cluster_and_watch_time(test_user_nsfw)
         )
 
-        # Determine bin for this user's watch time
-        bin_id = bins_fetcher.determine_bin(cluster_id, watch_time)
-        logger.info(f"User {test_user} belongs to bin {bin_id} in cluster {cluster_id}")
-    else:
-        logger.warning(f"No cluster found for user {test_user}")
+        if cluster_id_nsfw != -1:
+            logger.info(
+                f"NSFW User {test_user_nsfw} belongs to cluster {cluster_id_nsfw} with watch time {watch_time_nsfw}"
+            )
+
+            # Determine bin for this user's watch time
+            bin_id_nsfw = bins_fetcher_nsfw.determine_bin(
+                cluster_id_nsfw, watch_time_nsfw
+            )
+            logger.info(
+                f"NSFW User {test_user_nsfw} belongs to bin {bin_id_nsfw} in cluster {cluster_id_nsfw}"
+            )
+        else:
+            logger.warning(f"No NSFW cluster found for user {test_user_nsfw}")
+
+    # Example: Get cluster_id and watch_time for specific users (Clean)
+    test_users_clean = [
+        "bmz2m-inroh-p3isu-2qg5u-tw7zf-3jnrs-nugpf-qujpv-t2ukx-zzft5-hae",
+        "sqv5r-w6ptf-x25xz-azjdu-ibd6t-mrikg-mhmdn-7lmj3-3tdsi-y2xt4-7ae",
+        "4qby6-smili-vyokj-ilr3i-gnrqt-3k6vx-hivsh-ua75h-lm3bk-wtswe-vae",
+        "vqfnp-dh3it-uebch-ex3ai-6cwvr-44tru-jdkvz-4k5oh-7prdt-f6dqm-iae",
+        "2l3fw-jahte-cq7wp-hkf3w-akrsg-o5mpb-4cnzn-fjwem-2ltzw-sxnsw-2qe",
+    ]
+
+    for test_user_clean in test_users_clean:
+        cluster_id_clean, watch_time_clean = (
+            user_watch_time_fetcher_clean.get_user_cluster_and_watch_time(
+                test_user_clean
+            )
+        )
+
+        if cluster_id_clean != -1:
+            logger.info(
+                f"Clean User {test_user_clean} belongs to cluster {cluster_id_clean} with watch time {watch_time_clean}"
+            )
+
+            # Determine bin for this user's watch time
+            bin_id_clean = bins_fetcher_clean.determine_bin(
+                cluster_id_clean, watch_time_clean
+            )
+            logger.info(
+                f"Clean User {test_user_clean} belongs to bin {bin_id_clean} in cluster {cluster_id_clean}"
+            )
+        else:
+            logger.warning(f"No Clean cluster found for user {test_user_clean}")
+
+    # Example: Test batch operations
+    logger.info("Testing batch operations...")
+
+    # Batch get user data for NSFW users
+    batch_users_nsfw = test_users_nsfw[:3]  # Test with first 3 users
+    batch_results_nsfw = (
+        user_watch_time_fetcher_nsfw.batch_get_user_cluster_and_watch_time(
+            batch_users_nsfw
+        )
+    )
+    logger.info(f"NSFW Batch results: {batch_results_nsfw}")
+
+    # Batch get user data for Clean users
+    batch_users_clean = test_users_clean[:3]  # Test with first 3 users
+    batch_results_clean = (
+        user_watch_time_fetcher_clean.batch_get_user_cluster_and_watch_time(
+            batch_users_clean
+        )
+    )
+    logger.info(f"Clean Batch results: {batch_results_clean}")
+
+    # Test quantile bins for NSFW clusters
+    nsfw_clusters = ["0", "2", "5", "6", "7"]  # From the logs
+    nsfw_bins_batch = bins_fetcher_nsfw.batch_get_quantile_bins(nsfw_clusters)
+    logger.info(f"NSFW Quantile bins batch results: {nsfw_bins_batch}")
+
+    # Test quantile bins for Clean clusters
+    clean_clusters = ["2", "3", "4", "5", "6"]  # From the logs
+    clean_bins_batch = bins_fetcher_clean.batch_get_quantile_bins(clean_clusters)
+    logger.info(f"Clean Quantile bins batch results: {clean_bins_batch}")

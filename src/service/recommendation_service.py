@@ -46,6 +46,7 @@ class RecommendationService:
     def get_recommendations(
         self,
         user_profile: Dict[str, Any],
+        nsfw_label: bool,
         exclude_watched_items: Optional[List[str]] = None,
         exclude_reported_items: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
@@ -54,6 +55,7 @@ class RecommendationService:
 
         Args:
             user_profile: User profile dictionary
+            nsfw_label: Boolean flag to indicate if NSFW content needed (False for clean content)
             exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
             exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
 
@@ -75,6 +77,7 @@ class RecommendationService:
             # Get recommendations from engine with watched and reported items filtering
             recommendations = self._engine.get_recommendations(
                 user_profile=user_profile,
+                nsfw_label=nsfw_label,
                 candidate_types=candidate_types,
                 exclude_watched_items=exclude_watched_items,
                 exclude_reported_items=exclude_reported_items,

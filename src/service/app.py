@@ -136,6 +136,7 @@ async def get_recommendations(request: RecommendationRequest):
         # Get recommendations
         recommendations = service.get_recommendations(
             user_profile=user_profile,
+            nsfw_label=request.nsfw_label,
             exclude_watched_items=request.exclude_watched_items,
             exclude_reported_items=request.exclude_reported_items,
         )
@@ -203,6 +204,7 @@ async def get_batch_recommendations(
             # Get recommendations
             recommendations = service.get_recommendations(
                 user_profile=user_profile,
+                nsfw_label=request.nsfw_label,
                 exclude_watched_items=request.exclude_watched_items,
                 exclude_reported_items=request.exclude_reported_items,
             )

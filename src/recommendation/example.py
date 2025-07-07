@@ -6,6 +6,7 @@ This module provides an example of how to use the recommendation engine.
 
 import os
 import json
+from pprint import pprint
 import pandas as pd
 from utils.common_utils import get_logger
 from utils.gcp_utils import GCPUtils
@@ -54,10 +55,11 @@ def main():
     logger.info("Initializing recommendation engine")
     engine = RecommendationEngine(config=config)
 
+    var = "nsfw"
+
     # Load user profiles
-    df_user_profiles = load_user_profiles(
-        "/root/recommendation-engine/data-root/user_profile_records.json"
-    )
+    path = f"/root/recommendation-engine/data-root/{var}-user_profile_records.json"
+    df_user_profiles = load_user_profiles(path)
 
     # Get a sample user profile
     user_profile = df_user_profiles.iloc[0].to_dict()
@@ -71,32 +73,43 @@ def main():
         4: {"name": "fallback_modified_iou", "weight": 0.5},
     }
 
+    # logger.info(f"user_profile: {user_profile}")
+    profile_cluster_id = user_profile["cluster_id"]
+    profile_watch_time_quantile_bin = user_profile["watch_time_quantile_bin_id"]
+    # del user_profile["cluster_id"]
+    # del user_profile["watch_time_quantile_bin_id"]
+
+    logger.info(f"Profile cluster_id: {profile_cluster_id}")
+    logger.info(f"Profile watch_time_quantile_bin: {profile_watch_time_quantile_bin}")
+    logger.info(f"check if it is being derived from redis cache")
     # Get recommendations
     logger.info("Getting recommendations")
     try:
         recommendations = engine.get_recommendations(
             user_profile=user_profile,
+            nsfw_label=(False if var == "clean" else True),
             candidate_types=candidate_types,
             threshold=0.1,
-            top_k=100,
-            fallback_top_k=100,
+            top_k=20,
+            fallback_top_k=20,
             enable_deduplication=True,
             max_workers=4,
             max_fallback_candidates=200,
             min_similarity_threshold=0.4,
-            exclude_watched_items=["test_video1"],
+            # exclude_watched_items=["test_video1"],
         )
 
         # Print recommendations
         logger.info("Recommendation results:")
-        logger.info(f"Total recommendations: {len(recommendations['posts'])}")
+        main_recs = recommendations.get(
+            "main_recommendations", recommendations.get("recommendations", [])
+        )
+        fallback_recs = recommendations.get("fallback_recommendations", [])
+        logger.info(
+            f"Total recommendations = main + fallback: {len(main_recs) + len(fallback_recs)} -> (main: {len(main_recs)}, fallback: {len(fallback_recs)})"
+        )
 
-        # Print top 5 recommendations
-        if recommendations["posts"]:
-            logger.info("Top 5 recommendations:")
-            for i, post in enumerate(recommendations["posts"][:5]):
-                logger.info(f"  {i+1}. Post ID: {post['post_id']}")
-
+        # pprint(recommendations, indent=2, compact=False)
         return recommendations
 
     except Exception as e:

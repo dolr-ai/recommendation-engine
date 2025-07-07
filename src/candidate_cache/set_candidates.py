@@ -1,3 +1,41 @@
+"""
+This script populates Valkey cache with recommendation candidates for video content.
+
+The script processes two types of candidates for both NSFW and Clean content:
+1. Watch Time Quantile Candidates - Video candidates grouped by watch time quantile bins,
+   used for time-based recommendation filtering and ranking
+2. Modified IoU Candidates - Video candidates based on intersection-over-union similarity,
+   used for content similarity-based recommendations
+
+Data is sourced from BigQuery tables and uploaded to Valkey with appropriate key prefixes
+(nsfw: or clean:) for content type separation. The script processes both content types
+sequentially and verifies upload success through sample key validation.
+
+Sample Outputs:
+
+1. Watch Time Quantile Candidates:
+   Key: "{content_type}:{cluster_id}:{bin_id}:{query_video_id}:watch_time_quantile_bin_candidate"
+   Value: ["{candidate_video_id_1}", "{candidate_video_id_2}", ...]
+
+   Examples:
+   - "nsfw:1:3:{query_video_id}:watch_time_quantile_bin_candidate" →
+     ["d61ad75467924cf39305f7c80eb9731e", "67aa46c53b624f5cbd237e7a4cf10274",
+      "62012f5f41d84f978409585565a4fb1d", "248f6934d45941fe901d708e6604b302",
+      "b6b665466dea4d09b85bb214bfe760f5"]
+   - "clean:0:1:{query_video_id}:watch_time_quantile_bin_candidate" →
+     ["190cbe93ecd54ae7ad675cbedf89fe22"]
+
+2. Modified IoU Candidates:
+   Key: "{content_type}:{cluster_id}:{video_id_x}:modified_iou_candidate"
+   Value: ["{video_id_y_1}", "{video_id_y_2}", ...]
+
+   Examples:
+   - "nsfw:{cluster_id}:{video_id_x}:modified_iou_candidate" →
+     ["{related_video_id_1}", "{related_video_id_2}", ...]
+   - "clean:{cluster_id}:{video_id_x}:modified_iou_candidate" →
+     ["{related_video_id_1}", "{related_video_id_2}", ...]
+"""
+
 import os
 import json
 import pandas as pd
@@ -45,12 +83,14 @@ class CandidatePopulator(ABC):
 
     def __init__(
         self,
+        nsfw_label: bool,
         config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the candidate populator.
 
         Args:
+            nsfw_label: Whether to use NSFW or clean candidates table
             config: Optional configuration dictionary to override defaults
         """
         self.config = DEFAULT_CONFIG.copy()
@@ -68,6 +108,10 @@ class CandidatePopulator(ABC):
 
         # Store for video IDs
         self.all_video_ids = set()
+
+        # Store nsfw_label for key prefixing
+        self.nsfw_label = nsfw_label
+        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
 
     def _update_nested_dict(self, d: Dict, u: Dict) -> Dict:
         """Recursively update nested dictionary."""
@@ -237,18 +281,23 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
 
     def __init__(
         self,
-        table_name: str = "jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates",
+        nsfw_label: bool,
         **kwargs,
     ):
         """
         Initialize Watch Time Quantile candidate populator.
 
         Args:
-            table_name: BigQuery table name for candidates
+            nsfw_label: Whether to use NSFW or clean candidates table
             **kwargs: Additional arguments passed to parent class
         """
-        super().__init__(**kwargs)
-        self.table_name = table_name
+        super().__init__(nsfw_label=nsfw_label, **kwargs)
+        # Set the appropriate table based on nsfw_label
+        self.table_name = (
+            "jay-dhanwant-experiments.stage_test_tables.nsfw_watch_time_quantile_candidates"
+            if nsfw_label
+            else "jay-dhanwant-experiments.stage_test_tables.clean_watch_time_quantile_candidates"
+        )
 
     def format_key(
         self,
@@ -258,7 +307,9 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
         candidate_type: str = "watch_time_quantile_bin_candidate",
     ) -> str:
         """Format key for Watch Time Quantile candidates."""
-        return f"{cluster_id}:{bin_id}:{query_video_id}:{candidate_type}"
+        return (
+            f"{self.key_prefix}{cluster_id}:{bin_id}:{query_video_id}:{candidate_type}"
+        )
 
     def format_value(self, candidate_video_ids: List[str]) -> str:
         """Format value for Watch Time Quantile candidates (list of candidate video IDs)."""
@@ -275,6 +326,7 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
             candidate_video_id,
             'watch_time_quantile_bin_candidate' AS type,
             CONCAT(
+              '{self.key_prefix}',
               CAST(cluster_id AS STRING),
               ':',
               CAST(bin AS STRING),
@@ -299,9 +351,7 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
         df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
         df["value"] = df["value"].apply(lambda x: str(list(set(x))))
 
-        logger.info(
-            f"Retrieved {len(df)} rows from watch_time_quantile_candidates table (grouped)"
-        )
+        logger.info(f"Retrieved {len(df)} rows from {self.table_name} table (grouped)")
 
         # Convert values array to string
         df["value"] = df["value"].astype(str)
@@ -313,8 +363,8 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
         """Extract video IDs from Watch Time Quantile candidates."""
         for item in self.candidates_data:
             key_parts = item["key"].split(":")
-            if len(key_parts) >= 3:
-                self.all_video_ids.add(key_parts[2])  # query_video_id
+            if len(key_parts) >= 4:  # Adjusted for prefix
+                self.all_video_ids.add(key_parts[3])  # query_video_id
 
             # Extract candidate video IDs from the value (which is a string representation of a list)
             try:
@@ -334,18 +384,23 @@ class ModifiedIoUCandidate(CandidatePopulator):
 
     def __init__(
         self,
-        table_name: str = "jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates",
+        nsfw_label: bool,
         **kwargs,
     ):
         """
         Initialize Modified IoU candidate populator.
 
         Args:
-            table_name: BigQuery table name for candidates
+            nsfw_label: Whether to use NSFW or clean candidates table
             **kwargs: Additional arguments passed to parent class
         """
-        super().__init__(**kwargs)
-        self.table_name = table_name
+        super().__init__(nsfw_label=nsfw_label, **kwargs)
+        # Set the appropriate table based on nsfw_label
+        self.table_name = (
+            "jay-dhanwant-experiments.stage_test_tables.nsfw_modified_iou_candidates"
+            if nsfw_label
+            else "jay-dhanwant-experiments.stage_test_tables.clean_modified_iou_candidates"
+        )
 
     def format_key(
         self,
@@ -354,7 +409,7 @@ class ModifiedIoUCandidate(CandidatePopulator):
         candidate_type: str = "modified_iou_candidate",
     ) -> str:
         """Format key for Modified IoU candidates."""
-        return f"{cluster_id}:{video_id_x}:{candidate_type}"
+        return f"{self.key_prefix}{cluster_id}:{video_id_x}:{candidate_type}"
 
     def format_value(self, video_ids_y: List[str]) -> str:
         """Format value for Modified IoU candidates (list of related video IDs)."""
@@ -370,6 +425,7 @@ class ModifiedIoUCandidate(CandidatePopulator):
             video_id_y,
             'modified_iou_candidate' AS type,
             CONCAT(
+              '{self.key_prefix}',
               CAST(cluster_id AS STRING),
               ':',
               video_id_x,
@@ -392,9 +448,7 @@ class ModifiedIoUCandidate(CandidatePopulator):
         df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
         df["value"] = df["value"].apply(lambda x: str(list(set(x))))
 
-        logger.info(
-            f"Retrieved {len(df)} rows from modified_iou_candidates table (grouped)"
-        )
+        logger.info(f"Retrieved {len(df)} rows from {self.table_name} table (grouped)")
 
         # Convert values array to string
         df["value"] = df["value"].astype(str)
@@ -406,8 +460,8 @@ class ModifiedIoUCandidate(CandidatePopulator):
         """Extract video IDs from Modified IoU candidates."""
         for item in self.candidates_data:
             key_parts = item["key"].split(":")
-            if len(key_parts) >= 2:
-                self.all_video_ids.add(key_parts[1])  # video_id_x
+            if len(key_parts) >= 3:  # Adjusted for prefix
+                self.all_video_ids.add(key_parts[2])  # video_id_x
 
             # Extract candidate video IDs from the value
             try:
@@ -758,21 +812,26 @@ class CandidateEmbeddingPopulator:
 
 # Example usage
 if __name__ == "__main__":
-    # Create candidate populators
-    watch_time_populator = WatchTimeQuantileCandidate()
-    iou_populator = ModifiedIoUCandidate()
 
-    # Option 1: Populate each separately -> for dev testing
-    # watch_time_stats = watch_time_populator.populate_valkey()
-    # iou_stats = iou_populator.populate_valkey()
+    for i in [True, False]:
+        use_nsfw = i  # Set to True for NSFW candidates, False for clean candidates
 
-    # Option 2: Populate all together -> Use this one
-    multi_populator = MultiCandidatePopulator([watch_time_populator, iou_populator])
-    stats = multi_populator.populate_all()
-    print(f"Upload complete with stats: {stats}")
+        # Create candidate populators
+        watch_time_populator = WatchTimeQuantileCandidate(nsfw_label=use_nsfw)
+        iou_populator = ModifiedIoUCandidate(nsfw_label=use_nsfw)
 
-    # deprecated
-    # Option 3: Populate vector embeddings for candidates
-    # embedding_populator = CandidateEmbeddingPopulator(multi_populator=multi_populator)
-    # embedding_stats = embedding_populator.populate_vector_store()
-    # print(f"Embedding upload complete with stats: {embedding_stats}")
+        # Option 1: Populate each separately -> for dev testing
+        # watch_time_stats = watch_time_populator.populate_valkey()
+        # iou_stats = iou_populator.populate_valkey()
+
+        # Option 2: Populate all together -> Use this one
+        multi_populator = MultiCandidatePopulator([watch_time_populator, iou_populator])
+        stats = multi_populator.populate_all()
+        print(f"Upload complete with stats: {stats}")
+        print(f"Content type: {'NSFW' if use_nsfw else 'Clean'}")
+
+        # deprecated
+        # Option 3: Populate vector embeddings for candidates
+        # embedding_populator = CandidateEmbeddingPopulator(multi_populator=multi_populator)
+        # embedding_stats = embedding_populator.populate_vector_store()
+        # print(f"Embedding upload complete with stats: {embedding_stats}")

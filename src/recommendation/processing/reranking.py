@@ -4,6 +4,7 @@ Reranking module for recommendation engine.
 This module provides functionality for reranking candidates based on similarity scores.
 """
 
+import re
 import concurrent.futures
 from functools import partial
 from collections import OrderedDict
@@ -58,28 +59,29 @@ class RerankingManager:
         all_search_space = []
         video_to_candidates = {}
 
+        # Handle fallback candidates
         if is_fallback:
-            # Handle fallback candidates (stored only in the first query video)
-            # This is an optimization: fallback candidates are the same for all query videos,
-            # so they're only stored once to save memory
-            check_video_id = query_videos[0]
-            if (
-                check_video_id in all_candidates
-                and cand_type in all_candidates[check_video_id]
-            ):
-                candidates_for_video = all_candidates[check_video_id].get(cand_type, [])
 
-                # Apply deduplication if needed
-                if enable_deduplication:
-                    query_videos_set = set(query_videos)
-                    candidates_for_video = [
-                        c for c in candidates_for_video if c not in query_videos_set
-                    ]
+            # Find all keys in all_candidates that match the pattern "fallback_*"
+            fallback_keys = [
+                k for k in all_candidates.keys() if re.match(r"^fallback_.*", k)
+            ]
 
-                # Use the same candidates for all query videos
-                for q_video_id in query_videos:
-                    video_to_candidates[q_video_id] = candidates_for_video
-                    all_search_space.extend(candidates_for_video)
+            candidates_for_fallback = []
+            for key in fallback_keys:
+                candidates_for_fallback.extend(all_candidates.get(key, []))
+
+            # Apply deduplication if needed
+            if enable_deduplication:
+                query_videos_set = set(query_videos)
+                candidates_for_fallback = [
+                    c for c in candidates_for_fallback if c not in query_videos_set
+                ]
+
+            # Use the same fallback candidates for all query videos
+            for q_video_id in query_videos:
+                video_to_candidates[q_video_id] = candidates_for_fallback
+                all_search_space.extend(candidates_for_fallback)
 
         else:
             # Handle regular (non-fallback) candidates
@@ -118,6 +120,8 @@ class RerankingManager:
         similarity_results = self.similarity_manager.calculate_similarity(
             query_videos_with_candidates, all_search_space
         )
+        logger.debug(f"query_videos_with_candidates: {query_videos_with_candidates}")
+        logger.debug(f"all_search_space: {all_search_space}")
 
         # Process and format results
         for q_video_id in query_videos_with_candidates:
@@ -221,6 +225,7 @@ class RerankingManager:
     def reranking_logic(
         self,
         user_profile,
+        nsfw_label,
         candidate_types_dict=None,
         threshold=0.1,
         enable_deduplication=False,
@@ -242,6 +247,7 @@ class RerankingManager:
             enable_deduplication: Whether to remove duplicates from candidates
             max_workers: Maximum number of worker threads for parallel processing
             max_fallback_candidates: Maximum number of fallback candidates to sample (if more are available)
+            nsfw_label: Whether to use NSFW or clean candidates (default: False for clean)
 
         Returns:
             DataFrame with columns:
@@ -282,15 +288,16 @@ class RerankingManager:
             return pd.DataFrame(columns=columns)
 
         # 2. Fetch candidates for all query videos
+        self.candidate_manager._set_key_prefix(nsfw_label)
         all_candidates = self.candidate_manager.fetch_candidates(
             query_videos,
             cluster_id,
             bin_id,
             candidate_types_dict,
-            max_fallback_candidates,
+            nsfw_label=nsfw_label,  # Pass nsfw_label to determine content type
+            max_fallback_candidates=max_fallback_candidates,
             max_workers=max_workers,  # Pass max_workers to enable parallel fetching
         )
-        logger.info(f"total all_candidates: {len(all_candidates)} for user: {user_id}")
 
         # 3. Process all query videos in batch, with parallel processing for candidate types
         similarity_matrix = self.process_query_candidates_batch(
