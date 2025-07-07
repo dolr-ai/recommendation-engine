@@ -120,9 +120,8 @@ class RerankingManager:
         similarity_results = self.similarity_manager.calculate_similarity(
             query_videos_with_candidates, all_search_space
         )
-        logger.info(f"query_videos_with_candidates: {query_videos_with_candidates}")
-        logger.info(f"all_search_space: {all_search_space}")
-        logger.info(f"similarity_results: {similarity_results}")
+        logger.debug(f"query_videos_with_candidates: {query_videos_with_candidates}")
+        logger.debug(f"all_search_space: {all_search_space}")
 
         # Process and format results
         for q_video_id in query_videos_with_candidates:

@@ -192,8 +192,7 @@ class ReportedManager:
 
         # Check reported status for all video IDs
         reported_status = self.has_reported(user_id, list(all_video_ids))
-        logger.info(f"list(all_video_ids): {list(all_video_ids)}")
-        logger.info(f"reported_status: {reported_status}")
+        # logger.info(f"reported_status: {reported_status}")
 
         # Combine historical reported status with real-time exclude list
         reported_videos = set()

@@ -6,6 +6,7 @@ This module provides an example of how to use the recommendation engine.
 
 import os
 import json
+from pprint import pprint
 import pandas as pd
 from utils.common_utils import get_logger
 from utils.gcp_utils import GCPUtils
@@ -54,7 +55,7 @@ def main():
     logger.info("Initializing recommendation engine")
     engine = RecommendationEngine(config=config)
 
-    var = "clean"
+    var = "nsfw"
 
     # Load user profiles
     path = f"/root/recommendation-engine/data-root/{var}-user_profile_records.json"
@@ -89,8 +90,8 @@ def main():
             nsfw_label=(False if var == "clean" else True),
             candidate_types=candidate_types,
             threshold=0.1,
-            top_k=100,
-            fallback_top_k=2,
+            top_k=20,
+            fallback_top_k=20,
             enable_deduplication=True,
             max_workers=4,
             max_fallback_candidates=200,
@@ -100,14 +101,15 @@ def main():
 
         # Print recommendations
         logger.info("Recommendation results:")
-        logger.info(f"Total recommendations: {len(recommendations['posts'])}")
+        main_recs = recommendations.get(
+            "main_recommendations", recommendations.get("recommendations", [])
+        )
+        fallback_recs = recommendations.get("fallback_recommendations", [])
+        logger.info(
+            f"Total recommendations = main + fallback: {len(main_recs) + len(fallback_recs)} -> (main: {len(main_recs)}, fallback: {len(fallback_recs)})"
+        )
 
-        # Print top 5 recommendations
-        if recommendations["posts"]:
-            logger.info("Top 5 recommendations:")
-            for i, post in enumerate(recommendations["posts"][:5]):
-                logger.info(f"  {i+1}. Post ID: {post['post_id']}")
-
+        # pprint(recommendations, indent=2, compact=False)
         return recommendations
 
     except Exception as e:

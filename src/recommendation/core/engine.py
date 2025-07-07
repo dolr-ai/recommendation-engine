@@ -399,16 +399,16 @@ class RecommendationEngine:
         )
 
         # Step 5: Filter duplicate videos (only if deduplication is enabled)
-        dedup_start = datetime.datetime.now()
-        if enable_deduplication:
-            filtered_recommendations = self._filter_duplicate_videos(
-                recommendations=filtered_recommendations,
-            )
-            dedup_time = (datetime.datetime.now() - dedup_start).total_seconds()
-            logger.info(f"Deduplication completed in {dedup_time:.2f} seconds")
-        else:
-            dedup_time = 0
-            logger.info("Deduplication skipped (disabled in config)")
+        # dedup_start = datetime.datetime.now()
+        # if enable_deduplication:
+        #     filtered_recommendations = self._filter_duplicate_videos(
+        #         recommendations=filtered_recommendations,
+        #     )
+        #     dedup_time = (datetime.datetime.now() - dedup_start).total_seconds()
+        #     logger.info(f"Deduplication completed in {dedup_time:.2f} seconds")
+        # else:
+        #     dedup_time = 0
+        #     logger.info("Deduplication skipped (disabled in config)")
 
         # Step 6: Filter reported videos
         reported_start = datetime.datetime.now()
@@ -441,6 +441,7 @@ class RecommendationEngine:
         )
 
         # Step 8: Transform filtered recommendations to backend format with metadata
+        # logger.info(f"FINAL: filtered_recommendations: {filtered_recommendations}")
         backend_start = datetime.datetime.now()
         recommendations = transform_recommendations_with_metadata(
             filtered_recommendations, self.config.gcp_utils
@@ -455,8 +456,8 @@ class RecommendationEngine:
         logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
         logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
         logger.info(f"  - Watched items filtering step: {filter_time:.2f} seconds")
-        if enable_deduplication:
-            logger.info(f"  - Deduplication step: {dedup_time:.2f} seconds")
+        # if enable_deduplication:
+        #     logger.info(f"  - Deduplication step: {dedup_time:.2f} seconds")
         if enable_reported_items_filtering:
             logger.info(
                 f"  - Reported videos filtering step: {reported_time:.2f} seconds"
