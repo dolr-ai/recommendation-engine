@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 class CandidateManager:
     """Core manager for fetching and processing recommendation candidates."""
 
-    def __init__(self, valkey_config):
+    def __init__(self, valkey_config, nsfw_label):
         """
         Initialize candidate manager.
 
@@ -32,20 +32,35 @@ class CandidateManager:
         self.miou_fetcher = None
         self.wt_fetcher = None
         self.fallback_fetcher = None
+        self.nsfw_label = nsfw_label
+        if nsfw_label is not None:
+            self.key_prefix = "nsfw:" if nsfw_label else "clean:"
+        else:
+            self.key_prefix = "<nsfw/clean> prefix not set"
+            logger.warning(
+                "nsfw/clean prefix not set, make sure you call _set_key_prefix method for each request"
+            )
 
         logger.info("CandidateManager initialized")
 
-    def _initialize_fetchers(self, candidate_types_dict):
+    def _set_key_prefix(self, nsfw_label):
+        """Set the key prefix based on nsfw_label."""
+        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
+
+    def _initialize_fetchers(self, candidate_types_dict, nsfw_label):
         """
         Initialize candidate fetchers based on candidate types.
 
         Args:
             candidate_types_dict: Dictionary mapping candidate type numbers to their names and weights
+            nsfw_label: Whether to use NSFW or clean candidates (default: False for clean)
         """
         # Create a reverse mapping from name to type number for lookup
         candidate_type_name_to_num = {
             info["name"]: type_num for type_num, info in candidate_types_dict.items()
         }
+
+        self._set_key_prefix(nsfw_label)
 
         # Check which fetchers we need
         need_miou = "modified_iou" in candidate_type_name_to_num
@@ -55,15 +70,19 @@ class CandidateManager:
 
         # Only initialize the fetchers we need
         if need_miou and not self.miou_fetcher:
-            self.miou_fetcher = ModifiedIoUCandidateFetcher(config=self.valkey_config)
+            self.miou_fetcher = ModifiedIoUCandidateFetcher(
+                nsfw_label=nsfw_label, config=self.valkey_config
+            )
 
         if need_wt and not self.wt_fetcher:
             self.wt_fetcher = WatchTimeQuantileCandidateFetcher(
-                config=self.valkey_config
+                nsfw_label=nsfw_label, config=self.valkey_config
             )
 
         if (need_fallback_miou or need_fallback_wt) and not self.fallback_fetcher:
-            self.fallback_fetcher = FallbackCandidateFetcher(config=self.valkey_config)
+            self.fallback_fetcher = FallbackCandidateFetcher(
+                nsfw_label=nsfw_label, config=self.valkey_config
+            )
 
     def _fetch_miou_candidates(self, cluster_id, query_videos):
         """Fetch Modified IoU candidates in parallel."""
@@ -136,6 +155,7 @@ class CandidateManager:
         cluster_id,
         bin_id,
         candidate_types_dict,
+        nsfw_label,
         max_fallback_candidates=1000,
         max_workers=4,
     ):
@@ -149,12 +169,13 @@ class CandidateManager:
             candidate_types_dict: Dictionary mapping candidate type numbers to their names and weights
             max_fallback_candidates: Maximum number of fallback candidates to sample (if more are available)
             max_workers: Maximum number of worker threads for parallel fetching
+            nsfw_label: Whether to use NSFW or clean candidates (False for clean, True for NSFW)
 
         Returns:
             OrderedDict of candidates organized by query video and type
         """
         # Initialize fetchers if needed
-        self._initialize_fetchers(candidate_types_dict)
+        self._initialize_fetchers(candidate_types_dict, nsfw_label)
 
         # Create a reverse mapping from name to type number for lookup
         candidate_type_name_to_num = {
@@ -229,28 +250,42 @@ class CandidateManager:
 
         # Organize candidates by query video and type in an ordered dictionary
         all_candidates = OrderedDict()
-
+        stats = {
+            "count_miou": 0,
+            "count_wt": 0,
+            "count_fallback_miou": 0,
+            "count_fallback_wt": 0,
+        }
         # Pre-initialize the structure for all query videos to avoid repeated checks
         for video_id in query_videos:
             all_candidates[video_id] = {}
 
             # Add candidates for each type if available
             if need_miou:
-                key = f"{cluster_id}:{video_id}:modified_iou_candidate"
+                key = f"{self.key_prefix}{cluster_id}:{video_id}:modified_iou_candidate"
                 candidates = miou_candidates.get(key, [])
                 all_candidates[video_id]["modified_iou"] = candidates
-
+                stats["count_miou"] += len(candidates)
             if need_wt:
-                key = f"{cluster_id}:{bin_id}:{video_id}:watch_time_quantile_bin_candidate"
+                key = f"{self.key_prefix}{cluster_id}:{bin_id}:{video_id}:watch_time_quantile_bin_candidate"
                 candidates = wt_candidates.get(key, [])
                 all_candidates[video_id]["watch_time_quantile"] = candidates
+                stats["count_wt"] += len(candidates)
 
-        # Add fallback candidates to the first query video only
-        if query_videos and fallback_candidates:
-            first_video_id = query_videos[0]
-            for fallback_type, fallback_list in fallback_candidates.items():
-                all_candidates[first_video_id][fallback_type] = fallback_list
+        all_candidates["fallback_miou"] = fallback_candidates["fallback_modified_iou"]
+        all_candidates["fallback_wt"] = fallback_candidates[
+            "fallback_watch_time_quantile"
+        ]
 
+        # Update stats
+        stats["count_fallback_miou"] = len(fallback_candidates["fallback_modified_iou"])
+        stats["count_fallback_wt"] = len(
+            fallback_candidates["fallback_watch_time_quantile"]
+        )
+
+        logger.info(f"stats: {stats}")  # > debug debug
+        logger.info(f"all_candidates: {len(all_candidates)}")  # > debug debug
+        # logger.info(f"all_candidates: {all_candidates}")  # > debug debug
         return all_candidates
 
     def filter_and_sort_watch_history(self, watch_history, threshold):

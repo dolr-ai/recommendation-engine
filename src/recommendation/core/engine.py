@@ -46,6 +46,8 @@ class RecommendationEngine:
 
         self.candidate_manager = CandidateManager(
             valkey_config=self.config.valkey_config,
+            nsfw_label=None,
+            # NOTE: this label will be set while fetching the candidates
         )
 
         self.reranking_manager = RerankingManager(
@@ -64,13 +66,32 @@ class RecommendationEngine:
         # Initialize deduplication manager for filtering duplicate videos
         self.deduplication_manager = DeduplicationManager()
 
-        # Initialize metadata manager for user metadata
-        self.metadata_manager = MetadataManager()
+        # Initialize metadata manager for user metadata (will be reinitialized with nsfw_label when needed)
+        self.metadata_manager = None
 
         init_time = (datetime.datetime.now() - start_time).total_seconds()
         logger.info(
             f"RecommendationEngine initialized successfully in {init_time:.2f} seconds"
         )
+
+    def _get_metadata_manager(self, nsfw_label):
+        """
+        Get or create metadata manager with the specified nsfw_label.
+
+        Args:
+            nsfw_label: Whether to use NSFW or clean metadata
+
+        Returns:
+            MetadataManager instance
+        """
+        # If we don't have a metadata manager or it has a different nsfw_label, create a new one
+        if (
+            self.metadata_manager is None
+            or self.metadata_manager.nsfw_label != nsfw_label
+        ):
+            self.metadata_manager = MetadataManager(nsfw_label=nsfw_label)
+
+        return self.metadata_manager
 
     def _filter_watched_items(
         self,
@@ -184,12 +205,13 @@ class RecommendationEngine:
                 f"Failed to update {cache_type} cache for user {user_id}: {e}"
             )
 
-    def _enrich_user_profile(self, user_profile):
+    def _enrich_user_profile(self, user_profile, nsfw_label):
         """
         Enrich user profile with metadata if cluster_id or watch_time_quantile_bin_id are missing.
 
         Args:
             user_profile: User profile dictionary
+            nsfw_label: Whether to use NSFW or clean metadata
 
         Returns:
             Enriched user profile dictionary
@@ -205,9 +227,14 @@ class RecommendationEngine:
             )
             return user_profile
 
+        # Get metadata manager with appropriate content type
+        metadata_manager = self._get_metadata_manager(nsfw_label)
+
         # Fetch metadata directly from the metadata manager
-        logger.info(f"Fetching metadata for user {user_id}")
-        metadata = self.metadata_manager.get_user_metadata(user_id)
+        logger.info(
+            f"Fetching metadata for user {user_id} with content type: {'NSFW' if nsfw_label else 'Clean'}"
+        )
+        metadata = metadata_manager.get_user_metadata(user_id)
 
         # Update user profile with fetched metadata or fallback values
         enriched_profile = user_profile.copy()
@@ -234,6 +261,7 @@ class RecommendationEngine:
     def get_recommendations(
         self,
         user_profile,
+        nsfw_label,
         candidate_types=None,
         threshold=RecommendationConfig.THRESHOLD,
         top_k=RecommendationConfig.TOP_K,
@@ -254,6 +282,7 @@ class RecommendationEngine:
 
         Args:
             user_profile: A dictionary containing user profile information
+            nsfw_label: Whether to use NSFW or clean content
             candidate_types: Dictionary mapping candidate type numbers to their names and weights
             threshold: Minimum mean_percentage_watched to consider a video as a query item
             top_k: Number of final recommendations to return
@@ -278,7 +307,7 @@ class RecommendationEngine:
         user_id = user_profile.get("user_id", "unknown")
 
         # Enrich user profile with metadata if needed
-        enriched_profile = self._enrich_user_profile(user_profile)
+        enriched_profile = self._enrich_user_profile(user_profile, nsfw_label)
 
         # Check if metadata fetching failed (cluster_id or watch_time_quantile_bin_id is -1)
         if (
@@ -315,6 +344,7 @@ class RecommendationEngine:
             enable_deduplication=enable_deduplication,  # this is just video_id level dedup
             max_workers=max_workers,
             max_fallback_candidates=max_fallback_candidates,
+            nsfw_label=nsfw_label,
         )
         rerank_time = (datetime.datetime.now() - rerank_start).total_seconds()
         logger.info(f"Reranking completed in {rerank_time:.2f} seconds")
