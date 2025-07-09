@@ -8,6 +8,7 @@ import re
 import concurrent.futures
 from functools import partial
 from collections import OrderedDict
+from datetime import datetime
 import pandas as pd
 from utils.common_utils import get_logger
 
@@ -117,9 +118,12 @@ class RerankingManager:
             return type_num, {}
 
         # Calculate similarity scores for all query videos against all candidates at once
+        t0 = datetime.now()
         similarity_results = self.similarity_manager.calculate_similarity(
             query_videos_with_candidates, all_search_space
         )
+        t1 = datetime.now()
+        logger.info(f"time taken for bq similarity: {t1 - t0}")
         logger.debug(f"query_videos_with_candidates: {query_videos_with_candidates}")
         logger.debug(f"all_search_space: {all_search_space}")
 

@@ -196,19 +196,19 @@ class GlobalPopularL7DFallbackFetcher(FallbackFetcher):
                 f"Invalid Global Popular L7D fallback value format: {value}"
             )
 
-    def format_key(self, fallback_type: str = "global_popular_videos") -> str:
+    def format_key(self, fallback_type: str) -> str:
         """
         Format a key for retrieving Global Popular L7D fallbacks.
 
         Args:
-            fallback_type: The type of fallback (default: "global_popular_videos")
+            fallback_type: The type of fallback
 
         Returns:
             Formatted key string
         """
         return f"{self.key_prefix}{fallback_type}"
 
-    def get_fallbacks(self, fallback_type: str = "global_popular_videos") -> List[str]:
+    def get_fallbacks(self, fallback_type: str) -> List[str]:
         """
         Get global popular video L7D fallbacks.
 
@@ -229,9 +229,7 @@ class GlobalPopularL7DFallbackFetcher(FallbackFetcher):
         logger.info(f"Retrieved {len(fallbacks)} fallback videos for {key}")
         return fallbacks
 
-    def get_top_fallbacks(
-        self, n: int = 10, fallback_type: str = "global_popular_videos"
-    ) -> List[str]:
+    def get_top_fallbacks(self, n: int, fallback_type: str) -> List[str]:
         """
         Get the top N L7D fallback videos.
 
@@ -278,9 +276,7 @@ class GlobalPopularL7DFallbackFetcher(FallbackFetcher):
 
         return result
 
-    def check_fallbacks_exist(
-        self, fallback_type: str = "global_popular_videos"
-    ) -> bool:
+    def check_fallbacks_exist(self, fallback_type: str) -> bool:
         """
         Check if L7D fallbacks exist for the given type.
 

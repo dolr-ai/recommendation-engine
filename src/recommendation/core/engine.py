@@ -11,6 +11,7 @@ from typing import List, Optional
 from utils.common_utils import get_logger
 from recommendation.utils.similarity_bq import SimilarityManager
 from recommendation.processing.candidates import CandidateManager
+from recommendation.processing.fallbacks import FallbackManager
 from recommendation.processing.reranking import RerankingManager
 from recommendation.processing.mixer import MixerManager
 from recommendation.core.config import RecommendationConfig
@@ -48,6 +49,13 @@ class RecommendationEngine:
             valkey_config=self.config.valkey_config,
             nsfw_label=None,
             # NOTE: this label will be set while fetching the candidates
+        )
+
+        # Initialize fallback manager for fallback recommendations
+        self.fallback_manager = FallbackManager(
+            valkey_config=self.config.valkey_config,
+            nsfw_label=None,
+            # NOTE: this label will be set while fetching the fallbacks
         )
 
         self.reranking_manager = RerankingManager(
@@ -217,6 +225,7 @@ class RecommendationEngine:
             Enriched user profile dictionary
         """
         user_id = user_profile.get("user_id")
+        user_id = "test_user"
         cluster_id = user_profile.get("cluster_id")
         watch_time_quantile_bin_id = user_profile.get("watch_time_quantile_bin_id")
 
@@ -235,7 +244,9 @@ class RecommendationEngine:
             f"Fetching metadata for user {user_id} with content type: {'NSFW' if nsfw_label else 'Clean'}"
         )
         metadata = metadata_manager.get_user_metadata(user_id)
-
+        logger.info(
+            f"metadata_manager.get_user_metadata -> user_id: {user_id}, metadata: {metadata}"
+        )
         # Update user profile with fetched metadata or fallback values
         enriched_profile = user_profile.copy()
 
@@ -257,6 +268,46 @@ class RecommendationEngine:
             )
 
         return enriched_profile
+
+    def _call_fallback_logic(self, user_id, nsfw_label, fallback_top_k, fallback_type):
+        """
+        Call fallback logic for a user when metadata fetching fails.
+
+        Args:
+            user_id: The user ID
+            nsfw_label: Whether to use NSFW or clean fallbacks
+            fallback_top_k: Number of fallback recommendations to return
+            fallback_type: Type of fallback to retrieve
+
+        Returns:
+            Dictionary with fallback recommendations
+        """
+        logger.info(
+            f"Calling fallback logic for user {user_id} with content type: {'NSFW' if nsfw_label else 'Clean'} and fallback type: {fallback_type}"
+        )
+
+        try:
+            # Get fallback recommendations using the fallback manager
+            fallback_recommendations = (
+                self.fallback_manager.get_fallback_recommendations(
+                    nsfw_label=nsfw_label,
+                    fallback_top_k=fallback_top_k,
+                    fallback_type=fallback_type,
+                )
+            )
+
+            logger.info(
+                f"Retrieved {len(fallback_recommendations.get('recommendations', []))} fallback recommendations "
+                f"for user {user_id} with fallback type: {fallback_type}"
+            )
+
+            return fallback_recommendations
+
+        except Exception as e:
+            logger.error(
+                f"Error in fallback logic for user {user_id}: {e}", exc_info=True
+            )
+            return {"recommendations": [], "fallback_recommendations": []}
 
     def get_recommendations(
         self,
@@ -307,6 +358,7 @@ class RecommendationEngine:
         user_id = user_profile.get("user_id", "unknown")
 
         # Enrich user profile with metadata if needed
+        metadata_found = False
         enriched_profile = self._enrich_user_profile(user_profile, nsfw_label)
 
         # Check if metadata fetching failed (cluster_id or watch_time_quantile_bin_id is -1)
@@ -315,89 +367,107 @@ class RecommendationEngine:
             or enriched_profile.get("watch_time_quantile_bin_id") == -1
         ):
             logger.warning(
-                f"Returning empty recommendations for user {user_id} due to missing metadata"
+                f"Using fallback recommendations for user {user_id} due to missing metadata"
             )
-            processing_time_ms = (
-                datetime.datetime.now() - start_time
-            ).total_seconds() * 1000
-            return {
-                "recommendations": [],
-                "scores": {},
-                "sources": {},
-                "fallback_recommendations": [],
-                "fallback_scores": {},
-                "fallback_sources": {},
-                "processing_time_ms": processing_time_ms,
-                "error": "user id not found in cluster / metadata could not be fetched",
-            }
+            metadata_found = False
+
+            # Call fallback logic to get global popular videos
+            fallback_start = datetime.datetime.now()
+            mixer_output = self._call_fallback_logic(
+                user_id=user_id,
+                nsfw_label=nsfw_label,
+                fallback_top_k=fallback_top_k,
+                fallback_type="global_popular_videos",
+            )
+            fallback_time = (datetime.datetime.now() - fallback_start).total_seconds()
+            logger.info(f"Fallback logic completed in {fallback_time:.2f} seconds")
+        else:
+            metadata_found = True
 
         # Use provided candidate types or default from config
         if candidate_types is None:
             candidate_types = self.config.candidate_types
 
-        # Step 1: Run reranking logic
-        rerank_start = datetime.datetime.now()
-        df_reranked = self.reranking_manager.reranking_logic(
-            user_profile=enriched_profile,
-            candidate_types_dict=candidate_types,
-            threshold=threshold,
-            enable_deduplication=enable_deduplication,  # this is just video_id level dedup
-            max_workers=max_workers,
-            max_fallback_candidates=max_fallback_candidates,
-            nsfw_label=nsfw_label,
-        )
-        rerank_time = (datetime.datetime.now() - rerank_start).total_seconds()
-        logger.info(f"Reranking completed in {rerank_time:.2f} seconds")
+        if metadata_found:
+            # Step 1: Run reranking logic
+            rerank_start = datetime.datetime.now()
+            df_reranked = self.reranking_manager.reranking_logic(
+                user_profile=enriched_profile,
+                candidate_types_dict=candidate_types,
+                threshold=threshold,
+                enable_deduplication=enable_deduplication,  # this is just video_id level dedup
+                max_workers=max_workers,
+                max_fallback_candidates=max_fallback_candidates,
+                nsfw_label=nsfw_label,
+            )
+            rerank_time = (datetime.datetime.now() - rerank_start).total_seconds()
+            logger.info(f"Reranking completed in {rerank_time:.2f} seconds")
 
-        # Step 2: Run mixer algorithm
-        mixer_start = datetime.datetime.now()
-        mixer_output = self.mixer_manager.mixer_algorithm(
-            df_reranked=df_reranked,
-            candidate_types_dict=candidate_types,
-            top_k=top_k,
-            fallback_top_k=fallback_top_k,
-            recency_weight=recency_weight,
-            watch_percentage_weight=watch_percentage_weight,
-            max_candidates_per_query=max_candidates_per_query,
-            enable_deduplication=enable_deduplication,
-            min_similarity_threshold=min_similarity_threshold,
-        )
-        mixer_time = (datetime.datetime.now() - mixer_start).total_seconds()
-        logger.info(f"Mixer algorithm completed in {mixer_time:.2f} seconds")
+            # Step 2: Run mixer algorithm
+            mixer_start = datetime.datetime.now()
+            mixer_output = self.mixer_manager.mixer_algorithm(
+                df_reranked=df_reranked,
+                candidate_types_dict=candidate_types,
+                top_k=top_k,
+                fallback_top_k=fallback_top_k,
+                recency_weight=recency_weight,
+                watch_percentage_weight=watch_percentage_weight,
+                max_candidates_per_query=max_candidates_per_query,
+                enable_deduplication=enable_deduplication,
+                min_similarity_threshold=min_similarity_threshold,
+            )
+            mixer_time = (datetime.datetime.now() - mixer_start).total_seconds()
+            logger.info(f"Mixer algorithm completed in {mixer_time:.2f} seconds")
+        else:
+            # Initialize timing variables for fallback case
+            rerank_time = 0
+            mixer_time = 0
 
-        # Remove scores and sources fields to avoid unnecessary processing
-        for key in ["scores", "sources", "fallback_scores", "fallback_sources"]:
-            if key in mixer_output:
-                del mixer_output[key]
+            # Remove scores and sources fields to avoid unnecessary processing
+            for key in ["scores", "sources", "fallback_scores", "fallback_sources"]:
+                if key in mixer_output:
+                    del mixer_output[key]
 
-        # for testing realtime exclusion of watched items/ dedup/ reported items
-        # mixer_output["recommendations"] += [
-        #     "v1",
-        #     "v2",
-        #     "v3",
-        #     "test_video4",
-        #     "d8c2964eee1346fb8820f596fec387e9",  # reported by some user x
-        #     "480c57236fa445b99877efb3f3393f4c",  # reported by some user x
-        # ]
+            # for testing realtime exclusion of watched items/ dedup/ reported items
+            # mixer_output["recommendations"] += [
+            #     "v1",
+            #     "v2",
+            #     "v3",
+            #     "test_video4",
+            #     "d8c2964eee1346fb8820f596fec387e9",  # reported by some user x
+            #     "480c57236fa445b99877efb3f3393f4c",  # reported by some user x
+            # ]
 
-        # output of mixer algorithm after deleting scores and sources
-        # {'recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4'], 'fallback_recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4']}
+            # output of mixer algorithm after deleting scores and sources
+            # {'recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4'], 'fallback_recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4']}
+
+        # irrespective of whether metadata is found or not, we need to:
+        # 1. filter watched items
+        # 2. update cache for watched items
+        # 3. filter reported items
+        # 4. update cache for reported items
+        # 5. filter duplicate videos
+        # 6. transform recommendations to backend format
 
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()
         filtered_recommendations = self._filter_watched_items(
             user_id=user_id,
             recommendations=mixer_output,
-            exclude_watched_items=exclude_watched_items,
+            # todo: this needs special attention based on redis migration
+            # exclude_watched_items=exclude_watched_items,
         )
         filter_time = (datetime.datetime.now() - filter_start).total_seconds()
         logger.info(f"Watched items filtering completed in {filter_time:.2f} seconds")
 
+        # todo: this needs special attention based on redis migration
         # Step 4: Handle real-time watched items update
-        self._update_cache_async_safe(
-            self.history_manager, user_id, exclude_watched_items, "watched"
-        )
+        # self._update_cache_async_safe(
+        #     self.history_manager, user_id, exclude_watched_items, "watched"
+        # )
 
+        # NOTE: this is not needed anymore as we are removing this at candidate level
+        # keeping this here for reference and later usage if needed
         # Step 5: Filter duplicate videos (only if deduplication is enabled)
         # dedup_start = datetime.datetime.now()
         # if enable_deduplication:
@@ -453,8 +523,11 @@ class RecommendationEngine:
 
         # Log all timing information in one place
         logger.info("Recommendation process timing summary:")
-        logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
-        logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
+        if metadata_found:
+            logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
+            logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
+        else:
+            logger.info(f"  - Fallback logic step: {fallback_time:.2f} seconds")
         logger.info(f"  - Watched items filtering step: {filter_time:.2f} seconds")
         # if enable_deduplication:
         #     logger.info(f"  - Deduplication step: {dedup_time:.2f} seconds")
