@@ -69,19 +69,20 @@ def get_video_metadata(video_ids, gcp_utils):
         # Execute the query
         results_df = gcp_utils.bigquery.execute_query(query, to_dataframe=True)
 
-        # Convert results to the expected format
-        metadata_list = []
-        for _, row in results_df.iterrows():
-            metadata_list.append(
-                {
-                    "video_id": row["video_id"],
-                    "canister_id": row["canister_id"],
-                    "post_id": int(row["post_id"]),
-                    "publisher_user_id": row["publisher_user_id"],
-                    # todo: add nsfw probability
-                    "nsfw_probability": 0.0,
-                }
-            )
+        # Set nsfw_probability to 0 and convert post_id to int
+        results_df["nsfw_probability"] = 0.0
+        results_df["post_id"] = results_df["post_id"].astype(int)
+
+        # Convert results to the expected format using to_dict
+        metadata_list = results_df[
+            [
+                "video_id",
+                "canister_id",
+                "post_id",
+                "publisher_user_id",
+                "nsfw_probability",
+            ]
+        ].to_dict(orient="records")
 
         return metadata_list
 
@@ -116,25 +117,24 @@ def transform_recommendations_with_metadata(mixer_output, gcp_utils):
 
     # Convert video IDs to metadata objects, preserving the order
     recommendations_with_metadata = []
+    failed_metadata_ids = []
     for video_id in all_video_ids:
         if video_id in metadata_map:
             recommendations_with_metadata.append(metadata_map[video_id])
         else:
             # If metadata not found, create a minimal object with just video_id
-            recommendations_with_metadata.append(
-                {
-                    "video_id": video_id,
-                    "canister_id": None,
-                    "post_id": None,
-                    "publisher_user_id": None,
-                    "nsfw_probability": 0.0,
-                }
-            )
+            failed_metadata_ids.append(video_id)
 
     # Create the result with metadata objects as recommendations
     result = {
         "posts": recommendations_with_metadata,
     }
+
+    logger.info(f"Failed to fetch metadata for {len(failed_metadata_ids)} videos")
+    logger.info(f"Failed to fetch metadata for {failed_metadata_ids}")
+    logger.info(
+        f"Total recommendations_with_metadata: {len(recommendations_with_metadata)}"
+    )
 
     return result
 
