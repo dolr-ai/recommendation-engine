@@ -73,6 +73,24 @@ def get_video_metadata(video_ids, gcp_utils):
         results_df["nsfw_probability"] = 0.0
         results_df["post_id"] = results_df["post_id"].astype(int)
 
+        # Identify records with NA values in critical columns
+        na_mask = (
+            results_df[["video_id", "post_id", "canister_id", "publisher_user_id"]]
+            .isna()
+            .any(axis=1)
+        )
+        na_records = results_df[na_mask]
+
+        # Log the records with NA values
+        if not na_records.empty:
+            logger.warning(f"Found {len(na_records)} records with NA values:")
+            logger.warning(na_records.to_dict(orient="records"))
+            logger.warning("end logging NA records")
+
+        # Drop records with NA values from the results
+        results_df = results_df[~na_mask]
+        results_df = results_df.reset_index(drop=True)
+
         # Convert results to the expected format using to_dict
         metadata_list = results_df[
             [
@@ -129,12 +147,6 @@ def transform_recommendations_with_metadata(mixer_output, gcp_utils):
     result = {
         "posts": recommendations_with_metadata,
     }
-
-    logger.info(f"Failed to fetch metadata for {len(failed_metadata_ids)} videos")
-    logger.info(f"Failed to fetch metadata for {failed_metadata_ids}")
-    logger.info(
-        f"Total recommendations_with_metadata: {len(recommendations_with_metadata)}"
-    )
 
     return result
 
