@@ -102,13 +102,52 @@ class ValkeyService:
             Connected Redis client instance
         """
         try:
-            # Get fresh access token
+            # Check for password/authkey in connection_config (for Redis proxy)
+            password = self.connection_config.get(
+                "authkey"
+            ) or self.connection_config.get("password")
+            use_password = password is not None and str(password) != ""
+
+            if use_password:
+                # Use password-based connection (for Redis proxy)
+                redis_config = self.connection_config.copy()
+                redis_config.pop("authkey", None)
+                if self.cluster_enabled:
+                    conn_params = {
+                        "password": password,
+                        "ssl": redis_config.get("ssl", False),
+                        "socket_timeout": redis_config.get("socket_timeout", 10),
+                        "socket_connect_timeout": redis_config.get(
+                            "socket_connect_timeout", 10
+                        ),
+                        "decode_responses": redis_config.get("decode_responses", True),
+                        "skip_full_coverage_check": True,
+                    }
+                    if self.ssl_enabled:
+                        conn_params.update(
+                            {
+                                "ssl_cert_reqs": None,
+                                "ssl_check_hostname": False,
+                            }
+                        )
+                    self.client = RedisCluster(
+                        host=self.host, port=self.port, **conn_params
+                    )
+                    logger.debug(
+                        f"Using RedisCluster client (password) for {self.instance_id}"
+                    )
+                else:
+                    self.client = redis.Redis(password=password, **redis_config)
+                self.client.ping()
+                logger.debug(
+                    f"Successfully connected to Redis proxy instance {self.instance_id}"
+                )
+                return self.client
+
+            # Default: Use GCP token-based connection
             access_token = self._get_access_token()
 
-            # Create client with token as password and SSL
             if self.cluster_enabled:
-                # For cluster mode, use startup_nodes with the discovery endpoint
-                # Extract relevant connection params
                 conn_params = {
                     "password": access_token,
                     "ssl": self.connection_config.get("ssl", False),
@@ -121,8 +160,6 @@ class ValkeyService:
                     ),
                     "skip_full_coverage_check": True,  # Important for GCP Memorystore
                 }
-
-                # Add SSL params if needed
                 if self.ssl_enabled:
                     conn_params.update(
                         {
@@ -130,19 +167,15 @@ class ValkeyService:
                             "ssl_check_hostname": False,
                         }
                     )
-
-                # Create cluster client
                 self.client = RedisCluster(
                     host=self.host, port=self.port, **conn_params
                 )
                 logger.debug(f"Using RedisCluster client for {self.instance_id}")
             else:
-                # For standalone mode, use regular Redis client
                 self.client = redis.Redis(
                     password=access_token, **self.connection_config
                 )
 
-            # Test connection
             self.client.ping()
             ssl_status = "with TLS" if self.ssl_enabled else "without TLS"
             cluster_status = (

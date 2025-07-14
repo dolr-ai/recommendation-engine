@@ -57,14 +57,15 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        # 10.128.15.210:6379 # new instance
-        "host": "10.128.15.210",  # Discovery endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("REDIS_HOST"),
+        "port": int(os.environ.get("REDIS_PORT")),
+        "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
+        "authkey": os.environ.get("REDIS_AUTHKEY"),  # Add authkey for Redis proxy
+        "ssl_enabled": os.environ.get("USE_REDIS_PROXY", "").lower()
+        not in ("true", "1", "yes"),  # Disable SSL for direct Redis proxy
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,  # Enable cluster mode
+        "cluster_enabled": False,  # Enable cluster mode
     },
     # todo: configure this as per CRON jobs
     "expire_seconds": 86400 * 30,

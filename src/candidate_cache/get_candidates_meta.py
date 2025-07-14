@@ -35,13 +35,8 @@ Sample Key Formats:
 
 import os
 import json
-import pandas as pd
 from typing import Dict, List, Optional, Any, Union, Tuple
 from abc import ABC, abstractmethod
-import pathlib
-from tqdm import tqdm
-import ast
-import concurrent.futures
 
 # utils
 from utils.gcp_utils import GCPUtils
@@ -51,24 +46,26 @@ from utils.valkey_utils import ValkeyService
 logger = get_logger(__name__)
 
 # Default configuration
+# NOTE: for dev mode use proxy connection just uncomment authkey and ssl_enabled
+
 DEFAULT_CONFIG = {
     "valkey": {
-        # 10.128.15.210:6379 # new instance
-        "host": "10.128.15.210",  # Discovery endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
+        "host": os.environ.get("REDIS_HOST"),
+        "port": int(os.environ.get("REDIS_PORT")),
+        "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,  # Enable cluster mode
-    },
-    # todo: configure this as per CRON jobs
-    "expire_seconds": 86400 * 7,
-    "verify_sample_size": 5,
-    # todo: add vector index as config
-    "vector_index_name": "video_embeddings",
-    "vector_key_prefix": "video_id:",
+        "cluster_enabled": os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower()
+        in ("true", "1", "yes"),
+    }
 }
+
+# NOTE: dev mode uses proxy connection, whereas prod uses direct serverless vpc egress which is much faster
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+if DEV_MODE:
+    DEFAULT_CONFIG["valkey"]["authkey"] = os.environ.get("REDIS_AUTHKEY")
+    DEFAULT_CONFIG["valkey"]["ssl_enabled"] = False
 
 
 class MetadataFetcher(ABC):

@@ -34,12 +34,8 @@ Sample Key Formats:
 """
 
 import os
-import json
-import pandas as pd
 from typing import Dict, List, Optional, Any, Union
 from abc import ABC, abstractmethod
-import pathlib
-from tqdm import tqdm
 import ast
 import concurrent.futures
 
@@ -51,17 +47,25 @@ from utils.valkey_utils import ValkeyService
 logger = get_logger(__name__)
 
 # Default configuration
+# NOTE: for dev mode use proxy connection
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",  # Primary endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
+        "host": os.environ.get("REDIS_HOST"),
+        "port": int(os.environ.get("REDIS_PORT")),
+        "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
         "ssl_enabled": True,
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,
+        "cluster_enabled": os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower()
+        in ("true", "1", "yes"),
     }
 }
+
+# NOTE: dev mode uses proxy connection, whereas prod uses direct serverless vpc egress which is much faster
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+if DEV_MODE:
+    DEFAULT_CONFIG["valkey"]["authkey"] = os.environ.get("REDIS_AUTHKEY")
+    DEFAULT_CONFIG["valkey"]["ssl_enabled"] = False
 
 
 class CandidateFetcher(ABC):
@@ -478,18 +482,17 @@ if __name__ == "__main__":
 
     # Example with Modified IoU candidates (NSFW)
     iou_args_nsfw = [
-        ("5", "0760296cbf4744c78259eaf4a03bb0bf"),  # (cluster_id, query_video_id)
+        ("5", "aa2f716c305643a4959b0e7e0784dc1d"),  # (cluster_id, query_video_id)
         ("5", "9d8cf9e839fa46eb823442c1726643de"),
     ]
 
     miou_candidates_nsfw = modified_iou_fetcher_nsfw.get_candidates(iou_args_nsfw)
     logger.debug(f"NSFW Modified IoU candidates count: {len(miou_candidates_nsfw)}")
-
     # Example with Watch Time Quantile candidates (NSFW)
     # (cluster_id, bin_id, query_video_id)
     wt_args_nsfw = [
-        ("5", "3", "98c1c8c903aa4b879bae6aa479d7e54c"),
-        ("5", "1", "6b1276a3863c4ef2a5ad522cebf89e70"),
+        ("5", "1", "795d180af01e4ae28532a1ce87c12ca9"),
+        ("5", "1", "368f66c42f6540a6aa16dc8d145115e8"),
     ]
     wt_candidates_nsfw = watch_time_fetcher_nsfw.get_candidates(wt_args_nsfw)
     logger.debug(
@@ -498,7 +501,7 @@ if __name__ == "__main__":
 
     # Example with Modified IoU candidates (Clean)
     iou_args_clean = [
-        ("0", "10dd29db27544c8abe4eaf82dec43b1c"),  # (cluster_id, query_video_id)
+        ("0", "543a0123947447498a57cd48d6f09c6a"),  # (cluster_id, query_video_id)
         ("0", "4c580b41b1c14852adbf9ebc0fda11c4"),
     ]
     miou_candidates_clean = modified_iou_fetcher_clean.get_candidates(iou_args_clean)
@@ -506,7 +509,7 @@ if __name__ == "__main__":
 
     # Example with Watch Time Quantile candidates (Clean)
     wt_args_clean = [
-        ("4", "1", "8413528a15c84c6cba2f341154d69d7b"),
+        ("5", "1", "795d180af01e4ae28532a1ce87c12ca9"),
         ("1", "2", "dc003d3dfa0044f38b13cf530a0f8bee"),
     ]
     wt_candidates_clean = watch_time_fetcher_clean.get_candidates(wt_args_clean)
