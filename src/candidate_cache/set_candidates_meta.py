@@ -50,13 +50,13 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": os.environ.get("REDIS_HOST"),
-        "port": int(os.environ.get("REDIS_PORT")),
+        "host": os.environ.get("PROXY_REDIS_HOST", os.environ.get("REDIS_HOST")),
+        "port": int(
+            os.environ.get("PROXY_REDIS_PORT", os.environ.get("REDIS_PORT", 6379))
+        ),
         "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
-        # Ensure this is passed for Redis proxy
-        "authkey": os.environ.get("REDIS_AUTHKEY"),
-        # SSL needs to be disabled for direct Redis proxy
-        "ssl_enabled": False if os.environ.get("USE_REDIS_PROXY") == "true" else True,
+        "authkey": os.environ.get("REDIS_AUTHKEY"),  # Required for Redis proxy
+        "ssl_enabled": False,  # Disable SSL for proxy connection
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
         "cluster_enabled": os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower()

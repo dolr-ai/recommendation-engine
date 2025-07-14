@@ -45,15 +45,13 @@ from utils.valkey_utils import ValkeyService
 
 logger = get_logger(__name__)
 
-# Default configuration
-# NOTE: for dev mode use proxy connection just uncomment authkey and ssl_enabled
-
+# Default configuration - For production: direct VPC connection
 DEFAULT_CONFIG = {
     "valkey": {
         "host": os.environ.get("REDIS_HOST"),
-        "port": int(os.environ.get("REDIS_PORT")),
+        "port": int(os.environ.get("REDIS_PORT", 6379)),
         "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
-        "ssl_enabled": True,
+        "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
         "cluster_enabled": os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower()
@@ -61,11 +59,24 @@ DEFAULT_CONFIG = {
     }
 }
 
-# NOTE: dev mode uses proxy connection, whereas prod uses direct serverless vpc egress which is much faster
+# Check if we're in DEV_MODE (use proxy connection instead)
 DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
 if DEV_MODE:
-    DEFAULT_CONFIG["valkey"]["authkey"] = os.environ.get("REDIS_AUTHKEY")
-    DEFAULT_CONFIG["valkey"]["ssl_enabled"] = False
+    logger.info("Running in DEV_MODE - using proxy connection")
+    DEFAULT_CONFIG["valkey"].update(
+        {
+            "host": os.environ.get(
+                "PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
+            ),
+            "port": int(
+                os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
+            ),
+            "authkey": os.environ.get("REDIS_AUTHKEY"),
+            "ssl_enabled": False,  # Disable SSL for proxy connection
+        }
+    )
+
+logger.info(DEFAULT_CONFIG)
 
 
 class MetadataFetcher(ABC):
