@@ -61,18 +61,38 @@ DEFAULT_SAMPLE_SIZE = 5000  # Number of videos to sample from top percentile
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",  # Primary endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("REDIS_HOST"),
+        "port": int(os.environ.get("REDIS_PORT", 6379)),
+        "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
+        "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,
+        "cluster_enabled": os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower()
+        in ("true", "1", "yes"),
     },
     "expire_seconds": 86400 * 30,  # 30 days
     "verify_sample_size": 5,
     "source_table": "jay-dhanwant-experiments.stage_tables.stage_global_popular_videos_l7d",
 }
+
+# Check if we're in DEV_MODE (use proxy connection instead)
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+if DEV_MODE:
+    logger.info("Running in DEV_MODE - using proxy connection")
+    DEFAULT_CONFIG["valkey"].update(
+        {
+            "host": os.environ.get(
+                "PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
+            ),
+            "port": int(
+                os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
+            ),
+            "authkey": os.environ.get("REDIS_AUTHKEY"),
+            "ssl_enabled": False,  # Disable SSL for proxy connection
+        }
+    )
+
+logger.info(DEFAULT_CONFIG)
 
 
 class FallbackPopulator(ABC):
@@ -469,6 +489,8 @@ class MultiFallbackPopulator:
 
 # Example usage
 if __name__ == "__main__":
+    # Log the mode we're running in
+    logger.info(f"Running in {'DEV_MODE' if DEV_MODE else 'PRODUCTION'} mode")
 
     # Process L7D fallbacks (with NSFW filtering and 80th percentile + shuffling)
     for nsfw_label in [True, False]:

@@ -41,15 +41,35 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",  # Primary endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("REDIS_HOST"),
+        "port": int(os.environ.get("REDIS_PORT", 6379)),
+        "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
+        "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,
+        "cluster_enabled": os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower()
+        in ("true", "1", "yes"),
     }
 }
+
+# Check if we're in DEV_MODE (use proxy connection instead)
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+if DEV_MODE:
+    logger.info("Running in DEV_MODE - using proxy connection")
+    DEFAULT_CONFIG["valkey"].update(
+        {
+            "host": os.environ.get(
+                "PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
+            ),
+            "port": int(
+                os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
+            ),
+            "authkey": os.environ.get("REDIS_AUTHKEY"),
+            "ssl_enabled": False,  # Disable SSL for proxy connection
+        }
+    )
+
+logger.info(DEFAULT_CONFIG)
 
 
 class FallbackFetcher(ABC):
@@ -293,21 +313,27 @@ class GlobalPopularL7DFallbackFetcher(FallbackFetcher):
 
 # Example usage
 if __name__ == "__main__":
+    # Log the mode we're running in
+    logger.info(f"Running in {'DEV_MODE' if DEV_MODE else 'PRODUCTION'} mode")
+
     # Create L7D fetchers for both NSFW and Clean content
     nsfw_fallback_fetcher = GlobalPopularL7DFallbackFetcher(nsfw_label=True)
     clean_fallback_fetcher = GlobalPopularL7DFallbackFetcher(nsfw_label=False)
 
+    # Define fallback type
+    fallback_type = "global_popular_videos"
+
     # Example 1: Get NSFW fallbacks (L7D)
-    nsfw_fallbacks = nsfw_fallback_fetcher.get_fallbacks()
+    nsfw_fallbacks = nsfw_fallback_fetcher.get_fallbacks(fallback_type)
     logger.info(f"NSFW fallbacks count (L7D): {len(nsfw_fallbacks)}")
 
     # Example 2: Get top 10 clean fallbacks (L7D)
-    top_clean_fallbacks = clean_fallback_fetcher.get_top_fallbacks(n=10)
+    top_clean_fallbacks = clean_fallback_fetcher.get_top_fallbacks(n=10, fallback_type=fallback_type)
     logger.info(f"Top 10 clean fallbacks (L7D): {top_clean_fallbacks}")
 
     # Example 3: Check if fallbacks exist (L7D)
-    nsfw_exists = nsfw_fallback_fetcher.check_fallbacks_exist()
-    clean_exists = clean_fallback_fetcher.check_fallbacks_exist()
+    nsfw_exists = nsfw_fallback_fetcher.check_fallbacks_exist(fallback_type)
+    clean_exists = clean_fallback_fetcher.check_fallbacks_exist(fallback_type)
     logger.info(f"NSFW fallbacks exist (L7D): {nsfw_exists}")
     logger.info(f"Clean fallbacks exist (L7D): {clean_exists}")
 
