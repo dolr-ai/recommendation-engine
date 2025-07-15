@@ -52,7 +52,7 @@ with DAG(
     wait_for_candidates = ExternalTaskSensor(
         task_id="wait_for_candidates",
         external_dag_id="cache_refresh_candidates",
-        external_task_id="task-run_candidates_refresh",  # Updated task name
+        external_task_id="task-set_status_completed",  # This task still exists
         execution_date_fn=lambda dt: dt,
         timeout=3600,  # 1 hour timeout
         mode="reschedule",
@@ -72,7 +72,7 @@ with DAG(
     wait_for_candidates_meta = ExternalTaskSensor(
         task_id="wait_for_candidates_meta",
         external_dag_id="cache_refresh_candidates_meta",
-        external_task_id="task-run_candidates_meta_refresh",  # Updated task name
+        external_task_id="task-set_status_completed",  # This task still exists
         execution_date_fn=lambda dt: dt,
         timeout=3600,
         mode="reschedule",
@@ -92,7 +92,7 @@ with DAG(
     wait_for_fallbacks = ExternalTaskSensor(
         task_id="wait_for_fallbacks",
         external_dag_id="cache_refresh_fallbacks",
-        external_task_id="task-run_fallbacks_refresh",  # Updated task name
+        external_task_id="task-set_status_completed",  # This task still exists
         execution_date_fn=lambda dt: dt,
         timeout=3600,
         mode="reschedule",
@@ -112,7 +112,7 @@ with DAG(
     wait_for_history = ExternalTaskSensor(
         task_id="wait_for_history",
         external_dag_id="cache_refresh_history",
-        external_task_id="task-run_history_refresh",  # Updated task name
+        external_task_id="task-set_status_completed",  # This task still exists
         execution_date_fn=lambda dt: dt,
         timeout=3600,
         mode="reschedule",
