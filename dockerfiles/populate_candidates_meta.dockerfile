@@ -40,12 +40,8 @@ COPY --from=builder /app /app
 
 # Set environment variables
 # GCP_CREDENTIALS should be injected at runtime or through docker secrets
-ENV API_PORT=8000
 ENV PYTHONPATH=/app
 ENV UV_SYSTEM_PYTHON=1
 
-# Expose the API port
-EXPOSE 8000
-
 # Run the service
-CMD ["python", "-m", "src.candidates.set_candidates_meta"]
+CMD ["python", "-m", "src.candidate_cache.set_candidates_meta"]
