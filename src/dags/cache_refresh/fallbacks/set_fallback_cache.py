@@ -37,21 +37,22 @@ GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
 PROJECT_ID = os.environ.get("PROJECT_ID")
 REGION = os.environ.get("REGION")
-REPOSITORY = os.environ.get("REPOSITORY")
 
 # Redis configuration - should be configured in Airflow
-REDIS_INSTANCE_ID = os.environ.get("REDIS_INSTANCE_ID")
-REDIS_HOST = os.environ.get("REDIS_HOST")
+SERVICE_REDIS_INSTANCE_ID = os.environ.get("SERVICE_REDIS_INSTANCE_ID")
+SERVICE_REDIS_HOST = os.environ.get("SERVICE_REDIS_HOST")
 PROXY_REDIS_HOST = os.environ.get("PROXY_REDIS_HOST")
-REDIS_PORT = os.environ.get("REDIS_PORT")
+SERVICE_REDIS_PORT = os.environ.get("SERVICE_REDIS_PORT")
 PROXY_REDIS_PORT = os.environ.get("PROXY_REDIS_PORT")
-REDIS_AUTHKEY = os.environ.get("REDIS_AUTHKEY")
+SERVICE_REDIS_AUTHKEY = os.environ.get("SERVICE_REDIS_AUTHKEY")
 USE_REDIS_PROXY = os.environ.get("USE_REDIS_PROXY")
-REDIS_CLUSTER_ENABLED = os.environ.get("REDIS_CLUSTER_ENABLED")
+SERVICE_REDIS_CLUSTER_ENABLED = os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED")
 DEV_MODE = os.environ.get("DEV_MODE")
 
 # Cloud Run service configuration
 SERVICE_NAME = "recommendation-fallback"
+IMAGE_NAME = "recommendation-fallback"  # Matches the image name in GitHub workflow
+REPOSITORY = "recommendation-engine-registry"  # Hardcoded to match GitHub workflow
 
 # Status variable name
 STATUS_VARIABLE = "cache_refresh_fallbacks_completed"
@@ -103,7 +104,7 @@ with DAG(
         project_id=PROJECT_ID,
         region=REGION,
         job_name=job_name,
-        image=f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{SERVICE_NAME}:latest",
+        image=f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{IMAGE_NAME}:latest",
         service_account=SERVICE_ACCOUNT,
         container_resources={
             "cpu": "4",
@@ -111,14 +112,14 @@ with DAG(
         },
         env_vars={
             "GCP_CREDENTIALS": GCP_CREDENTIALS,
-            "REDIS_INSTANCE_ID": REDIS_INSTANCE_ID,
-            "REDIS_HOST": REDIS_HOST,
+            "SERVICE_REDIS_INSTANCE_ID": SERVICE_REDIS_INSTANCE_ID,
+            "SERVICE_REDIS_HOST": SERVICE_REDIS_HOST,
             "PROXY_REDIS_HOST": PROXY_REDIS_HOST,
-            "REDIS_PORT": REDIS_PORT,
+            "SERVICE_REDIS_PORT": SERVICE_REDIS_PORT,
             "PROXY_REDIS_PORT": PROXY_REDIS_PORT,
-            "REDIS_AUTHKEY": REDIS_AUTHKEY,
+            "SERVICE_REDIS_AUTHKEY": SERVICE_REDIS_AUTHKEY,
             "USE_REDIS_PROXY": USE_REDIS_PROXY,
-            "REDIS_CLUSTER_ENABLED": REDIS_CLUSTER_ENABLED,
+            "SERVICE_REDIS_CLUSTER_ENABLED": SERVICE_REDIS_CLUSTER_ENABLED,
             "DEV_MODE": DEV_MODE,
         },
         vpc_connector=f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",

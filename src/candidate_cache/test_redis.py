@@ -19,9 +19,9 @@ def test_redis_connection():
 
     # Print environment variables for debugging
     print("Environment variables:")
-    print(f"- REDIS_HOST: {os.environ.get('REDIS_HOST')}")
+    print(f"- SERVICE_REDIS_HOST: {os.environ.get('SERVICE_REDIS_HOST')}")
     print(f"- PROXY_REDIS_HOST: {os.environ.get('PROXY_REDIS_HOST')}")
-    print(f"- REDIS_AUTHKEY set: {'Yes' if os.environ.get('REDIS_AUTHKEY') else 'No'}")
+    print(f"- SERVICE_REDIS_AUTHKEY set: {'Yes' if os.environ.get('SERVICE_REDIS_AUTHKEY') else 'No'}")
     print(f"- GCP_CREDENTIALS set: {'Yes' if gcp_credentials_str else 'No'}")
     print(f"- DEV_MODE: {os.environ.get('DEV_MODE', 'false')}")
 
@@ -42,11 +42,11 @@ def test_connection(use_proxy=False):
         host = os.environ.get("PROXY_REDIS_HOST")
         port = int(os.environ.get("PROXY_REDIS_PORT", 6379))
         connection_type = "Redis Proxy"
-        authkey = os.environ.get("REDIS_AUTHKEY")
+        authkey = os.environ.get("SERVICE_REDIS_AUTHKEY")
         ssl_enabled = False
     else:
-        host = os.environ.get("REDIS_HOST")
-        port = int(os.environ.get("REDIS_PORT", 6379))
+        host = os.environ.get("SERVICE_REDIS_HOST")
+        port = int(os.environ.get("SERVICE_REDIS_PORT", 6379))
         connection_type = "Direct VPC Redis"
         authkey = None
         ssl_enabled = False  # Changed to False since the server doesn't support SSL
@@ -62,11 +62,11 @@ def test_connection(use_proxy=False):
             core=gcp_core,
             host=host,
             port=port,
-            instance_id=os.environ.get("REDIS_INSTANCE_ID"),
+            instance_id=os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
             ssl_enabled=ssl_enabled,
             socket_timeout=15,
             socket_connect_timeout=15,
-            cluster_enabled=os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower()
+            cluster_enabled=os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED", "false").lower()
             == "true",
             authkey=authkey,
         )
@@ -136,18 +136,18 @@ def test_connection(use_proxy=False):
 if __name__ == "__main__":
     logger.info("Have these variables in your .env file:")
     var_str = """
-    export REDIS_INSTANCE_ID='instance-id'
-    export REDIS_HOST='redis-host'
+    export SERVICE_REDIS_INSTANCE_ID='instance-id'
+    export SERVICE_REDIS_HOST='redis-host'
     export PROXY_REDIS_HOST='proxy-redis-host'
 
-    export REDIS_PORT='redis-port'
+    export SERVICE_REDIS_PORT='redis-port'
     export PROXY_REDIS_PORT='proxy-redis-port'
 
-    export REDIS_AUTHKEY='redis-authkey'
+    export SERVICE_REDIS_AUTHKEY='redis-authkey'
 
     export USE_REDIS_PROXY='use-redis-proxy'
 
-    export REDIS_CLUSTER_ENABLED='redis-cluster-enabled'
+    export SERVICE_REDIS_CLUSTER_ENABLED='redis-cluster-enabled'
     export DEV_MODE='dev-mode'
     export GCP_CREDENTIALS=$(jq -c . '/root/credentials.json')
     """
