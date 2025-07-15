@@ -108,13 +108,6 @@ with DAG(
     # Define the job configuration
     job_config = {
         "template": {
-            "metadata": {
-                "annotations": {
-                    "run.googleapis.com/network-interfaces": '[{"network":"default","subnetwork":"default"}]',
-                    "run.googleapis.com/vpc-access-egress": "private-ranges-only",
-                    "run.googleapis.com/execution-environment": "gen2",
-                }
-            },
             "spec": {
                 "taskCount": 1,
                 "template": {
