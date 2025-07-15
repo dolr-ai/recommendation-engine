@@ -1,7 +1,27 @@
 """
-This script is used to set user video history items in the candidate cache using Redis sets.
-Stores user video watch history for fast lookup and filtering.
-Runs daily to refresh user history data with automatic TTL-based cleanup.
+This script populates Valkey cache with user video history items for recommendation filtering.
+
+The script processes user watch history data from BigQuery and stores it in Valkey as Redis sets
+for fast lookup during recommendation serving. Each user's watched video IDs are stored in a set
+with automatic TTL-based expiration.
+
+Data is sourced from BigQuery tables and uploaded to Valkey with the 'history:' key prefix.
+The script runs daily to refresh user history data and verifies upload success through sample
+key validation.
+
+Sample Outputs:
+
+1. User Video History Sets:
+   Key: "history:{user_id}:videos"
+   Value: Set of video IDs the user has watched
+
+   Example:
+   - "history:user123:videos" → {"video1", "video2", "video3", ...}
+
+   Operations:
+   - Fast membership testing: O(1) complexity for checking if a user has watched a video
+   - Set operations: Intersection, union, and difference with other sets
+   - Automatic expiration: Keys expire after 60 days via TTL
 """
 
 import sys
@@ -21,13 +41,14 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",  # Primary endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("PROXY_REDIS_HOST", os.environ.get("REDIS_HOST")),
+        "port": int(os.environ.get("PROXY_REDIS_PORT", os.environ.get("REDIS_PORT", 6379))),
+        "instance_id": os.environ.get("REDIS_INSTANCE_ID"),
+        "authkey": os.environ.get("REDIS_AUTHKEY"),  # Required for Redis proxy
+        "ssl_enabled": False,  # Disable SSL for proxy connection
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,  # Enable cluster mode
+        "cluster_enabled": os.environ.get("REDIS_CLUSTER_ENABLED", "false").lower() in ("true", "1", "yes"),
     },
     # todo: configure this as per CRON jobs
     "expire_seconds": 86400 * 7,
@@ -176,7 +197,7 @@ class UserHistoryPopulator:
 
         if not connection_success:
             logger.error("Cannot proceed: No valid Valkey connection")
-            return {"error": "No valid Valkey connection", "success": False}
+            return {"error": "No valid Valkey connection"}
 
         # Step 1: Get user history data
         logger.info("Step 1: Fetching user history data...")
@@ -184,7 +205,7 @@ class UserHistoryPopulator:
 
         if not user_history:
             logger.info("No user history data to populate")
-            return {"message": "No data to upload", "success": True}
+            return {"message": "No data to upload"}
 
         # Step 2: Format data for Redis sets using dict comprehension
         logger.info("Step 2: Formatting data for Redis sets...")
@@ -208,11 +229,9 @@ class UserHistoryPopulator:
         if upload_stats.get("successful", 0) > 0:
             # Verify a few random sets
             self._verify_sample(user_sets_data)
-            upload_stats["success"] = True
         else:
             logger.error("Upload failed")
             upload_stats["error"] = "Upload failed"
-            upload_stats["success"] = False
 
         return upload_stats
 
@@ -234,10 +253,18 @@ class UserHistoryPopulator:
                 for video_id in sample_videos
             ]
 
+            # Verify size and memberships
+            size_matches = len(expected_videos) == actual_size
+            all_members_found = all(membership_checks)
+            assert size_matches, f"Expected size {len(expected_videos)} but got {actual_size}"
+            assert all_members_found, f"Not all sample videos were found in the set"
+
             logger.info(f"Set: {key}")
             logger.info(f"Expected size: {len(expected_videos)}")
             logger.info(f"Actual size: {actual_size}")
+            logger.info(f"Size matches: {size_matches}")
             logger.info(f"Sample membership checks: {membership_checks}")
+            logger.info(f"All members found: {all_members_found}")
             logger.info(f"TTL: {ttl} seconds")
             logger.info("---")
 
@@ -256,7 +283,7 @@ def main(config: Optional[Dict[str, Any]] = None):
         # Populate Valkey with user history sets
         stats = history_populator.populate_valkey()
 
-        if stats.get("success", False):
+        if not stats.get("error"):
             logger.info("User history population completed successfully!")
             logger.info(f"Final stats: {stats}")
 
