@@ -156,7 +156,6 @@ with DAG(
                         ],
                     }
                 ],
-                "timeoutSeconds": 600,
                 "maxRetries": 1,
                 "serviceAccountName": SERVICE_ACCOUNT,
             },
