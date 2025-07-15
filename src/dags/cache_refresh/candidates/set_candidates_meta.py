@@ -141,6 +141,9 @@ with DAG(
                     }
                 ],
             },
+            "serviceAccountName": SERVICE_ACCOUNT,
+            "timeoutSeconds": 3600,
+            "maxRetries": 0,
             "vpcAccess": {
                 "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
                 "egress": "PRIVATE_RANGES_ONLY",
