@@ -138,8 +138,6 @@ with DAG(
                         ],
                     }
                 ],
-                "timeoutSeconds": 3600,
-                "maxRetries": 2,
             },
             "serviceAccount": SERVICE_ACCOUNT,
             "vpcAccess": {
