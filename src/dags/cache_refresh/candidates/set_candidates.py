@@ -108,7 +108,7 @@ with DAG(
     # Define the job configuration
     job_config = {
         "template": {
-            "spec": {
+            "template": {
                 "containers": [
                     {
                         "image": f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{IMAGE_NAME}:latest",
@@ -138,9 +138,6 @@ with DAG(
                         ],
                     }
                 ],
-                "serviceAccountName": SERVICE_ACCOUNT,
-                "timeoutSeconds": 3600,
-                "maxRetries": 2,
             },
             "vpcAccess": {
                 "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
