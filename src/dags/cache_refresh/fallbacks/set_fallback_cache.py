@@ -162,7 +162,6 @@ with DAG(
         project_id=PROJECT_ID,
         region=REGION,
         job_name=job_name,
-        wait=True,
     )
 
     # Set status to completed
