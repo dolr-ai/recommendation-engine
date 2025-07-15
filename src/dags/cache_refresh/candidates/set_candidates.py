@@ -156,8 +156,6 @@ with DAG(
                         ],
                     }
                 ],
-                "maxRetries": 1,
-                "serviceAccountName": SERVICE_ACCOUNT,
             },
         },
         "vpcAccess": {
