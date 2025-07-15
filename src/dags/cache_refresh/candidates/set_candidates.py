@@ -108,6 +108,7 @@ with DAG(
     # Define the job configuration
     job_config = {
         "template": {
+            "serviceAccount": SERVICE_ACCOUNT,  # <-- Move here
             "template": {
                 "containers": [
                     {
@@ -139,7 +140,6 @@ with DAG(
                     }
                 ],
             },
-            "serviceAccount": SERVICE_ACCOUNT,
             "vpcAccess": {
                 "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
                 "egress": "PRIVATE_RANGES_ONLY",
