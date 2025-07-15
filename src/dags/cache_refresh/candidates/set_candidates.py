@@ -137,12 +137,14 @@ with DAG(
                             },
                             {"name": "DEV_MODE", "value": DEV_MODE},
                         ],
-                    }
+                    },
+                    {
+                        "vpcAccess": {
+                            "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
+                            "egress": "PRIVATE_RANGES_ONLY",
+                        },
+                    },
                 ],
-            },
-            "vpcAccess": {
-                "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
-                "egress": "PRIVATE_RANGES_ONLY",
             },
         }
     }
