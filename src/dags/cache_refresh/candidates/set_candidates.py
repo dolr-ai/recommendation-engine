@@ -108,43 +108,45 @@ with DAG(
     # Define the job configuration
     job_config = {
         "template": {
-            "containers": [
-                {
-                    "image": f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{IMAGE_NAME}:latest",
-                    "command": ["python"],
-                    "args": ["-m", "src.candidates.set_candidates"],
-                    "resources": {"limits": {"cpu": "4", "memory": "4Gi"}},
-                    "env": [
-                        {"name": "GCP_CREDENTIALS", "value": GCP_CREDENTIALS},
-                        {
-                            "name": "SERVICE_REDIS_INSTANCE_ID",
-                            "value": SERVICE_REDIS_INSTANCE_ID,
-                        },
-                        {"name": "SERVICE_REDIS_HOST", "value": SERVICE_REDIS_HOST},
-                        {"name": "PROXY_REDIS_HOST", "value": PROXY_REDIS_HOST},
-                        {"name": "SERVICE_REDIS_PORT", "value": SERVICE_REDIS_PORT},
-                        {"name": "PROXY_REDIS_PORT", "value": PROXY_REDIS_PORT},
-                        {
-                            "name": "SERVICE_REDIS_AUTHKEY",
-                            "value": SERVICE_REDIS_AUTHKEY,
-                        },
-                        {"name": "USE_REDIS_PROXY", "value": USE_REDIS_PROXY},
-                        {
-                            "name": "SERVICE_REDIS_CLUSTER_ENABLED",
-                            "value": SERVICE_REDIS_CLUSTER_ENABLED,
-                        },
-                        {"name": "DEV_MODE", "value": DEV_MODE},
-                    ],
-                }
-            ],
-            "serviceAccountName": SERVICE_ACCOUNT,
-            "timeoutSeconds": 3600,
-            "maxRetries": 2,
-        },
-        "vpcAccess": {
-            "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
-            "egress": "PRIVATE_RANGES_ONLY",
-        },
+            "spec": {
+                "containers": [
+                    {
+                        "image": f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{IMAGE_NAME}:latest",
+                        "command": ["python"],
+                        "args": ["-m", "src.candidates.set_candidates"],
+                        "resources": {"limits": {"cpu": "4", "memory": "4Gi"}},
+                        "env": [
+                            {"name": "GCP_CREDENTIALS", "value": GCP_CREDENTIALS},
+                            {
+                                "name": "SERVICE_REDIS_INSTANCE_ID",
+                                "value": SERVICE_REDIS_INSTANCE_ID,
+                            },
+                            {"name": "SERVICE_REDIS_HOST", "value": SERVICE_REDIS_HOST},
+                            {"name": "PROXY_REDIS_HOST", "value": PROXY_REDIS_HOST},
+                            {"name": "SERVICE_REDIS_PORT", "value": SERVICE_REDIS_PORT},
+                            {"name": "PROXY_REDIS_PORT", "value": PROXY_REDIS_PORT},
+                            {
+                                "name": "SERVICE_REDIS_AUTHKEY",
+                                "value": SERVICE_REDIS_AUTHKEY,
+                            },
+                            {"name": "USE_REDIS_PROXY", "value": USE_REDIS_PROXY},
+                            {
+                                "name": "SERVICE_REDIS_CLUSTER_ENABLED",
+                                "value": SERVICE_REDIS_CLUSTER_ENABLED,
+                            },
+                            {"name": "DEV_MODE", "value": DEV_MODE},
+                        ],
+                    }
+                ],
+                "serviceAccountName": SERVICE_ACCOUNT,
+                "timeoutSeconds": 3600,
+                "maxRetries": 2,
+            },
+            "vpcAccess": {
+                "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
+                "egress": "PRIVATE_RANGES_ONLY",
+            },
+        }
     }
 
     # Create and run Cloud Run job
