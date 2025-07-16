@@ -290,7 +290,14 @@ def plot_user_distribution(df):
 
 # Create and display the plot
 fig = plot_user_distribution(df_user_clusters_by_watch_range)
-
+# %%
+df_user_clusters_by_watch_range["user_identity"] = (
+    df_user_clusters_by_watch_range["cluster_id"].astype(str)
+    + ":"
+    + df_user_clusters_by_watch_range["nsfw_label"].astype(str)
+    + ":"
+    + df_user_clusters_by_watch_range["range"].astype(str)
+)
 # %%
 df_sampled_users = (
     df_user_clusters_by_watch_range[["user_identity", "sampled_user_ids"]]
@@ -336,6 +343,9 @@ def generate_request_parameters(df_user_clusters, df_sampled_users):
     )
     df_user_history_sampled["last_watched_timestamp"] = df_user_history_sampled[
         "last_watched_timestamp"
+    ].astype(str)
+    df_user_history_sampled["mean_percentage_watched"] = df_user_history_sampled[
+        "mean_percentage_watched"
     ].astype(str)
 
     df_user_history_sampled = df_user_history_sampled.groupby("user_id").head(
@@ -412,4 +422,5 @@ df_proc = generate_request_parameters(df_user_clusters, df_sampled_users)
 df_proc
 df_proc.to_parquet(DATA_ROOT / "df_user_profiles.parquet")
 # %%
+print(df_proc.iloc[0])
 print(df_proc.iloc[0]["request_params"])
