@@ -38,6 +38,7 @@ STATUS_VARIABLES = {
     "candidates_meta": "cache_refresh_candidates_meta_completed",
     "fallback": "cache_refresh_fallback_completed",
     "history": "cache_refresh_history_completed",
+    "reported_items": "cache_refresh_reported_items_completed",
 }
 
 
@@ -149,6 +150,14 @@ with DAG(
         execution_date="{{ execution_date }}",
     )
 
+    # Trigger reported items refresh
+    trigger_reported_items = TriggerDagRunOperator(
+        task_id="trigger_reported_items_refresh",
+        trigger_dag_id="cache_refresh_reported_items",
+        wait_for_completion=False,
+        execution_date="{{ execution_date }}",
+    )
+
     # Wait for candidates completion using status variable
     wait_candidates_status = PythonSensor(
         task_id="wait_candidates_status",
@@ -185,6 +194,15 @@ with DAG(
         mode="poke",
     )
 
+    # Wait for reported items completion using status variable
+    wait_reported_items_status = PythonSensor(
+        task_id="wait_reported_items_status",
+        python_callable=check_status_variable(STATUS_VARIABLES["reported_items"]),
+        timeout=3600,
+        poke_interval=30,
+        mode="poke",
+    )
+
     # Final verification that all operations completed
     verify_completion = PythonOperator(
         task_id="verify_all_completed",
@@ -203,6 +221,7 @@ with DAG(
             trigger_candidates_meta,
             trigger_fallbacks,
             trigger_history,
+            trigger_reported_items,
         ]
     )
 
@@ -211,6 +230,7 @@ with DAG(
     trigger_candidates_meta >> wait_candidates_meta_status
     trigger_fallbacks >> wait_fallbacks_status
     trigger_history >> wait_history_status
+    trigger_reported_items >> wait_reported_items_status
 
     # All status sensors must complete before final verification
     (
@@ -219,6 +239,7 @@ with DAG(
             wait_candidates_meta_status,
             wait_fallbacks_status,
             wait_history_status,
+            wait_reported_items_status,
         ]
         >> verify_completion
         >> end
