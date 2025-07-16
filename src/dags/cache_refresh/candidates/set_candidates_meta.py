@@ -34,12 +34,36 @@ default_args = {
 
 DAG_ID = "cache_refresh_candidates_meta"
 
-# Get environment variables
-# These should be configured in Airflow's environment or Variables
-GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
+# Get environment variables and Airflow Variables
+# These should be configured in Airflow's Variables or environment
+# todo: remove this while moving to prod
+GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS_STAGE")
 SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
-PROJECT_ID = os.environ.get("PROJECT_ID")
-REGION = os.environ.get("REGION")
+
+# Extract PROJECT_ID from GCP_CREDENTIALS JSON
+try:
+    if GCP_CREDENTIALS:
+        # Parse the GCP credentials JSON to extract project_id
+        credentials_json = json.loads(GCP_CREDENTIALS)
+        PROJECT_ID = credentials_json.get("project_id")
+        if not PROJECT_ID:
+            raise ValueError("project_id not found in GCP_CREDENTIALS JSON")
+    else:
+        # Fallback to Airflow Variable
+        PROJECT_ID = Variable.get("PROJECT_ID", default_var=None)
+        if not PROJECT_ID:
+            raise ValueError(
+                "GCP_CREDENTIALS environment variable not found and PROJECT_ID Variable not set"
+            )
+
+    # Get REGION from environment variable (as shown in screenshot)
+    REGION = os.environ.get("REGION", "us-central1")
+
+    print(f"Using PROJECT_ID: {PROJECT_ID}")
+    print(f"Using REGION: {REGION}")
+
+except Exception as e:
+    raise ValueError(f"Failed to get PROJECT_ID from GCP_CREDENTIALS: {str(e)}")
 
 # Redis configuration - should be configured in Airflow
 SERVICE_REDIS_INSTANCE_ID = os.environ.get("SERVICE_REDIS_INSTANCE_ID")
@@ -61,6 +85,33 @@ REPOSITORY = "recommendation-engine-registry"  # Hardcoded to match GitHub workf
 
 # Status variable name
 STATUS_VARIABLE = "cache_refresh_candidates_meta_completed"
+
+
+# Function to generate a compliant job name
+def generate_job_name(**kwargs):
+    """Generate a Cloud Run job name that complies with naming requirements."""
+    # Get the execution date from Airflow context
+    execution_date = kwargs.get("execution_date")
+    if execution_date:
+        # Format: recommendation-candidates-meta-job-YYYYMMDD-HHMMSS
+        # Remove any non-alphanumeric characters except hyphens
+        timestamp = execution_date.strftime("%Y%m%d-%H%M%S")
+    else:
+        # Fallback to current timestamp
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Create a compliant job name: lowercase, starts with letter, no trailing hyphen
+    job_name = f"recommendation-candidates-meta-job-{timestamp}"
+
+    # Ensure it's lowercase and doesn't exceed 63 characters
+    job_name = job_name.lower()
+    if len(job_name) > 63:
+        # Truncate if too long, ensuring it doesn't end with hyphen
+        job_name = job_name[:62] if job_name[62] == "-" else job_name[:63]
+
+    return job_name
 
 
 # Function to initialize status variable
@@ -104,8 +155,20 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
-    # Create a job configuration
-    job_name = f"{SERVICE_NAME}-job-{{{{ ts_nodash }}}}"
+    # Generate a compliant job name
+    generate_job_name_task = PythonOperator(
+        task_id="task-generate_job_name",
+        python_callable=generate_job_name,
+    )
+
+    # Create a job configuration using a Python function to generate compliant name
+    job_name = "{{ task_instance.xcom_pull(task_ids='task-generate_job_name') }}"
+
+    # Debug: Log the connector path being used
+    connector_path = (
+        f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis"
+    )
+    print(f"Using VPC connector path: {connector_path}")
 
     # Define the job configuration
     job_config = {
@@ -143,9 +206,9 @@ with DAG(
                 "timeoutSeconds": 3600,
                 "maxRetries": 0,
             },
-            "serviceAccount": SERVICE_ACCOUNT,
-            "vpcAccess": {
-                "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
+            "service_account": SERVICE_ACCOUNT,
+            "vpc_access": {
+                "connector": connector_path,
                 "egress": "PRIVATE_RANGES_ONLY",
             },
         }
@@ -177,4 +240,12 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Define task dependencies
-    start >> init_status >> create_job >> run_job >> set_status >> end
+    (
+        start
+        >> init_status
+        >> generate_job_name_task
+        >> create_job
+        >> run_job
+        >> set_status
+        >> end
+    )
