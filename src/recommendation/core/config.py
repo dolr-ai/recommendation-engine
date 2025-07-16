@@ -22,15 +22,19 @@ DEFAULT_CANDIDATE_TYPES = {
 
 DEFAULT_VALKEY_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("SERVICE_REDIS_HOST"),
+        "port": int(os.environ.get("SERVICE_REDIS_PORT", 6379)),
+        "instance_id": os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+        "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,
+        "cluster_enabled": os.environ.get(
+            "SERVICE_REDIS_CLUSTER_ENABLED", "false"
+        ).lower()
+        in ("true", "1", "yes"),
     }
 }
+
 
 DEFAULT_VECTOR_DIM = 1408
 
