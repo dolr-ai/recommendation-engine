@@ -12,7 +12,6 @@ from airflow import DAG
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.trigger_rule import TriggerRule
-from airflow.sensors.external_task import ExternalTaskSensor
 
 # Default arguments for the DAG
 default_args = {
@@ -48,17 +47,6 @@ with DAG(
         execution_date="{{ execution_date }}",
     )
 
-    # Wait for candidates refresh to complete
-    wait_for_candidates = ExternalTaskSensor(
-        task_id="wait_for_candidates",
-        external_dag_id="cache_refresh_candidates",
-        external_task_id="task-set_status_completed",  # This task still exists
-        execution_date_fn=lambda dt: dt,
-        timeout=3600,  # 1 hour timeout
-        mode="reschedule",
-        poke_interval=60,  # Check every minute
-    )
-
     # Trigger candidates meta refresh
     trigger_candidates_meta = TriggerDagRunOperator(
         task_id="trigger_candidates_meta_refresh",
@@ -66,17 +54,6 @@ with DAG(
         wait_for_completion=True,
         poke_interval=60,
         execution_date="{{ execution_date }}",
-    )
-
-    # Wait for candidates meta refresh to complete
-    wait_for_candidates_meta = ExternalTaskSensor(
-        task_id="wait_for_candidates_meta",
-        external_dag_id="cache_refresh_candidates_meta",
-        external_task_id="task-set_status_completed",  # This task still exists
-        execution_date_fn=lambda dt: dt,
-        timeout=3600,
-        mode="reschedule",
-        poke_interval=60,
     )
 
     # Trigger fallbacks refresh
@@ -88,17 +65,6 @@ with DAG(
         execution_date="{{ execution_date }}",
     )
 
-    # Wait for fallbacks refresh to complete
-    wait_for_fallbacks = ExternalTaskSensor(
-        task_id="wait_for_fallbacks",
-        external_dag_id="cache_refresh_fallbacks",
-        external_task_id="task-set_status_completed",  # This task still exists
-        execution_date_fn=lambda dt: dt,
-        timeout=3600,
-        mode="reschedule",
-        poke_interval=60,
-    )
-
     # Trigger history refresh
     trigger_history = TriggerDagRunOperator(
         task_id="trigger_history_refresh",
@@ -106,17 +72,6 @@ with DAG(
         wait_for_completion=True,
         poke_interval=60,
         execution_date="{{ execution_date }}",
-    )
-
-    # Wait for history refresh to complete
-    wait_for_history = ExternalTaskSensor(
-        task_id="wait_for_history",
-        external_dag_id="cache_refresh_history",
-        external_task_id="task-set_status_completed",  # This task still exists
-        execution_date_fn=lambda dt: dt,
-        timeout=3600,
-        mode="reschedule",
-        poke_interval=60,
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
@@ -130,10 +85,10 @@ with DAG(
         trigger_history,
     ]
 
-    # Wait for all cache refresh tasks to complete
+    # All trigger tasks complete before end
     [
-        wait_for_candidates,
-        wait_for_candidates_meta,
-        wait_for_fallbacks,
-        wait_for_history,
+        trigger_candidates,
+        trigger_candidates_meta,
+        trigger_fallbacks,
+        trigger_history,
     ] >> end
