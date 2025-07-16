@@ -108,9 +108,17 @@ with DAG(
     # Define the job configuration
     job_config = {
         "template": {
+            "metadata": {
+                "annotations": {
+                    "run.googleapis.com/vpc-access-egress": "private-ranges-only",
+                    "run.googleapis.com/execution-environment": "gen2",
+                    "run.googleapis.com/vpc-access-connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
+                }
+            },
             "template": {
                 "containers": [
                     {
+                        "name": f"{SERVICE_NAME}-1",
                         "image": f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{IMAGE_NAME}:latest",
                         "resources": {"limits": {"cpu": "4", "memory": "4Gi"}},
                         "env": [
@@ -156,6 +164,9 @@ with DAG(
                         ],
                     }
                 ],
+                "timeoutSeconds": 600,
+                "maxRetries": 1,
+                "serviceAccountName": SERVICE_ACCOUNT,
             },
         }
     }
@@ -175,6 +186,7 @@ with DAG(
         project_id=PROJECT_ID,
         region=REGION,
         job_name=job_name,
+        gcp_conn_id="google_cloud_default",
     )
 
     # Set status to completed

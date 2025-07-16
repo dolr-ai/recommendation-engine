@@ -9,6 +9,9 @@ from pathlib import Path
 
 from utils.valkey_utils import ValkeyService
 from utils.gcp_utils import GCPCore
+from utils.common_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 def test_redis_connection():
@@ -21,7 +24,9 @@ def test_redis_connection():
     print("Environment variables:")
     print(f"- SERVICE_REDIS_HOST: {os.environ.get('SERVICE_REDIS_HOST')}")
     print(f"- PROXY_REDIS_HOST: {os.environ.get('PROXY_REDIS_HOST')}")
-    print(f"- SERVICE_REDIS_AUTHKEY set: {'Yes' if os.environ.get('SERVICE_REDIS_AUTHKEY') else 'No'}")
+    print(
+        f"- SERVICE_REDIS_AUTHKEY set: {'Yes' if os.environ.get('SERVICE_REDIS_AUTHKEY') else 'No'}"
+    )
     print(f"- GCP_CREDENTIALS set: {'Yes' if gcp_credentials_str else 'No'}")
     print(f"- DEV_MODE: {os.environ.get('DEV_MODE', 'false')}")
 
@@ -66,7 +71,9 @@ def test_connection(use_proxy=False):
             ssl_enabled=ssl_enabled,
             socket_timeout=15,
             socket_connect_timeout=15,
-            cluster_enabled=os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED", "false").lower()
+            cluster_enabled=os.environ.get(
+                "SERVICE_REDIS_CLUSTER_ENABLED", "false"
+            ).lower()
             == "true",
             authkey=authkey,
         )

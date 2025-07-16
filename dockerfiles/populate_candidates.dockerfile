@@ -42,6 +42,7 @@ COPY --from=builder /app /app
 # GCP_CREDENTIALS should be injected at runtime or through docker secrets
 ENV PYTHONPATH=/app
 ENV UV_SYSTEM_PYTHON=1
+ENV USE_REDIS_PROXY=true
 
 # Run the service
 CMD ["python", "-m", "src.candidate_cache.set_candidates"]
