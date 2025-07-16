@@ -61,6 +61,33 @@ REPOSITORY = "recommendation-engine-registry"  # Hardcoded to match GitHub workf
 STATUS_VARIABLE = "cache_refresh_candidates_completed"
 
 
+# Function to generate a compliant job name
+def generate_job_name(**kwargs):
+    """Generate a Cloud Run job name that complies with naming requirements."""
+    # Get the execution date from Airflow context
+    execution_date = kwargs.get("execution_date")
+    if execution_date:
+        # Format: recommendation-candidates-job-YYYYMMDD-HHMMSS
+        # Remove any non-alphanumeric characters except hyphens
+        timestamp = execution_date.strftime("%Y%m%d-%H%M%S")
+    else:
+        # Fallback to current timestamp
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Create a compliant job name: lowercase, starts with letter, no trailing hyphen
+    job_name = f"recommendation-candidates-job-{timestamp}"
+
+    # Ensure it's lowercase and doesn't exceed 63 characters
+    job_name = job_name.lower()
+    if len(job_name) > 63:
+        # Truncate if too long, ensuring it doesn't end with hyphen
+        job_name = job_name[:62] if job_name[62] == "-" else job_name[:63]
+
+    return job_name
+
+
 # Function to initialize status variable
 def initialize_status_variable(**kwargs):
     """Initialize the cache_refresh_candidates_completed status variable to False."""
@@ -102,8 +129,14 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
-    # Create a job configuration
-    job_name = f"{SERVICE_NAME}-job-{{{{ ts_nodash }}}}"
+    # Generate a compliant job name
+    generate_job_name_task = PythonOperator(
+        task_id="task-generate_job_name",
+        python_callable=generate_job_name,
+    )
+
+    # Create a job configuration using a Python function to generate compliant name
+    job_name = "{{ task_instance.xcom_pull(task_ids='task-generate_job_name') }}"
 
     # Define the job configuration
     job_config = {
@@ -193,4 +226,12 @@ with DAG(
 
     # Define task dependencies
     #
-    start >> init_status >> create_job >> run_job >> set_status >> end
+    (
+        start
+        >> init_status
+        >> generate_job_name_task
+        >> create_job
+        >> run_job
+        >> set_status
+        >> end
+    )
