@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Set
 from datetime import datetime
+import os
 
 import redis
 from redis.cluster import RedisCluster
@@ -27,14 +28,15 @@ class ValkeyService:
     def __init__(
         self,
         core: GCPCore,
-        host: str,
+        host: str = None,
         port: int = 6379,
         instance_id: Optional[str] = None,
         socket_connect_timeout: int = 10,
         socket_timeout: int = 10,
         decode_responses: bool = True,
-        ssl_enabled: bool = True,  # Enable TLS by default
+        ssl_enabled: bool = False,  # Disable TLS by default for now
         cluster_enabled: bool = False,  # Enable cluster mode
+        authkey: Optional[str] = None,  # Add authkey parameter for Redis proxy
         **kwargs,
     ):
         """
@@ -50,34 +52,50 @@ class ValkeyService:
             decode_responses: Whether to decode responses to strings
             ssl_enabled: Whether to use TLS/SSL encryption
             cluster_enabled: Whether to use cluster mode
+            authkey: Optional authentication key for Redis proxy
             **kwargs: Additional redis client parameters
         """
         self.core = core
-        self.host = host
-        self.port = port
-        self.instance_id = instance_id or f"{host}:{port}"
+
+        # Check environment variables for configuration
+        self.host = (
+            host or os.environ.get("SERVICE_REDIS_HOST") or os.environ.get("PROXY_REDIS_HOST")
+        )
+        self.port = port or int(
+            os.environ.get("SERVICE_REDIS_PORT", os.environ.get("PROXY_REDIS_PORT", 6379))
+        )
+        self.instance_id = (
+            instance_id
+            or os.environ.get("SERVICE_REDIS_INSTANCE_ID")
+            or f"{self.host}:{self.port}"
+        )
+
+        # Get cluster mode from env if not provided
+        if cluster_enabled is None:
+            cluster_enabled_env = os.environ.get(
+                "SERVICE_REDIS_CLUSTER_ENABLED", "false"
+            ).lower()
+            self.cluster_enabled = cluster_enabled_env == "true"
+        else:
+            self.cluster_enabled = cluster_enabled
+
+        # Check if we should use proxy (based on authkey presence)
+        self.authkey = authkey or os.environ.get("SERVICE_REDIS_AUTHKEY")
+        self.use_proxy = self.authkey is not None
+
+        # If using proxy from env, use PROXY_REDIS_HOST if available
+        if self.use_proxy and os.environ.get("USE_REDIS_PROXY", "").lower() == "true":
+            if os.environ.get("PROXY_REDIS_HOST"):
+                self.host = os.environ.get("PROXY_REDIS_HOST")
+                self.port = int(os.environ.get("PROXY_REDIS_PORT", 6379))
+
         self.client = None
         self.ssl_enabled = ssl_enabled
-        self.cluster_enabled = cluster_enabled
 
-        self.connection_config = {
-            "host": host,
-            "port": port,
-            "socket_connect_timeout": socket_connect_timeout,
-            "socket_timeout": socket_timeout,
-            "decode_responses": decode_responses,
-            **kwargs,
-        }
-
-        # Add SSL configuration if enabled
-        if ssl_enabled:
-            self.connection_config.update(
-                {
-                    "ssl": True,
-                    "ssl_cert_reqs": None,
-                    "ssl_check_hostname": False,
-                }
-            )
+        logger.info(
+            f"Initialized ValkeyService with host={self.host}, port={self.port}, "
+            f"use_proxy={self.use_proxy}, cluster_enabled={self.cluster_enabled}, ssl_enabled={self.ssl_enabled}"
+        )
 
     def _get_access_token(self) -> str:
         """
@@ -102,45 +120,113 @@ class ValkeyService:
             Connected Redis client instance
         """
         try:
-            # Get fresh access token
-            access_token = self._get_access_token()
+            # Simple connection logic - use authkey if provided, otherwise use GCP token
+            if self.use_proxy and self.authkey:
+                logger.debug(f"Using authkey-based connection for {self.instance_id}")
+                password = self.authkey
 
-            # Create client with token as password and SSL
-            if self.cluster_enabled:
-                # For cluster mode, use startup_nodes with the discovery endpoint
-                # Extract relevant connection params
+                if not password:
+                    logger.error("Authkey is required for Redis proxy connection")
+                    raise ValueError("Missing authkey for Redis proxy connection")
+
+                # Basic connection parameters
                 conn_params = {
-                    "password": access_token,
-                    "ssl": self.connection_config.get("ssl", False),
-                    "socket_timeout": self.connection_config.get("socket_timeout", 10),
-                    "socket_connect_timeout": self.connection_config.get(
-                        "socket_connect_timeout", 10
-                    ),
-                    "decode_responses": self.connection_config.get(
-                        "decode_responses", True
-                    ),
-                    "skip_full_coverage_check": True,  # Important for GCP Memorystore
+                    "host": self.host,
+                    "port": self.port,
+                    "password": password,
+                    "socket_timeout": 15,
+                    "socket_connect_timeout": 15,
+                    "decode_responses": True,
                 }
 
-                # Add SSL params if needed
+                # Add SSL if enabled
                 if self.ssl_enabled:
                     conn_params.update(
                         {
+                            "ssl": True,
                             "ssl_cert_reqs": None,
                             "ssl_check_hostname": False,
                         }
                     )
 
-                # Create cluster client
-                self.client = RedisCluster(
-                    host=self.host, port=self.port, **conn_params
-                )
-                logger.debug(f"Using RedisCluster client for {self.instance_id}")
+                if self.cluster_enabled:
+                    conn_params["skip_full_coverage_check"] = True
+                    self.client = RedisCluster(**conn_params)
+                    logger.debug(
+                        f"Using RedisCluster client with authkey for {self.instance_id}"
+                    )
+                else:
+                    self.client = redis.Redis(**conn_params)
+                    logger.debug(
+                        f"Using Redis client with authkey for {self.instance_id}"
+                    )
+
             else:
-                # For standalone mode, use regular Redis client
-                self.client = redis.Redis(
-                    password=access_token, **self.connection_config
-                )
+                # Use GCP token-based authentication
+                logger.debug(f"Using GCP token-based connection for {self.instance_id}")
+                access_token = self._get_access_token()
+
+                # Basic connection parameters
+                conn_params = {
+                    "host": self.host,
+                    "port": self.port,
+                    "password": access_token,
+                    "socket_timeout": 15,
+                    "socket_connect_timeout": 15,
+                    "decode_responses": True,
+                }
+
+                # Try with SSL first if enabled
+                try_ssl = self.ssl_enabled
+                if try_ssl:
+                    try:
+                        # Try with SSL first
+                        ssl_conn_params = conn_params.copy()
+                        ssl_conn_params.update(
+                            {
+                                "ssl": True,
+                                "ssl_cert_reqs": None,
+                                "ssl_check_hostname": False,
+                            }
+                        )
+
+                        if self.cluster_enabled:
+                            ssl_conn_params["skip_full_coverage_check"] = True
+                            self.client = RedisCluster(**ssl_conn_params)
+                            logger.debug(
+                                f"Using RedisCluster client with SSL for {self.instance_id}"
+                            )
+                        else:
+                            self.client = redis.Redis(**ssl_conn_params)
+                            logger.debug(
+                                f"Using Redis client with SSL for {self.instance_id}"
+                            )
+
+                        # Test connection
+                        self.client.ping()
+                        logger.debug(
+                            f"SSL connection successful for {self.instance_id}"
+                        )
+                        return self.client
+
+                    except Exception as ssl_error:
+                        logger.warning(
+                            f"SSL connection failed for {self.instance_id}: {ssl_error}. Trying without SSL..."
+                        )
+                        # Continue to non-SSL connection
+
+                # Non-SSL connection (either as fallback or as primary choice)
+                if self.cluster_enabled:
+                    conn_params["skip_full_coverage_check"] = True
+                    self.client = RedisCluster(**conn_params)
+                    logger.debug(
+                        f"Using RedisCluster client without SSL for {self.instance_id}"
+                    )
+                else:
+                    self.client = redis.Redis(**conn_params)
+                    logger.debug(
+                        f"Using Redis client without SSL for {self.instance_id}"
+                    )
 
             # Test connection
             self.client.ping()

@@ -2,8 +2,7 @@ name: Move DAGs to GCS
 
 on:
   push:
-    branches:
-      - dev
+    branches: [ dev, main, redis-populate-batchjob]
   workflow_dispatch: # Enable manual trigger
 
 jobs:
@@ -36,7 +35,7 @@ jobs:
           dag_directories=(
             "src/dags/user_clustering"
             "src/dags/candidate_generation"
-            # "src/dags/another_dag_folder"
+            "src/dags/cache_refresh"
             # "src/dags/yet_another_dag_folder"
           )
 

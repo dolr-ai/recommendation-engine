@@ -36,17 +36,13 @@ Sample Outputs:
 
 import os
 import json
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Any, Union, Set
+from typing import Dict, List, Optional, Any, Union
 from abc import ABC, abstractmethod
-import pathlib
-from tqdm import tqdm
 
 # utils
 from utils.gcp_utils import GCPUtils
 from utils.common_utils import get_logger
-from utils.valkey_utils import ValkeyService, ValkeyVectorService
+from utils.valkey_utils import ValkeyService
 
 logger = get_logger(__name__)
 
@@ -54,13 +50,17 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",  # Primary endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("PROXY_REDIS_HOST", os.environ.get("SERVICE_REDIS_HOST")),
+        "port": int(
+            os.environ.get("PROXY_REDIS_PORT", os.environ.get("SERVICE_REDIS_PORT", 6379))
+        ),
+        "instance_id": os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+        "authkey": os.environ.get("SERVICE_REDIS_AUTHKEY"),  # Required for Redis proxy
+        "ssl_enabled": False,  # Disable SSL for proxy connection
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,  # Enable cluster mode
+        "cluster_enabled": os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED", "false").lower()
+        in ("true", "1", "yes"),
     },
     # todo: configure this as per CRON jobs
     "expire_seconds": 86400 * 30,

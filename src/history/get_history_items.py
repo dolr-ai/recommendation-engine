@@ -1,6 +1,27 @@
 """
-This script provides a simple method to check if users have watched specific videos
-using Redis sets stored in the candidate cache.
+This script retrieves user video watch history from Valkey cache for recommendation filtering.
+
+The script provides efficient methods to check if users have watched specific videos,
+enabling fast filtering of already-watched content from recommendations. The data is stored
+in Redis sets with automatic TTL-based expiration.
+
+Data is retrieved from Valkey using the 'history:' key prefix and supports both single video
+lookups and batch operations for checking multiple videos at once. The script optimizes Redis
+operations by using set membership testing and scanning for efficient lookups.
+
+Sample Key Format:
+
+1. User Video History Sets:
+   Key: "history:{user_id}:videos"
+   Value: Set of video IDs the user has watched
+
+   Example:
+   - "history:user123:videos" → {"video1", "video2", "video3", ...}
+
+   Operations:
+   - Single video check: O(1) complexity using SISMEMBER
+   - Multiple video check: Optimized with SSCAN for large sets
+   - Automatic expiration: Keys expire after 60 days via TTL
 """
 
 import os
@@ -14,23 +35,44 @@ from utils.common_utils import time_execution
 
 logger = get_logger(__name__)
 
-# Default configuration
+# Default configuration - For production: direct VPC connection
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("SERVICE_REDIS_HOST"),
+        "port": int(os.environ.get("SERVICE_REDIS_PORT", 6379)),
+        "instance_id": os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+        "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,
+        "cluster_enabled": os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED", "false").lower()
+        in ("true", "1", "yes"),
     },
 }
+
+# Check if we're in DEV_MODE (use proxy connection instead)
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+if DEV_MODE:
+    logger.info("Running in DEV_MODE - using proxy connection")
+    DEFAULT_CONFIG["valkey"].update(
+        {
+            "host": os.environ.get(
+                "PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
+            ),
+            "port": int(
+                os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
+            ),
+            "authkey": os.environ.get("SERVICE_REDIS_AUTHKEY"),
+            "ssl_enabled": False,  # Disable SSL for proxy connection
+        }
+    )
+
+logger.info(DEFAULT_CONFIG)
 
 
 class UserHistoryChecker:
     """
-    Simple class to check if users have watched specific videos using Redis sets.
+    Class for checking if users have watched specific videos using Redis sets.
+    Provides efficient methods for both single and batch video lookups.
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -42,22 +84,38 @@ class UserHistoryChecker:
         """
         self.config = DEFAULT_CONFIG.copy()
         if config:
-            self.config.update(config)
+            self._update_nested_dict(self.config, config)
 
-        # Setup GCP utils
+        # Setup GCP utils directly from environment variable
         self.gcp_utils = self._setup_gcp_utils()
 
         # Initialize Valkey service
-        self.valkey_service = ValkeyService(
-            core=self.gcp_utils.core, **self.config["valkey"]
-        )
+        self._init_valkey_service()
+
+    def _update_nested_dict(self, d: Dict, u: Dict) -> Dict:
+        """Recursively update nested dictionary."""
+        for k, v in u.items():
+            if isinstance(v, dict) and k in d and isinstance(d[k], dict):
+                self._update_nested_dict(d[k], v)
+            else:
+                d[k] = v
+        return d
 
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
         gcp_credentials = os.getenv("GCP_CREDENTIALS")
         if not gcp_credentials:
+            logger.error("GCP_CREDENTIALS environment variable not set")
             raise ValueError("GCP_CREDENTIALS environment variable is required")
+
+        logger.debug("Initializing GCP utils from environment variable")
         return GCPUtils(gcp_credentials=gcp_credentials)
+
+    def _init_valkey_service(self):
+        """Initialize the Valkey service."""
+        self.valkey_service = ValkeyService(
+            core=self.gcp_utils.core, **self.config["valkey"]
+        )
 
     def _format_key(self, user_id: str) -> str:
         """Format key for user history Redis set."""
@@ -150,6 +208,9 @@ def check_user_watched_videos(
 
 # Example usage
 if __name__ == "__main__":
+    # Log the mode we're running in
+    logger.info(f"Running in {'DEV_MODE' if DEV_MODE else 'PRODUCTION'} mode")
+
     # Create history checker
     checker = UserHistoryChecker()
 
@@ -160,19 +221,28 @@ if __name__ == "__main__":
         "517e47f9dd18487eb15161179e63a5b2",
         "708a86d388b040b5a66715d880884e38",
         "bad7cb64f4374b91b6370c9a80204c1b",
-        "v1",
-        "v2",
-        "v3",
+        "335215b0b845499796d30a5c4601eb5c",
     ]
 
+    logger.info("=== Testing Single Video Lookup ===")
     # Check single video
     has_watched_single = checker.has_watched(test_user, test_video)
     logger.info(f"User {test_user} has watched {test_video}: {has_watched_single}")
 
+    logger.info("\n=== Testing Multiple Videos Lookup ===")
     # Check multiple videos
     has_watched_multiple = checker.has_watched(test_user, test_videos)
-    logger.info(f"User {test_user} watch history: {has_watched_multiple}")
+    logger.info(f"User {test_user} watch history:")
+    for video_id, watched in has_watched_multiple.items():
+        logger.info(f"  - {video_id}: {'Watched' if watched else 'Not watched'}")
 
+    logger.info("\n=== Testing Convenience Function ===")
     # Using convenience function
     quick_check = check_user_watched_videos(test_user, test_videos)
-    logger.info(f"Quick check - User {test_user} watched {test_video}: {quick_check}")
+    logger.info(f"Quick check results match direct checker: {quick_check == has_watched_multiple}")
+
+    logger.info("\n=== Testing Non-Existent User ===")
+    # Test with a user that likely doesn't exist
+    nonexistent_user = "nonexistent-user-id-for-testing"
+    nonexistent_result = checker.has_watched(nonexistent_user, test_videos)
+    logger.info(f"Non-existent user check returned {len(nonexistent_result)} results, all False: {all(not watched for watched in nonexistent_result.values())}")

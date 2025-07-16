@@ -35,13 +35,8 @@ Sample Key Formats:
 
 import os
 import json
-import pandas as pd
 from typing import Dict, List, Optional, Any, Union, Tuple
 from abc import ABC, abstractmethod
-import pathlib
-from tqdm import tqdm
-import ast
-import concurrent.futures
 
 # utils
 from utils.gcp_utils import GCPUtils
@@ -50,25 +45,38 @@ from utils.valkey_utils import ValkeyService
 
 logger = get_logger(__name__)
 
-# Default configuration
+# Default configuration - For production: direct VPC connection
 DEFAULT_CONFIG = {
     "valkey": {
-        # 10.128.15.210:6379 # new instance
-        "host": "10.128.15.210",  # Discovery endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("SERVICE_REDIS_HOST"),
+        "port": int(os.environ.get("SERVICE_REDIS_PORT", 6379)),
+        "instance_id": os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+        "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,  # Enable cluster mode
-    },
-    # todo: configure this as per CRON jobs
-    "expire_seconds": 86400 * 7,
-    "verify_sample_size": 5,
-    # todo: add vector index as config
-    "vector_index_name": "video_embeddings",
-    "vector_key_prefix": "video_id:",
+        "cluster_enabled": os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED", "false").lower()
+        in ("true", "1", "yes"),
+    }
 }
+
+# Check if we're in DEV_MODE (use proxy connection instead)
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+if DEV_MODE:
+    logger.info("Running in DEV_MODE - using proxy connection")
+    DEFAULT_CONFIG["valkey"].update(
+        {
+            "host": os.environ.get(
+                "PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
+            ),
+            "port": int(
+                os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
+            ),
+            "authkey": os.environ.get("SERVICE_REDIS_AUTHKEY"),
+            "ssl_enabled": False,  # Disable SSL for proxy connection
+        }
+    )
+
+logger.info(DEFAULT_CONFIG)
 
 
 class MetadataFetcher(ABC):
