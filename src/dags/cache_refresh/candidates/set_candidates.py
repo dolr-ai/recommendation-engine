@@ -107,14 +107,14 @@ with DAG(
 
     # Define the job configuration
     job_config = {
+        "metadata": {
+            "annotations": {
+                "run.googleapis.com/vpc-access-egress": "private-ranges-only",
+                "run.googleapis.com/execution-environment": "gen2",
+                "run.googleapis.com/vpc-access-connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
+            }
+        },
         "template": {
-            "metadata": {
-                "annotations": {
-                    "run.googleapis.com/vpc-access-egress": "private-ranges-only",
-                    "run.googleapis.com/execution-environment": "gen2",
-                    "run.googleapis.com/vpc-access-connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
-                }
-            },
             "template": {
                 "containers": [
                     {
@@ -168,7 +168,7 @@ with DAG(
                 "maxRetries": 1,
                 "serviceAccountName": SERVICE_ACCOUNT,
             },
-        }
+        },
     }
 
     # Create and run Cloud Run job
