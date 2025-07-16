@@ -2,7 +2,7 @@ name: Move DAGs to GCS
 
 on:
   push:
-    branches: [ dev, main, redis-populate-batchjob]
+    branches: [ dev, main, master]
   workflow_dispatch: # Enable manual trigger
 
 jobs:

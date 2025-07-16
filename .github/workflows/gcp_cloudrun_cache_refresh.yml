@@ -2,7 +2,7 @@ name: Build Cache Refresh Docker Images
 
 on:
   push:
-    branches: [ dev, main, redis-populate-batchjob]
+    branches: [ dev, main, master]
     paths:
       - 'dockerfiles/**'
       - 'src/**'
