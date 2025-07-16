@@ -177,39 +177,55 @@ with DAG(
                 "containers": [
                     {
                         "image": f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{IMAGE_NAME}:latest",
-                        "command": ["python"],
-                        "args": ["-m", "src.candidates.set_candidates_meta"],
                         "resources": {"limits": {"cpu": "4", "memory": "4Gi"}},
                         "env": [
-                            {"name": "GCP_CREDENTIALS", "value": GCP_CREDENTIALS},
+                            {
+                                "name": "GCP_CREDENTIALS",
+                                "value": GCP_CREDENTIALS,
+                            },
                             {
                                 "name": "SERVICE_REDIS_INSTANCE_ID",
                                 "value": SERVICE_REDIS_INSTANCE_ID,
                             },
-                            {"name": "SERVICE_REDIS_HOST", "value": SERVICE_REDIS_HOST},
-                            {"name": "PROXY_REDIS_HOST", "value": PROXY_REDIS_HOST},
-                            {"name": "SERVICE_REDIS_PORT", "value": SERVICE_REDIS_PORT},
-                            {"name": "PROXY_REDIS_PORT", "value": PROXY_REDIS_PORT},
+                            {
+                                "name": "SERVICE_REDIS_HOST",
+                                "value": SERVICE_REDIS_HOST,
+                            },
+                            {
+                                "name": "PROXY_REDIS_HOST",
+                                "value": PROXY_REDIS_HOST,
+                            },
+                            {
+                                "name": "SERVICE_REDIS_PORT",
+                                "value": SERVICE_REDIS_PORT,
+                            },
+                            {
+                                "name": "PROXY_REDIS_PORT",
+                                "value": PROXY_REDIS_PORT,
+                            },
                             {
                                 "name": "SERVICE_REDIS_AUTHKEY",
                                 "value": SERVICE_REDIS_AUTHKEY,
                             },
-                            {"name": "USE_REDIS_PROXY", "value": USE_REDIS_PROXY},
+                            {
+                                "name": "USE_REDIS_PROXY",
+                                "value": USE_REDIS_PROXY,
+                            },
                             {
                                 "name": "SERVICE_REDIS_CLUSTER_ENABLED",
                                 "value": SERVICE_REDIS_CLUSTER_ENABLED,
                             },
                             {"name": "DEV_MODE", "value": DEV_MODE},
+                            {"name": "PROJECT_ID", "value": PROJECT_ID},
+                            {"name": "REGION", "value": REGION},
                         ],
                     }
                 ],
-                "timeoutSeconds": 3600,
-                "maxRetries": 0,
-            },
-            "service_account": SERVICE_ACCOUNT,
-            "vpc_access": {
-                "connector": connector_path,
-                "egress": "PRIVATE_RANGES_ONLY",
+                "vpc_access": {
+                    "connector": connector_path,
+                    "egress": "PRIVATE_RANGES_ONLY",
+                },
+                "execution_environment": "EXECUTION_ENVIRONMENT_GEN2",
             },
         }
     }
