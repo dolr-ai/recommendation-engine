@@ -7,7 +7,6 @@ It creates an ephemeral Cloud Run job that scales to zero after completion.
 
 import os
 import json
-import requests
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -40,31 +39,30 @@ DAG_ID = "cache_refresh_candidates"
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
 
-# Get PROJECT_ID and REGION from Airflow Variables (preferred) or environment
+# Extract PROJECT_ID from GCP_CREDENTIALS JSON
 try:
-    PROJECT_ID = Variable.get("PROJECT_ID", default_var=None)
-    if not PROJECT_ID:
-        # Fallback to environment variable (will likely be None in Composer)
-        PROJECT_ID = os.environ.get("PROJECT_ID")
-    if not PROJECT_ID:
-        # Fallback to Google Cloud metadata server
-        metadata_url = (
-            "http://metadata.google.internal/computeMetadata/v1/project/project-id"
-        )
-        headers = {"Metadata-Flavor": "Google"}
-        response = requests.get(metadata_url, headers=headers)
-        if response.status_code == 200:
-            PROJECT_ID = response.text
-        else:
+    if GCP_CREDENTIALS:
+        # Parse the GCP credentials JSON to extract project_id
+        credentials_json = json.loads(GCP_CREDENTIALS)
+        PROJECT_ID = credentials_json.get("project_id")
+        if not PROJECT_ID:
+            raise ValueError("project_id not found in GCP_CREDENTIALS JSON")
+    else:
+        # Fallback to Airflow Variable
+        PROJECT_ID = Variable.get("PROJECT_ID", default_var=None)
+        if not PROJECT_ID:
             raise ValueError(
-                "Could not determine PROJECT_ID from Airflow Variable, environment, or metadata server"
+                "GCP_CREDENTIALS environment variable not found and PROJECT_ID Variable not set"
             )
 
-    REGION = Variable.get("REGION", default_var=os.environ.get("REGION", "us-central1"))
+    # Get REGION from environment variable (as shown in screenshot)
+    REGION = os.environ.get("REGION", "us-central1")
+
+    print(f"Using PROJECT_ID: {PROJECT_ID}")
+    print(f"Using REGION: {REGION}")
 
 except Exception as e:
-    # If all methods fail, we need to error out
-    raise ValueError(f"Failed to get PROJECT_ID or REGION: {str(e)}")
+    raise ValueError(f"Failed to get PROJECT_ID from GCP_CREDENTIALS: {str(e)}")
 
 # Redis configuration - should be configured in Airflow
 SERVICE_REDIS_INSTANCE_ID = os.environ.get("SERVICE_REDIS_INSTANCE_ID")
