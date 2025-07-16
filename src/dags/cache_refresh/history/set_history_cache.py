@@ -127,7 +127,7 @@ with DAG(
     )
 
     # Static job name - Cloud Run maintains execution history automatically
-    job_name = "recsys-history-cache-update-job"
+    job_name = f"recsys-history-cache-update-job-{datetime.now():%y%m%d%H%M%S}"
 
     # Debug: Log the connector path being used
     connector_path = (

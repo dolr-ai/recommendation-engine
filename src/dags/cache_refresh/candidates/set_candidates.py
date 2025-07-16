@@ -127,7 +127,8 @@ with DAG(
     )
 
     # Static job name - Cloud Run maintains execution history automatically
-    job_name = "recsys-candidates-cache-update-job"
+    # This line defines a job name for a cache update task, incorporating the current date without dashes.
+    job_name = f"recsys-candidates-cache-update-job-{datetime.now():%y%m%d%H%M%S}"
 
     # Debug: Log the connector path being used
     connector_path = (
