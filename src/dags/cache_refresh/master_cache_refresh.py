@@ -1,8 +1,8 @@
 """
 Master Cache Refresh DAG
 
-This DAG orchestrates all cache refresh operations in sequence.
-It triggers each cache refresh DAG in the correct order to ensure data consistency.
+This DAG orchestrates all cache refresh operations in parallel for maximum efficiency.
+It triggers all cache refresh DAGs simultaneously and waits for all to complete.
 """
 
 import os
@@ -23,7 +23,7 @@ default_args = {
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
     "start_date": datetime(2023, 1, 1),
-    "execution_timeout": timedelta(hours=12),
+    "execution_timeout": timedelta(hours=6),  # Reduced since tasks run in parallel
 }
 
 DAG_ID = "master_cache_refresh"
@@ -32,8 +32,8 @@ DAG_ID = "master_cache_refresh"
 with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
-    description="Master DAG to orchestrate all cache refresh operations",
-    schedule_interval="0 0 * * *",  # Daily at midnight
+    description="Master DAG to orchestrate all cache refresh operations in parallel",
+    schedule_interval="0 3 * * 1,5",  # "At 03:00 on Monday and Friday."
     catchup=False,
     tags=["cache_refresh", "master"],
 ) as dag:
@@ -121,9 +121,19 @@ with DAG(
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
-    # Define task dependencies to run in sequence
-    start >> trigger_candidates >> wait_for_candidates
-    wait_for_candidates >> trigger_candidates_meta >> wait_for_candidates_meta
-    wait_for_candidates_meta >> trigger_fallbacks >> wait_for_fallbacks
-    wait_for_fallbacks >> trigger_history >> wait_for_history
-    wait_for_history >> end
+    # Define task dependencies to run all cache refresh tasks in parallel
+    # Start triggers all cache refresh DAGs simultaneously
+    start >> [
+        trigger_candidates,
+        trigger_candidates_meta,
+        trigger_fallbacks,
+        trigger_history,
+    ]
+
+    # Wait for all cache refresh tasks to complete
+    [
+        wait_for_candidates,
+        wait_for_candidates_meta,
+        wait_for_fallbacks,
+        wait_for_history,
+    ] >> end

@@ -114,7 +114,7 @@ with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="Refresh Recommendation Fallback Cache",
-    schedule_interval="0 2 * * *",  # Daily at 2 AM (after candidates and meta refresh)
+    schedule_interval=None,
     catchup=False,
     tags=["cache_refresh", "fallbacks"],
 ) as dag:

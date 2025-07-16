@@ -114,7 +114,7 @@ with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="Refresh Recommendation Candidates Cache",
-    schedule_interval="0 0 * * *",  # Daily at midnight
+    schedule_interval=None,
     catchup=False,
     tags=["cache_refresh", "candidates"],
 ) as dag:

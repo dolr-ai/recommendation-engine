@@ -114,7 +114,7 @@ with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="Refresh Recommendation History Cache",
-    schedule_interval="0 3 * * *",  # Daily at 3 AM (after other caches)
+    schedule_interval=None,
     catchup=False,
     tags=["cache_refresh", "history"],
 ) as dag:
