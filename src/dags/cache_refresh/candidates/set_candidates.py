@@ -36,7 +36,8 @@ DAG_ID = "cache_refresh_candidates"
 
 # Get environment variables and Airflow Variables
 # These should be configured in Airflow's Variables or environment
-GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
+# todo: remove this while moving to prod
+GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS_STAGE")
 SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
 
 # Extract PROJECT_ID from GCP_CREDENTIALS JSON
