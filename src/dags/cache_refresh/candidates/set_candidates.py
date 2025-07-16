@@ -107,18 +107,10 @@ with DAG(
 
     # Define the job configuration
     job_config = {
-        "metadata": {
-            "annotations": {
-                "run.googleapis.com/vpc-access-egress": "private-ranges-only",
-                "run.googleapis.com/execution-environment": "gen2",
-                "run.googleapis.com/vpc-access-connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
-            }
-        },
         "template": {
             "template": {
                 "containers": [
                     {
-                        "name": f"{SERVICE_NAME}-1",
                         "image": f"{REGION}-docker.pkg.dev/{PROJECT_ID}/{REPOSITORY}/{IMAGE_NAME}:latest",
                         "resources": {"limits": {"cpu": "4", "memory": "4Gi"}},
                         "env": [
@@ -168,7 +160,11 @@ with DAG(
                 "maxRetries": 1,
                 "serviceAccountName": SERVICE_ACCOUNT,
             },
-        },
+            "vpcAccess": {
+                "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
+                "egress": "PRIVATE_RANGES_ONLY",
+            },
+        }
     }
 
     # Create and run Cloud Run job
