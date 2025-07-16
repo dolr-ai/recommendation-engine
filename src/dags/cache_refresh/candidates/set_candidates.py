@@ -189,11 +189,11 @@ with DAG(
                         ],
                     }
                 ],
-                "vpcAccess": {
+                "vpc_access": {
                     "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
                     "egress": "PRIVATE_RANGES_ONLY",
                 },
-                "executionEnvironment": "EXECUTION_ENVIRONMENT_GEN2",
+                "execution_environment": "EXECUTION_ENVIRONMENT_GEN2",
             },
         }
     }
