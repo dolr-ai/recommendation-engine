@@ -44,4 +44,4 @@ ENV PYTHONPATH=/app
 ENV UV_SYSTEM_PYTHON=1
 
 # Run the service
-CMD ["python", "-m", "src.history.set_history_cache"]
+CMD ["python", "-m", "src.history.set_history_items"]
