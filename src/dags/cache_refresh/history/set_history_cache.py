@@ -153,8 +153,14 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
-    # Create a job configuration
-    job_name = f"{SERVICE_NAME}-job-{{{{ ts_nodash }}}}"
+    # Generate a compliant job name
+    generate_job_name_task = PythonOperator(
+        task_id="task-generate_job_name",
+        python_callable=generate_job_name,
+    )
+
+    # Create a job configuration using a Python function to generate compliant name
+    job_name = "{{ task_instance.xcom_pull(task_ids='task-generate_job_name') }}"
 
     # Debug: Log the connector path being used
     connector_path = (
@@ -248,4 +254,12 @@ with DAG(
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Define task dependencies
-    start >> init_status >> create_job >> run_job >> set_status >> end
+    (
+        start
+        >> init_status
+        >> generate_job_name_task
+        >> create_job
+        >> run_job
+        >> set_status
+        >> end
+    )
