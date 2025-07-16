@@ -141,11 +141,6 @@ with DAG(
     # Define the job configuration
     job_config = {
         "template": {
-            "annotations": {
-                "run.googleapis.com/vpc-access-connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
-                "run.googleapis.com/vpc-access-egress": "private-ranges-only",
-                "run.googleapis.com/execution-environment": "gen2",
-            },
             "template": {
                 "containers": [
                     {
@@ -194,6 +189,11 @@ with DAG(
                         ],
                     }
                 ],
+                "vpcAccess": {
+                    "connector": f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis",
+                    "egress": "PRIVATE_RANGES_ONLY",
+                },
+                "executionEnvironment": "EXECUTION_ENVIRONMENT_GEN2",
             },
         }
     }
