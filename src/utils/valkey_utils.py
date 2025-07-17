@@ -59,10 +59,14 @@ class ValkeyService:
 
         # Check environment variables for configuration
         self.host = (
-            host or os.environ.get("SERVICE_REDIS_HOST") or os.environ.get("PROXY_REDIS_HOST")
+            host
+            or os.environ.get("SERVICE_REDIS_HOST")
+            or os.environ.get("PROXY_REDIS_HOST")
         )
         self.port = port or int(
-            os.environ.get("SERVICE_REDIS_PORT", os.environ.get("PROXY_REDIS_PORT", 6379))
+            os.environ.get(
+                "SERVICE_REDIS_PORT", os.environ.get("PROXY_REDIS_PORT", 6379)
+            )
         )
         self.instance_id = (
             instance_id
@@ -543,6 +547,200 @@ class ValkeyService:
             logger.error(f"Failed to scan set {key} in {self.instance_id}: {e}")
             raise
 
+    # Redis Sorted Set Operations
+    def zadd(self, key: str, mapping: Dict[str, float]) -> int:
+        """Add one or more members to a sorted set, or update scores"""
+        try:
+            client = self.get_client()
+            return client.zadd(key, mapping)
+        except Exception as e:
+            logger.error(
+                f"Failed to add members to sorted set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def zrem(self, key: str, *members: str) -> int:
+        """Remove one or more members from a sorted set"""
+        try:
+            client = self.get_client()
+            return client.zrem(key, *members)
+        except Exception as e:
+            logger.error(
+                f"Failed to remove members from sorted set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def zrange(
+        self, key: str, start: int, stop: int, withscores: bool = False
+    ) -> List[Any]:
+        """Return a range of members from a sorted set by index"""
+        try:
+            client = self.get_client()
+            # Pass withscores as a keyword argument
+            return client.zrange(key, start, stop, withscores=withscores)
+        except Exception as e:
+            logger.error(
+                f"Failed to get range from sorted set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def zrevrange(
+        self, key: str, start: int, stop: int, withscores: bool = False
+    ) -> List[Any]:
+        """Return a range of members from a sorted set by index in reverse order"""
+        try:
+            client = self.get_client()
+            # Pass withscores as a keyword argument
+            return client.zrevrange(key, start, stop, withscores=withscores)
+        except Exception as e:
+            logger.error(
+                f"Failed to get reverse range from sorted set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def zrangebyscore(
+        self,
+        key: str,
+        min_score: float,
+        max_score: float,
+        withscores: bool = False,
+        start: int = None,
+        num: int = None,
+    ) -> List[Any]:
+        """Return a range of members from a sorted set by score"""
+        try:
+            client = self.get_client()
+
+            # Convert min_score and max_score to strings if they're special values
+            if min_score == float("-inf"):
+                min_score = "-inf"
+            if max_score == float("inf"):
+                max_score = "+inf"
+
+            # Handle optional start and num parameters
+            kwargs = {"withscores": withscores}
+            if start is not None and num is not None:
+                kwargs["start"] = start
+                kwargs["num"] = num
+
+            # Call the client method with appropriate parameters
+            return client.zrangebyscore(key, min_score, max_score, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Failed to get range by score from sorted set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def zrevrangebyscore(
+        self,
+        key: str,
+        max_score: float,
+        min_score: float,
+        withscores: bool = False,
+        start: int = None,
+        num: int = None,
+    ) -> List[Any]:
+        """Return a range of members from a sorted set by score in reverse order"""
+        try:
+            client = self.get_client()
+
+            # Convert min_score and max_score to strings if they're special values
+            if min_score == float("-inf"):
+                min_score = "-inf"
+            if max_score == float("inf"):
+                max_score = "+inf"
+
+            # Handle optional start and num parameters
+            kwargs = {"withscores": withscores}
+            if start is not None and num is not None:
+                kwargs["start"] = start
+                kwargs["num"] = num
+
+            # Call the client method with appropriate parameters
+            return client.zrevrangebyscore(key, max_score, min_score, **kwargs)
+        except Exception as e:
+            logger.error(
+                f"Failed to get reverse range by score from sorted set {key} in {self.instance_id}: {e}"
+            )
+            raise
+
+    def zcard(self, key: str) -> int:
+        """Get the cardinality (size) of a sorted set"""
+        try:
+            client = self.get_client()
+            return client.zcard(key)
+        except Exception as e:
+            logger.error(
+                f"Failed to get cardinality of sorted set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def zscore(self, key: str, member: str) -> Optional[float]:
+        """Get the score of a member in a sorted set"""
+        try:
+            client = self.get_client()
+            return client.zscore(key, member)
+        except Exception as e:
+            logger.error(
+                f"Failed to get score of member {member} in sorted set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def zincrby(self, key: str, amount: float, member: str) -> float:
+        """Increment the score of a member in a sorted set"""
+        try:
+            client = self.get_client()
+            return client.zincrby(key, amount, member)
+        except Exception as e:
+            logger.error(
+                f"Failed to increment score of member {member} in sorted set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def zrank(self, key: str, member: str) -> Optional[int]:
+        """Get the rank of a member in a sorted set (0-based, ascending)"""
+        try:
+            client = self.get_client()
+            return client.zrank(key, member)
+        except Exception as e:
+            logger.error(
+                f"Failed to get rank of member {member} in sorted set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def zrevrank(self, key: str, member: str) -> Optional[int]:
+        """Get the rank of a member in a sorted set (0-based, descending)"""
+        try:
+            client = self.get_client()
+            return client.zrevrank(key, member)
+        except Exception as e:
+            logger.error(
+                f"Failed to get reverse rank of member {member} in sorted set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def zcount(self, key: str, min_score: float, max_score: float) -> int:
+        """Count members in a sorted set with scores within the given range"""
+        try:
+            client = self.get_client()
+            return client.zcount(key, min_score, max_score)
+        except Exception as e:
+            logger.error(
+                f"Failed to count members in sorted set {key} from {self.instance_id}: {e}"
+            )
+            raise
+
+    def zscan_iter(
+        self, key: str, match: Optional[str] = None, count: Optional[int] = None
+    ):
+        """Iterate over sorted set members using ZSCAN for better performance with large sets"""
+        try:
+            client = self.get_client()
+            return client.zscan_iter(key, match=match, count=count)
+        except Exception as e:
+            logger.error(f"Failed to scan sorted set {key} in {self.instance_id}: {e}")
+            raise
+
     @time_execution
     def batch_sadd(
         self,
@@ -632,6 +830,98 @@ class ValkeyService:
 
         stats["time_ms"] = (datetime.now() - start_time).total_seconds() * 1000
         logger.info(f"Batch sadd completed: {stats}")
+
+        return stats
+
+    @time_execution
+    def batch_zadd(
+        self,
+        sorted_sets_data: Dict[str, Dict[str, float]],
+        expire_seconds: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Batch add members to multiple sorted sets using pipeline for performance
+
+        Args:
+            sorted_sets_data: Dictionary mapping sorted set keys to {member: score} dictionaries
+            expire_seconds: Optional expiration time in seconds for the sorted sets
+
+        Returns:
+            Dict with stats about the operation
+        """
+        stats = {
+            "total_sets": len(sorted_sets_data),
+            "total_members": 0,
+            "successful": 0,
+            "failed": 0,
+            "time_ms": 0,
+        }
+
+        if not sorted_sets_data:
+            logger.warning("No sorted set data provided for batch zadd")
+            return stats
+
+        # Count total members
+        stats["total_members"] = sum(
+            len(members) for members in sorted_sets_data.values()
+        )
+        start_time = datetime.now()
+
+        try:
+            # Use pipeline for all operations
+            pipe = self.pipeline()
+            pipe_commands = 0
+
+            # Add each sorted set's members to the pipeline
+            for set_key, members in sorted_sets_data.items():
+                try:
+                    if not members:
+                        continue
+
+                    # Add all members to the sorted set at once
+                    pipe.zadd(set_key, members)
+                    pipe_commands += 1
+
+                    # Set expiration if specified
+                    if expire_seconds:
+                        pipe.expire(set_key, expire_seconds)
+                        pipe_commands += 1
+
+                except Exception as e:
+                    logger.error(f"Error adding sorted set {set_key} to pipeline: {e}")
+                    stats["failed"] += 1
+
+            # Execute the pipeline
+            if pipe_commands > 0:
+                try:
+                    results = pipe.execute()
+
+                    # Count successful operations
+                    if expire_seconds:
+                        # Every other result is for expire operation
+                        zadd_results = results[::2]  # Even indices are zadd results
+                        stats["successful"] = sum(
+                            1 for r in zadd_results if isinstance(r, int) and r >= 0
+                        )
+                    else:
+                        stats["successful"] = sum(
+                            1 for r in results if isinstance(r, int) and r >= 0
+                        )
+
+                except Exception as e:
+                    logger.error(f"Error executing batch zadd pipeline: {e}")
+                    stats["failed"] = len(sorted_sets_data)
+
+            logger.info(
+                f"Processed {len(sorted_sets_data)} sorted sets with {stats['total_members']} total members"
+            )
+
+        except Exception as e:
+            logger.error(f"Batch zadd failed: {e}")
+            stats["failed"] = len(sorted_sets_data) - stats["successful"]
+
+        stats["time_ms"] = (datetime.now() - start_time).total_seconds() * 1000
+        logger.info(f"Batch zadd completed: {stats}")
 
         return stats
 
