@@ -55,13 +55,16 @@ def get_video_metadata(video_ids, gcp_utils):
         # Construct and execute BigQuery query
         query = f"""
         SELECT
-            uri,
-            post_id,
-            canister_id,
-            publisher_user_id,
-            `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(uri) as video_id
-        FROM `{video_index_table}`
-        WHERE `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(uri) IN ({video_ids_str})
+            vi.uri,
+            vi.post_id,
+            vi.canister_id,
+            vi.publisher_user_id,
+            `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) as video_id,
+            CAST(nsfw.probability AS FLOAT64) as nsfw_probability
+        FROM `{video_index_table}` vi
+        LEFT JOIN `jay-dhanwant-experiments.stage_tables.stage_video_nsfw_agg` nsfw
+            ON `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) = nsfw.video_id
+        WHERE `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) IN ({video_ids_str})
         """
 
         logger.debug(f"Executing BigQuery: {query}")
@@ -70,7 +73,7 @@ def get_video_metadata(video_ids, gcp_utils):
         results_df = gcp_utils.bigquery.execute_query(query, to_dataframe=True)
 
         # Set nsfw_probability to 0 and convert post_id to int
-        results_df["nsfw_probability"] = 0.0
+        results_df["nsfw_probability"] = results_df["nsfw_probability"].fillna(0.0)
         results_df["post_id"] = results_df["post_id"].astype(int)
 
         # Identify records with NA values in critical columns
