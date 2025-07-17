@@ -197,8 +197,7 @@ class UserRealtimeHistoryChecker:
 
         try:
             # Build the Redis key based on nsfw_label
-            suffix = "_watch_nsfw_v2" if nsfw_label else "_watch_clean_v2"
-            redis_key = f"{user_id}{suffix}"
+            redis_key = self._format_key(user_id, nsfw_label)
 
             # Check if the key exists
             if not self.valkey_service.exists(redis_key):

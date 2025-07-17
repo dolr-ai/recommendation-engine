@@ -60,7 +60,6 @@ def setup_configs(env_path="./.env", if_enable_prod=False, if_enable_stage=True)
 
     GCP_CREDENTIALS_PATH_STAGE = os.getenv(
         "GCP_CREDENTIALS_PATH_STAGE",
-        "/home/dataproc/recommendation-engine/credentials_stage.json",
     )
     with open(GCP_CREDENTIALS_PATH_STAGE, "r") as f:
         _ = json.load(f)

@@ -9,6 +9,7 @@ import os
 import asyncio
 from typing import Dict, Any, Optional, List, Union
 from history.get_history_items import UserHistoryChecker, DEFAULT_CONFIG
+from history.get_realtime_history_items import UserRealtimeHistoryChecker
 from utils.common_utils import get_logger
 
 logger = get_logger(__name__)
@@ -47,31 +48,60 @@ class HistoryManager:
 
             # Initialize history checker
             self.history_checker = UserHistoryChecker(config=self.config)
+            self.realtime_history_checker = UserRealtimeHistoryChecker(
+                config=self.config
+            )
             logger.info("History manager initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize history manager: {e}")
             raise
 
     def has_watched(
-        self, user_id: str, video_ids: Union[str, List[str]]
+        self, user_id: str, video_ids: Union[str, List[str]], nsfw_label: bool
     ) -> Union[bool, Dict[str, bool]]:
         """
-        Check if a user has watched specific video(s).
+        Check if a user has watched specific video(s) using both traditional and realtime history.
 
         Args:
             user_id: The user ID
             video_ids: Single video ID (str) or list of video IDs
+            nsfw_label: Whether to use NSFW data (True) or clean data (False) - default False for clean
 
         Returns:
             - If video_ids is str: Returns bool (True if watched, False otherwise)
             - If video_ids is list: Returns dict mapping video_id -> bool
         """
-        logger.info(f"Checking watch history for user {user_id}")
+        logger.info(f"Checking combined watch history for user {user_id}")
 
         try:
-            return self.history_checker.has_watched(user_id, video_ids)
+            # Get results from both history checkers
+            l1 = self.history_checker.has_watched(user_id, video_ids)
+            l2 = self.realtime_history_checker.has_watched_videos(
+                user_id, video_ids, nsfw_label=nsfw_label
+            )
+            # logger.info(f"L1: {l1}")
+            # logger.info(f"L2: {l2}")
+            # l1 = {'video_id': True, 'video_id2': False, ...}
+            # l2 = {'video_id': True, 'video_id2': False, ...}
+
+            # combine l1 and l2
+            combined_history = {**l1, **l2}
+
+            # Log results
+            logger.info(
+                f"Combined watch history for user:\n"
+                f"User ID: {user_id}\n"
+                f"Num keys in l1: {len(l1)}\n"
+                f"Num keys in l2: {len(l2)}\n"
+                f"Num keys in real time + batch job history: {len(combined_history)}\n"
+            )
+
+            return combined_history
+
         except Exception as e:
-            error_msg = f"Error checking watch history for user {user_id}: {str(e)}"
+            error_msg = (
+                f"Error checking combined watch history for user {user_id}: {str(e)}"
+            )
             logger.error(error_msg, exc_info=True)
 
             # Return default values on error
@@ -139,6 +169,7 @@ class HistoryManager:
         self,
         user_id: str,
         recommendations: dict,
+        nsfw_label: bool = False,
         exclude_watched_items: Optional[List[str]] = None,
     ) -> dict:
         """
@@ -147,6 +178,7 @@ class HistoryManager:
         Args:
             user_id: The user ID
             recommendations: Dictionary containing recommendations and fallback recommendations
+            nsfw_label: Whether to use NSFW data (True) or clean data (False) - default False for clean
             exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
 
         Returns:
@@ -156,7 +188,6 @@ class HistoryManager:
             exclude_watched_items = []
 
         logger.info(f"Filtering watched items for user {user_id}")
-        logger.info(f"Real-time exclude list: {len(exclude_watched_items)} items")
 
         # Get all video IDs from recommendations
         all_video_ids = set()
@@ -168,7 +199,7 @@ class HistoryManager:
             return recommendations
 
         # Check watch history for all video IDs
-        watch_status = self.has_watched(user_id, list(all_video_ids))
+        watch_status = self.has_watched(user_id, list(all_video_ids), nsfw_label)
 
         # Combine historical watch status with real-time exclude list
         watched_videos = set()
@@ -222,7 +253,7 @@ class HistoryManager:
         return filtered_recommendations
 
     def filter_simple_recommendations(
-        self, user_id: str, recommendations: List[str]
+        self, user_id: str, recommendations: List[str], nsfw_label: bool = False
     ) -> Dict[str, Any]:
         """
         Filter out watched videos from a simple list of recommendations.
@@ -230,6 +261,7 @@ class HistoryManager:
         Args:
             user_id: The user ID
             recommendations: List of video IDs to filter
+            nsfw_label: Whether to use NSFW data (True) or clean data (False) - default False for clean
 
         Returns:
             Dictionary containing:
@@ -251,7 +283,7 @@ class HistoryManager:
 
         try:
             # Check watch status for all recommendations
-            watch_status = self.has_watched(user_id, recommendations)
+            watch_status = self.has_watched(user_id, recommendations, nsfw_label)
 
             # If error occurred, watch_status will be all False
             if isinstance(watch_status, dict):

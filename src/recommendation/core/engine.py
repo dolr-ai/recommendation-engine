@@ -105,6 +105,7 @@ class RecommendationEngine:
         self,
         user_id: str,
         recommendations: dict,
+        nsfw_label: bool,
         exclude_watched_items: Optional[List[str]] = None,
     ) -> dict:
         """
@@ -121,6 +122,7 @@ class RecommendationEngine:
         return self.history_manager.filter_watched_recommendations(
             user_id=user_id,
             recommendations=recommendations,
+            nsfw_label=nsfw_label,
             exclude_watched_items=exclude_watched_items,
         )
 
@@ -432,9 +434,9 @@ class RecommendationEngine:
             #     "v1",
             #     "v2",
             #     "v3",
-            #     "test_video4",
-            #     "d8c2964eee1346fb8820f596fec387e9",  # reported by some user x
-            #     "480c57236fa445b99877efb3f3393f4c",  # reported by some user x
+            #     "e99bdfef611645b88e538e702804d0ff",
+            #     "fcced1154e5340d79f004fa1530f6e8c",  # reported by some user x
+            #     "02dbb97ba5834016a0552ff5d91e02d5",  # reported by some user x
             # ]
 
             # output of mixer algorithm after deleting scores and sources
@@ -471,6 +473,7 @@ class RecommendationEngine:
         filtered_recommendations = self._filter_watched_items(
             user_id=user_id,
             recommendations=mixer_output,
+            nsfw_label=nsfw_label,
             # todo: this needs special attention based on redis migration
             # exclude_watched_items=exclude_watched_items,
         )
