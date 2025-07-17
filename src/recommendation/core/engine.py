@@ -225,7 +225,6 @@ class RecommendationEngine:
             Enriched user profile dictionary
         """
         user_id = user_profile.get("user_id")
-        user_id = "test_user"
         cluster_id = user_profile.get("cluster_id")
         watch_time_quantile_bin_id = user_profile.get("watch_time_quantile_bin_id")
 
