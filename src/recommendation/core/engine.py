@@ -448,6 +448,24 @@ class RecommendationEngine:
         # 5. filter duplicate videos
         # 6. transform recommendations to backend format
 
+        # todo: if mixer output is empty, we need to call fallback recommendations
+        # case description:
+        # when user is part of some cluster, but we did not get any fallback candidates for that cluster in the candidates we generated
+        # in this case, we need to generate some recommendations else an empty feed will be shown to the user
+        if (
+            len(mixer_output.get("recommendations", [])) == 0
+            and len(mixer_output.get("fallback_recommendations", [])) == 0
+        ):
+            logger.info(
+                f"Mixer output is empty, calling fallback recommendations for user {user_id}"
+            )
+            mixer_output = self._call_fallback_logic(
+                user_id=user_id,
+                nsfw_label=nsfw_label,
+                fallback_top_k=fallback_top_k,
+                fallback_type="global_popular_videos",
+            )
+
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()
         filtered_recommendations = self._filter_watched_items(
