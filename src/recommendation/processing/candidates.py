@@ -249,7 +249,7 @@ class CandidateManager:
                         fallback_candidates["fallback_watch_time_quantile"] = []
 
         # Organize candidates by query video and type in an ordered dictionary
-        all_candidates = OrderedDict()
+        query_videos_to_all_candidates = OrderedDict()
         stats = {
             "count_miou": 0,
             "count_wt": 0,
@@ -258,22 +258,30 @@ class CandidateManager:
         }
         # Pre-initialize the structure for all query videos to avoid repeated checks
         for video_id in query_videos:
-            all_candidates[video_id] = {}
+            query_videos_to_all_candidates[video_id] = {}
 
             # Add candidates for each type if available
             if need_miou:
                 key = f"{self.key_prefix}{cluster_id}:{video_id}:modified_iou_candidate"
+                # NOTE: do NOT touch this line, even if it is returning empty list
+                # for every video_id, we need to have various types of candidates
                 candidates = miou_candidates.get(key, [])
-                all_candidates[video_id]["modified_iou"] = candidates
+                query_videos_to_all_candidates[video_id]["modified_iou"] = candidates
                 stats["count_miou"] += len(candidates)
             if need_wt:
                 key = f"{self.key_prefix}{cluster_id}:{bin_id}:{video_id}:watch_time_quantile_bin_candidate"
+                # NOTE: do NOT touch this line, even if it is returning empty list
+                # for every video_id, we need to have various types of candidates
                 candidates = wt_candidates.get(key, [])
-                all_candidates[video_id]["watch_time_quantile"] = candidates
+                query_videos_to_all_candidates[video_id][
+                    "watch_time_quantile"
+                ] = candidates
                 stats["count_wt"] += len(candidates)
 
-        all_candidates["fallback_miou"] = fallback_candidates["fallback_modified_iou"]
-        all_candidates["fallback_wt"] = fallback_candidates[
+        query_videos_to_all_candidates["fallback_miou"] = fallback_candidates[
+            "fallback_modified_iou"
+        ]
+        query_videos_to_all_candidates["fallback_wt"] = fallback_candidates[
             "fallback_watch_time_quantile"
         ]
 
@@ -283,10 +291,13 @@ class CandidateManager:
             fallback_candidates["fallback_watch_time_quantile"]
         )
 
-        logger.info(f"stats: {stats}")  # > debug debug
-        logger.info(f"all_candidates: {len(all_candidates)}")  # > debug debug
-        # logger.info(f"all_candidates: {all_candidates}")  # > debug debug
-        return all_candidates
+        logger.info(f"num_candidate_stats: {stats}")  # > debug debug
+        # note: this would also contain keys with empty query_videos
+        logger.info(
+            f"** num_keys in query_videos_to_all_candidates = query_videos ({len(query_videos)}) + total_number_of_fallback_candidates ({len(fallback_candidates)}) = {len(query_videos_to_all_candidates)} **"
+        )  # > debug debug
+        # logger.info(f"query_videos_to_all_candidates: {query_videos_to_all_candidates}")  # > debug debug
+        return query_videos_to_all_candidates
 
     def filter_and_sort_watch_history(self, watch_history, threshold):
         """

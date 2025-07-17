@@ -233,9 +233,11 @@ class MixerManager:
         logger.info(
             f"Filtered {total_candidates_filtered_by_deduplication} candidates by deduplication"
         )
-        logger.info(f"Collected {len(candidate_scores)} unique regular candidates")
         logger.info(
-            f"Collected {len(fallback_candidate_scores)} unique fallback candidates"
+            f"Mixer Collected {len(candidate_scores)} unique regular candidates"
+        )
+        logger.info(
+            f"Mixer Collected {len(fallback_candidate_scores)} unique fallback candidates"
         )
 
         # Sort candidates by final score
