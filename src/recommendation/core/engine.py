@@ -416,6 +416,7 @@ class RecommendationEngine:
         if candidate_types is None:
             candidate_types = self.config.candidate_types
 
+        bq_similarity_time = 0
         if metadata_found:
             # Step 1: Run reranking logic
             rerank_start = datetime.datetime.now()
