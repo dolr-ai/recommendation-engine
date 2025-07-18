@@ -266,7 +266,7 @@ def start():
         reload=False,
         log_level="info",
         # PERFORMANCE SETTINGS for 4GB RAM / 4 vCPUs:
-        workers=2,
+        # workers=2, # do not set this will crash cloud run
         loop="asyncio",  # Use asyncio event loop
         http="httptools",  # Faster HTTP parser
         lifespan="on",  # Enable lifespan events
