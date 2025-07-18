@@ -93,6 +93,7 @@ jobs:
           SERVICE_REDIS_INSTANCE_ID: '${{ secrets.SERVICE_REDIS_INSTANCE_ID }}'
           SERVICE_REDIS_PORT: '${{ secrets.SERVICE_REDIS_PORT }}'
           USE_REDIS_PROXY: '${{ secrets.USE_REDIS_PROXY }}'
+          WORKERS: '${{ secrets.WORKERS }}'
           CLOUD_RUN_DEPLOYMENT: 'true'
           EOF
 
@@ -101,8 +102,8 @@ jobs:
             --allow-unauthenticated \
             --service-account 749244211103-compute@developer.gserviceaccount.com \
             --concurrency 500 \
-            --cpu 4 \
-            --memory 4Gi \
+            --cpu 8 \
+            --memory 8Gi \
             --env-vars-file env.yaml \
             --vpc-connector projects/$PROJECT_ID/locations/$REGION/connectors/vpc-for-redis \
             --vpc-egress private-ranges-only \

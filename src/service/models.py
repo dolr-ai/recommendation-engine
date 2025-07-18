@@ -74,3 +74,6 @@ class RecommendationResponse(BaseModel):
     )
     processing_time_ms: float = Field(description="Processing time in milliseconds")
     error: Optional[str] = Field(default=None, description="Error message if any")
+    debug: Optional[dict] = Field(
+        default=None, description="Debug information for timing and diagnostics"
+    )

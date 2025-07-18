@@ -4,6 +4,7 @@ Reranking module for recommendation engine.
 This module provides functionality for reranking candidates based on similarity scores.
 """
 
+import time
 import re
 import concurrent.futures
 from functools import partial
@@ -123,7 +124,10 @@ class RerankingManager:
             query_videos_with_candidates, all_search_space
         )
         t1 = datetime.now()
-        logger.info(f"time taken for bq similarity: {t1 - t0}")
+        elapsed_sec = (t1 - t0).total_seconds()
+        logger.info(
+            f"(parallel call) similarity calculation took: {elapsed_sec:.3f} seconds"
+        )
         logger.debug(f"query_videos_with_candidates: {query_videos_with_candidates}")
         logger.debug(f"all_search_space: {all_search_space}")
 
@@ -238,6 +242,7 @@ class RerankingManager:
     ):
         """
         Reranking logic for user recommendations - implements everything before the mixer algorithm.
+        All timing is in seconds (float).
 
         Args:
             user_profile: A dictionary containing user profile information including:
@@ -302,7 +307,8 @@ class RerankingManager:
             max_fallback_candidates=max_fallback_candidates,
             max_workers=max_workers,  # Pass max_workers to enable parallel fetching
         )
-
+        bq_time = 0
+        t0 = time.time()
         # 3. Process all query videos in batch, with parallel processing for candidate types
         similarity_matrix = self.process_query_candidates_batch(
             query_videos,
@@ -311,6 +317,9 @@ class RerankingManager:
             enable_deduplication,
             max_workers=max_workers,
         )
+        t1 = time.time()
+        bq_time = t1 - t0  # seconds
+        logger.info(f"total time taken for bq similarity: {bq_time:.3f} seconds")
 
         # Convert to DataFrame format
         df_data = []
@@ -326,4 +335,4 @@ class RerankingManager:
         # Create DataFrame with query videos ordered from latest to oldest watched
         result_df = pd.DataFrame(df_data)
         logger.info(f"total rows in result_df: {len(result_df)} for user: {user_id}")
-        return result_df
+        return result_df, bq_time

@@ -155,6 +155,7 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
             "posts": recommendations.get("posts", []),
             "processing_time_ms": processing_time,
             "error": recommendations.get("error"),
+            "debug": recommendations.get("debug"),
         }
 
         logger.info(
@@ -169,6 +170,7 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
             "posts": [],
             "processing_time_ms": processing_time,
             "error": str(e),
+            "debug": None,
         }
 
 
@@ -265,11 +267,10 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        # PERFORMANCE SETTINGS for 4GB RAM / 4 vCPUs:
-        workers=2,
-        loop="asyncio",  # Use asyncio event loop
-        lifespan="on",  # Enable lifespan events
-        access_log=False,  # Disable access logs for performance
+        workers=os.environ.get("WORKERS", 8),
+        access_log=False,
+        # limit_concurrency=200,
+        # backlog=500,
         # For multiple workers, use:
         # workers=2,  # 2 workers for 4 vCPUs
         # worker_class="uvicorn.workers.UvicornWorker"

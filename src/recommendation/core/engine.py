@@ -419,7 +419,7 @@ class RecommendationEngine:
         if metadata_found:
             # Step 1: Run reranking logic
             rerank_start = datetime.datetime.now()
-            df_reranked = self.reranking_manager.reranking_logic(
+            df_reranked, bq_similarity_time = self.reranking_manager.reranking_logic(
                 user_profile=enriched_profile,
                 candidate_types_dict=candidate_types,
                 threshold=threshold,
@@ -429,7 +429,9 @@ class RecommendationEngine:
                 nsfw_label=nsfw_label,
             )
             rerank_time = (datetime.datetime.now() - rerank_start).total_seconds()
-            logger.info(f"Reranking completed in {rerank_time:.2f} seconds")
+            logger.info(
+                f"Reranking completed in {rerank_time:.2f} seconds, bq_similarity_time: {bq_similarity_time:.2f} seconds"
+            )
 
             # Step 2: Run mixer algorithm
             mixer_start = datetime.datetime.now()
@@ -603,5 +605,13 @@ class RecommendationEngine:
 
         # Add processing time
         recommendations["processing_time_ms"] = total_time * 1000
-
+        recommendations["debug"] = {
+            "rerank_time": rerank_time,
+            "bq_similarity_time": bq_similarity_time,
+            "mixer_time": mixer_time,
+            "filter_time": filter_time,
+            "reported_time": reported_time,
+            "backend_time": backend_time,
+            "total_time": total_time,
+        }
         return recommendations
