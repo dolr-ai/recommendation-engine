@@ -139,6 +139,7 @@ async def get_recommendations(request: RecommendationRequest):
             nsfw_label=request.nsfw_label,
             exclude_watched_items=request.exclude_watched_items,
             exclude_reported_items=request.exclude_reported_items,
+            exclude_items=request.exclude_items,
         )
 
         # Only include the fields present in the new RecommendationResponse model
@@ -207,6 +208,7 @@ async def get_batch_recommendations(
                 nsfw_label=request.nsfw_label,
                 exclude_watched_items=request.exclude_watched_items,
                 exclude_reported_items=request.exclude_reported_items,
+                exclude_items=request.exclude_items,
             )
 
             # Only include the fields present in the new RecommendationResponse model

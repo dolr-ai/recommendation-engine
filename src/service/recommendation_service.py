@@ -49,6 +49,7 @@ class RecommendationService:
         nsfw_label: bool,
         exclude_watched_items: Optional[List[str]] = None,
         exclude_reported_items: Optional[List[str]] = None,
+        exclude_items: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Get recommendations for a user.
@@ -81,6 +82,7 @@ class RecommendationService:
                 candidate_types=candidate_types,
                 exclude_watched_items=exclude_watched_items,
                 exclude_reported_items=exclude_reported_items,
+                exclude_items=exclude_items,
             )
 
             return recommendations
