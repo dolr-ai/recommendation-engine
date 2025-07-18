@@ -18,10 +18,17 @@ logging.basicConfig(
 
 if __name__ == "__main__":
     # Check if GCP credentials are set
-    if "GCP_CREDENTIALS" not in os.environ:
-        print("ERROR: GCP_CREDENTIALS environment variable must be set.")
-        print("Use: export GCP_CREDENTIALS=$(jq -c . '/path/to/credentials.json')")
-        sys.exit(1)
+    if "GCP_CREDENTIALS" not in os.environ and not os.environ.get(
+        "CLOUD_RUN_DEPLOYMENT", False
+    ):
+        print("WARNING: GCP_CREDENTIALS environment variable not set.")
+        print(
+            "This is required for local development but may be handled differently in Cloud Run."
+        )
+        print(
+            "If running locally, use: export GCP_CREDENTIALS=$(jq -c . '/path/to/credentials.json')"
+        )
+        # Not exiting to allow Cloud Run to continue
 
     # Start the API server
     print("Starting recommendation service API...")

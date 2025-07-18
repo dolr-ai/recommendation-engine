@@ -257,11 +257,12 @@ async def get_batch_recommendations(
 def start():
     """Start the FastAPI application with optimized settings."""
     # CRITICAL: These settings are optimized for your hardware
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "service.app:app",
         # host="localhost",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=False,
         log_level="info",
         # PERFORMANCE SETTINGS for 4GB RAM / 4 vCPUs:

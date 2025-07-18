@@ -40,7 +40,7 @@ COPY --from=builder /app /app
 
 # Set environment variables
 # GCP_CREDENTIALS should be injected at runtime or through docker secrets
-ENV API_PORT=8000
+ENV PORT=8000
 ENV PYTHONPATH=/app
 ENV UV_SYSTEM_PYTHON=1
 
