@@ -9,6 +9,7 @@ import traceback
 import asyncio
 import time
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -43,20 +44,55 @@ app.add_middleware(
 # Global service instance
 recommendation_service: Optional[RecommendationService] = None
 
+# Configure custom thread pool for recommendation processing
+# Increase from default (typically 5 × CPU cores) to handle more concurrent I/O
+THREAD_POOL_SIZE = int(
+    os.environ.get("THREAD_POOL_SIZE", 32)
+)  # Configurable via env var
+custom_thread_pool = None
+
 
 # Initialize service on startup
 @app.on_event("startup")
 async def startup_event():
     """Initialize recommendation service on startup."""
-    global recommendation_service
+    global recommendation_service, custom_thread_pool
     logger.info("Starting up recommendation service")
     try:
+        # Initialize custom thread pool for recommendation processing
+        custom_thread_pool = ThreadPoolExecutor(
+            max_workers=THREAD_POOL_SIZE, thread_name_prefix="recommendation_worker"
+        )
+        logger.info(f"Initialized custom thread pool with {THREAD_POOL_SIZE} workers")
+
         # Initialize the recommendation service singleton
         recommendation_service = RecommendationService.get_instance()
         logger.info("Recommendation service initialized")
     except Exception as e:
         logger.error(f"Failed to initialize recommendation service: {e}")
         raise
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on shutdown."""
+    global custom_thread_pool
+
+    # Clean up thread pool
+    if custom_thread_pool:
+        logger.info("Shutting down custom thread pool")
+        custom_thread_pool.shutdown(wait=True)
+        logger.info("Custom thread pool shut down completed")
+
+    # Clean up Redis connection pools
+    try:
+        from utils.valkey_utils import ValkeyConnectionPoolManager
+
+        pool_manager = ValkeyConnectionPoolManager.get_instance()
+        pool_manager.cleanup_pools()
+        logger.info("Redis connection pools cleaned up")
+    except Exception as e:
+        logger.warning(f"Error cleaning up Redis pools: {e}")
 
 
 @app.exception_handler(RequestValidationError)
@@ -190,11 +226,11 @@ async def get_recommendations(request: RecommendationRequest):
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     try:
-        # Process in thread pool to avoid blocking the event loop
+        # Process in custom thread pool to avoid blocking the event loop
         # This allows FastAPI to handle other requests while this one processes
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
-            None, process_recommendation_sync, request
+            custom_thread_pool, process_recommendation_sync, request
         )
 
         if response.get("error"):
@@ -226,13 +262,15 @@ async def get_batch_recommendations(
     if recommendation_service is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    # Process requests concurrently using thread pool
+    # Process requests concurrently using custom thread pool
     loop = asyncio.get_event_loop()
 
     # Create tasks for concurrent processing
     tasks = []
     for request in requests:
-        task = loop.run_in_executor(None, process_recommendation_sync, request)
+        task = loop.run_in_executor(
+            custom_thread_pool, process_recommendation_sync, request
+        )
         tasks.append(task)
 
     # Wait for all tasks to complete
