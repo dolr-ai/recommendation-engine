@@ -1,12 +1,14 @@
 """
-FastAPI application for the recommendation service.
-
-This module provides a FastAPI application for serving recommendations.
+Optimized FastAPI application for recommendation service.
+Performance improvements for high-concurrency scenarios.
 """
 
 import os
 import json
 import traceback
+import asyncio
+import time
+from typing import Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -38,15 +40,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global service instance
+recommendation_service: Optional[RecommendationService] = None
+
 
 # Initialize service on startup
 @app.on_event("startup")
 async def startup_event():
     """Initialize recommendation service on startup."""
+    global recommendation_service
     logger.info("Starting up recommendation service")
     try:
         # Initialize the recommendation service singleton
-        RecommendationService.get_instance()
+        recommendation_service = RecommendationService.get_instance()
         logger.info("Recommendation service initialized")
     except Exception as e:
         logger.error(f"Failed to initialize recommendation service: {e}")
@@ -69,15 +75,10 @@ async def response_validation_exception_handler(
 ):
     """Handle response validation errors."""
     logger.error(f"Response validation error: {exc}")
-    error_message = str(exc)
-
-    # Extract the raw response to return it directly
     error_detail = {
         "detail": "Response validation error",
         "errors": exc.errors(),
     }
-
-    # Return the raw response to bypass validation
     return JSONResponse(
         status_code=500,
         content=error_detail,
@@ -90,29 +91,33 @@ async def health_check():
     return {"status": "ok", "message": "Recommendation service is running"}
 
 
-@app.post(
-    "/recommendations",
-    tags=["Recommendations"],
-    response_model_exclude_none=True,
-)
-async def get_recommendations(request: RecommendationRequest):
-    """
-    Get personalized video recommendations for a user.
-    Metadata (cluster_id and watch_time_quantile_bin_id) will be automatically fetched if not provided.
+@app.get("/debug", tags=["Debug"])
+async def debug_info():
+    """Debug endpoint to check service status."""
+    global recommendation_service
+    import psutil
+    import threading
 
-    Args:
-        request: Recommendation request containing user_id and optional parameters including
-                exclude_watched_items and exclude_reported_items for real-time filtering
+    return {
+        "status": "ok",
+        "service_initialized": recommendation_service is not None,
+        "active_threads": threading.active_count(),
+        "memory_usage_mb": psutil.Process().memory_info().rss / 1024 / 1024,
+        "cpu_percent": psutil.Process().cpu_percent(),
+    }
 
-    Returns:
-        RecommendationResponse with recommendations and metadata
+
+def process_recommendation_sync(request: RecommendationRequest) -> dict:
     """
-    logger.info(f"Received recommendation request for user {request.user_id}")
+    Synchronous recommendation processing to avoid async/await overhead.
+    This is the main optimization - your RecommendationService.get_recommendations
+    is likely CPU-bound and doesn't benefit from async.
+    """
+    global recommendation_service
+
+    start_time = time.time()
 
     try:
-        # Get recommendation service instance
-        service = RecommendationService.get_instance()
-
         # Convert watch history items to dictionaries
         watch_history = []
         if request.watch_history:
@@ -134,7 +139,8 @@ async def get_recommendations(request: RecommendationRequest):
         }
 
         # Get recommendations
-        recommendations = service.get_recommendations(
+        # NOTE: this is for testing purposes only - we should use the async version
+        recommendations = recommendation_service.get_recommendations(
             user_profile=user_profile,
             nsfw_label=request.nsfw_label,
             exclude_watched_items=request.exclude_watched_items,
@@ -143,18 +149,62 @@ async def get_recommendations(request: RecommendationRequest):
             num_results=request.num_results,
         )
 
-        # Only include the fields present in the new RecommendationResponse model
+        processing_time = (time.time() - start_time) * 1000
+
         response = {
             "posts": recommendations.get("posts", []),
-            "processing_time_ms": recommendations.get("processing_time_ms", 0),
+            "processing_time_ms": processing_time,
             "error": recommendations.get("error"),
         }
-        return JSONResponse(content=response)
+
+        logger.info(
+            f"Processed recommendation for user {request.user_id} in {processing_time:.2f}ms"
+        )
+        return response
 
     except Exception as e:
+        processing_time = (time.time() - start_time) * 1000
         logger.error(f"Error processing recommendation request: {e}", exc_info=True)
-        error_detail = {"detail": str(e), "traceback": traceback.format_exc()}
-        raise HTTPException(status_code=500, detail=error_detail)
+        return {
+            "posts": [],
+            "processing_time_ms": processing_time,
+            "error": str(e),
+        }
+
+
+@app.post(
+    "/recommendations",
+    tags=["Recommendations"],
+    response_model_exclude_none=True,
+)
+async def get_recommendations(request: RecommendationRequest):
+    """
+    Get personalized video recommendations for a user.
+    Optimized version with better error handling and timing.
+    """
+    logger.info(f"Received recommendation request for user {request.user_id}")
+
+    if recommendation_service is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    try:
+        # Process in thread pool to avoid blocking the event loop
+        # This allows FastAPI to handle other requests while this one processes
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, process_recommendation_sync, request
+        )
+
+        if response.get("error"):
+            raise HTTPException(status_code=500, detail=response["error"])
+
+        return JSONResponse(content=response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error processing recommendation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post(
@@ -167,76 +217,46 @@ async def get_batch_recommendations(
 ):
     """
     Get recommendations for multiple users in batch.
-    Metadata (cluster_id and watch_time_quantile_bin_id) will be automatically fetched if not provided.
-
-    Args:
-        requests: List of recommendation requests with optional exclude_watched_items and exclude_reported_items
-        background_tasks: FastAPI background tasks
-
-    Returns:
-        List of RecommendationResponse objects
+    Optimized for concurrent processing.
     """
     logger.info(f"Received batch recommendation request for {len(requests)} users")
 
-    results = []
-    service = RecommendationService.get_instance()
+    if recommendation_service is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
 
+    # Process requests concurrently using thread pool
+    loop = asyncio.get_event_loop()
+
+    # Create tasks for concurrent processing
+    tasks = []
     for request in requests:
-        try:
-            # Convert watch history items to dictionaries
-            watch_history = []
-            if request.watch_history:
-                for item in request.watch_history:
-                    watch_history.append(
-                        {
-                            "video_id": item.video_id,
-                            "last_watched_timestamp": item.last_watched_timestamp,
-                            "mean_percentage_watched": item.mean_percentage_watched,
-                        }
-                    )
+        task = loop.run_in_executor(None, process_recommendation_sync, request)
+        tasks.append(task)
 
-            # Create user profile from request
-            user_profile = {
-                "user_id": request.user_id,
-                "cluster_id": None,  # Will be auto-fetched
-                "watch_time_quantile_bin_id": None,  # Will be auto-fetched
-                "watch_history": watch_history,
-            }
+    # Wait for all tasks to complete
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Get recommendations
-            recommendations = service.get_recommendations(
-                user_profile=user_profile,
-                nsfw_label=request.nsfw_label,
-                exclude_watched_items=request.exclude_watched_items,
-                exclude_reported_items=request.exclude_reported_items,
-                exclude_items=request.exclude_items,
-                num_results=request.num_results,
-            )
-
-            # Only include the fields present in the new RecommendationResponse model
-            response = {
-                "posts": recommendations.get("posts", []),
-                "processing_time_ms": recommendations.get("processing_time_ms", 0),
-                "error": recommendations.get("error"),
-            }
-            results.append(response)
-
-        except Exception as e:
-            logger.error(f"Error processing batch request item: {e}", exc_info=True)
-            # Return error response for this item
-            results.append(
+    # Handle any exceptions
+    processed_results = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error(f"Batch request {i} failed: {result}")
+            processed_results.append(
                 {
                     "posts": [],
                     "processing_time_ms": 0,
-                    "error": str(e),
+                    "error": str(result),
                 }
             )
+        else:
+            processed_results.append(result)
 
-    return results
+    return processed_results
 
 
 def start():
-    """Start the FastAPI application."""
+    """Start the FastAPI application with optimized settings."""
+    # CRITICAL: These settings are optimized for your hardware
     uvicorn.run(
         "service.app:app",
         # host="localhost",
@@ -244,6 +264,15 @@ def start():
         port=8000,
         reload=False,
         log_level="info",
+        # PERFORMANCE SETTINGS for 4GB RAM / 4 vCPUs:
+        workers=2,
+        loop="asyncio",  # Use asyncio event loop
+        http="httptools",  # Faster HTTP parser
+        lifespan="on",  # Enable lifespan events
+        access_log=False,  # Disable access logs for performance
+        # For multiple workers, use:
+        # workers=2,  # 2 workers for 4 vCPUs
+        # worker_class="uvicorn.workers.UvicornWorker"
     )
 
 
