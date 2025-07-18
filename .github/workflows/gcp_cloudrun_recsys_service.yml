@@ -93,6 +93,8 @@ jobs:
           SERVICE_REDIS_INSTANCE_ID: '${{ secrets.SERVICE_REDIS_INSTANCE_ID }}'
           SERVICE_REDIS_PORT: '${{ secrets.SERVICE_REDIS_PORT }}'
           USE_REDIS_PROXY: '${{ secrets.USE_REDIS_PROXY }}'
+          PORT: '8000'
+          CLOUD_RUN_DEPLOYMENT: 'true'
           EOF
 
           gcloud run deploy $SERVICE_NAME \
@@ -109,7 +111,8 @@ jobs:
             --region $REGION \
             --max-instances 10 \
             --min-instances 0 \
-            --platform managed
+            --platform managed \
+            --timeout 300s
 
           echo "Deployment completed successfully!"
 
