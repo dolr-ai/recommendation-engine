@@ -101,6 +101,29 @@ class RecommendationEngine:
 
         return self.metadata_manager
 
+    def _filter_excluded_items(
+        self, items: List[str], exclude_items: List[str]
+    ) -> List[str]:
+        """
+        Filter out excluded items while preserving order.
+        Optimized for small lists (100-200 items) with few exclusions (30-40 items).
+
+        Args:
+            items: List of items to filter
+            exclude_items: List of items to exclude
+
+        Returns:
+            List of items with excluded items removed, maintaining original order
+        """
+        if not items or not exclude_items:
+            return items
+
+        # Convert exclude_items to set for O(1) lookup
+        exclude_set = set(exclude_items)
+
+        # Single pass filtering while maintaining order
+        return [item for item in items if item not in exclude_set]
+
     def _filter_watched_items(
         self,
         user_id: str,
@@ -328,6 +351,7 @@ class RecommendationEngine:
         min_similarity_threshold=RecommendationConfig.MIN_SIMILARITY_THRESHOLD,
         exclude_watched_items=RecommendationConfig.EXCLUDE_WATCHED_ITEMS,
         exclude_reported_items=RecommendationConfig.EXCLUDE_REPORTED_ITEMS,
+        exclude_items=[],  # generic exclusion list
     ):
         """
         Get recommendations for a user.
@@ -351,6 +375,7 @@ class RecommendationEngine:
             min_similarity_threshold: Minimum similarity score to consider a candidate (0-1)
             exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
             exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
+            exclude_items: Optional list of video IDs to exclude (generic exclusion list)
 
         Returns:
             Dictionary with recommendations and fallback recommendations
@@ -429,18 +454,26 @@ class RecommendationEngine:
                 if key in mixer_output:
                     del mixer_output[key]
 
-            # for testing realtime exclusion of watched items/ dedup/ reported items
-            # mixer_output["recommendations"] += [
-            #     "v1",
-            #     "v2",
-            #     "v3",
-            #     "e99bdfef611645b88e538e702804d0ff",
-            #     "fcced1154e5340d79f004fa1530f6e8c",  # reported by some user x
-            #     "02dbb97ba5834016a0552ff5d91e02d5",  # reported by some user x
-            # ]
+        # for testing realtime exclusion of watched items/ dedup/ reported items
+        # mixer_output["recommendations"] += [
+        #     "v1",
+        #     "v2",
+        #     "v3",
+        #     # "e99bdfef611645b88e538e702804d0ff",
+        #     # "fcced1154e5340d79f004fa1530f6e8c",  # reported by some user x
+        #     # "02dbb97ba5834016a0552ff5d91e02d5",  # reported by some user x
+        # ]
 
-            # output of mixer algorithm after deleting scores and sources
-            # {'recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4'], 'fallback_recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4']}
+        # remove items from the generic exclusion list
+        mixer_output["recommendations"] = self._filter_excluded_items(
+            mixer_output["recommendations"], exclude_items
+        )
+        mixer_output["fallback_recommendations"] = self._filter_excluded_items(
+            mixer_output["fallback_recommendations"], exclude_items
+        )
+
+        # output of mixer algorithm after deleting scores and sources
+        # {'recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4'], 'fallback_recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4']}
 
         # irrespective of whether metadata is found or not, we need to:
         # 1. filter watched items
