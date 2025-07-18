@@ -93,14 +93,12 @@ jobs:
           SERVICE_REDIS_INSTANCE_ID: '${{ secrets.SERVICE_REDIS_INSTANCE_ID }}'
           SERVICE_REDIS_PORT: '${{ secrets.SERVICE_REDIS_PORT }}'
           USE_REDIS_PROXY: '${{ secrets.USE_REDIS_PROXY }}'
-          PORT: '8000'
           CLOUD_RUN_DEPLOYMENT: 'true'
           EOF
 
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:${{ github.sha }} \
             --allow-unauthenticated \
-            --port 8000 \
             --service-account 749244211103-compute@developer.gserviceaccount.com \
             --concurrency 500 \
             --cpu 4 \
