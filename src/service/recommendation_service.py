@@ -50,6 +50,7 @@ class RecommendationService:
         exclude_watched_items: Optional[List[str]] = None,
         exclude_reported_items: Optional[List[str]] = None,
         exclude_items: Optional[List[str]] = None,
+        num_results: int = None,
     ) -> Dict[str, Any]:
         """
         Get recommendations for a user.
@@ -59,6 +60,8 @@ class RecommendationService:
             nsfw_label: Boolean flag to indicate if NSFW content needed (False for clean content)
             exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
             exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
+            exclude_items: Optional list of video IDs to exclude (generic exclusion list)
+            num_results: Number of recommendations to return
 
         Returns:
             Dictionary with recommendations and metadata
@@ -83,6 +86,7 @@ class RecommendationService:
                 exclude_watched_items=exclude_watched_items,
                 exclude_reported_items=exclude_reported_items,
                 exclude_items=exclude_items,
+                num_results=num_results,
             )
 
             return recommendations

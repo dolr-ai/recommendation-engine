@@ -352,6 +352,7 @@ class RecommendationEngine:
         exclude_watched_items=RecommendationConfig.EXCLUDE_WATCHED_ITEMS,
         exclude_reported_items=RecommendationConfig.EXCLUDE_REPORTED_ITEMS,
         exclude_items=[],  # generic exclusion list
+        num_results=50,  # number of results to return
     ):
         """
         Get recommendations for a user.
@@ -376,6 +377,7 @@ class RecommendationEngine:
             exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
             exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
             exclude_items: Optional list of video IDs to exclude (generic exclusion list)
+            num_results: Number of recommendations to return. If None, returns all recommendations.
 
         Returns:
             Dictionary with recommendations and fallback recommendations
@@ -571,6 +573,14 @@ class RecommendationEngine:
         )
         backend_time = (datetime.datetime.now() - backend_start).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")
+
+        # Trim results to requested number if specified
+        if num_results is not None and "posts" in recommendations:
+            old_total_results = len(recommendations["posts"])
+            recommendations["posts"] = recommendations["posts"][:num_results]
+            logger.info(
+                f"Trimmed results to from {old_total_results} -> {num_results} items as requested"
+            )
 
         total_time = (datetime.datetime.now() - start_time).total_seconds()
 

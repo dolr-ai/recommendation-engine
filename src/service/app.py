@@ -140,6 +140,7 @@ async def get_recommendations(request: RecommendationRequest):
             exclude_watched_items=request.exclude_watched_items,
             exclude_reported_items=request.exclude_reported_items,
             exclude_items=request.exclude_items,
+            num_results=request.num_results,
         )
 
         # Only include the fields present in the new RecommendationResponse model
@@ -209,6 +210,7 @@ async def get_batch_recommendations(
                 exclude_watched_items=request.exclude_watched_items,
                 exclude_reported_items=request.exclude_reported_items,
                 exclude_items=request.exclude_items,
+                num_results=request.num_results,
             )
 
             # Only include the fields present in the new RecommendationResponse model

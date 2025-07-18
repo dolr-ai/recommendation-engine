@@ -58,6 +58,11 @@ class RecommendationRequest(BaseModel):
         default=[],
         description="List of video IDs to exclude (generic exclusion list)",
     )
+    num_results: int = Field(
+        description="Number of recommendations to return",
+        gt=0,  # Ensure positive number
+        default=50,
+    )
     nsfw_label: bool = Field(description="Set true if nsfw recommendations are needed")
 
 

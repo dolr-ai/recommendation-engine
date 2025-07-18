@@ -133,7 +133,7 @@ class UserRealtimeHistoryChecker:
             core=self.gcp_utils.core, **self.config["valkey"]
         )
 
-    def _format_key(self, user_id: str, include_nsfw: bool = False) -> str:
+    def _format_key(self, user_id: str, include_nsfw: bool) -> str:
         """Format key for user real-time history Redis zset."""
         suffix = (
             USER_WATCH_HISTORY_NSFW_SUFFIX_V2
@@ -163,8 +163,8 @@ class UserRealtimeHistoryChecker:
         self,
         user_id: str,
         video_ids: Union[str, List[str]],
+        nsfw_label: bool,
         since_timestamp: Optional[float] = None,
-        nsfw_label: bool = False,
     ) -> Union[bool, Dict[str, bool]]:
         """
         Check if user has watched specific video(s) in their realtime watch history.
@@ -262,12 +262,62 @@ class UserRealtimeHistoryChecker:
         # Return single boolean for single video, dict for multiple videos
         return results[video_ids[0]] if is_single_video else results
 
+    def get_recently_watched_videos(
+        self,
+        user_id: str,
+        nsfw_label: bool,
+        within_seconds: int = 3600,
+    ) -> List[str]:
+        """
+        Get the list of video_ids watched by the user for the given nsfw_label in the last `within_seconds` seconds (default: 1 hour).
+
+        Args:
+            user_id: User ID to check
+            nsfw_label: Whether to use NSFW data (True) or clean data (False)
+            within_seconds: Time window in seconds (default: 3600 for 1 hour)
+
+        Returns:
+            List of video_ids watched in the last `within_seconds` seconds.
+        """
+        import time
+
+        now = time.time()
+        since_timestamp = now - within_seconds
+        redis_key = self._format_key(user_id, nsfw_label)
+        video_ids = []
+        try:
+            if not self.valkey_service.exists(redis_key):
+                logger.warning(f"No watch history found for user: {user_id}")
+                return []
+            watch_entries = self.valkey_service.zrangebyscore(
+                redis_key,
+                since_timestamp,
+                "+inf",
+                withscores=False,
+                start=0,
+                num=1000,
+            )
+            for entry in watch_entries:
+                try:
+                    watch_data = json.loads(entry)
+                    video_id = watch_data.get("video_id")
+                    if video_id:
+                        video_ids.append(video_id)
+                except Exception as e:
+                    logger.warning(f"Error parsing watch entry: {e}")
+                    continue
+        except Exception as e:
+            logger.error(
+                f"Error fetching recent watched videos for user {user_id}: {e}"
+            )
+        return video_ids
+
 
 # Convenience function for quick usage
 def check_user_watched_videos(
     user_id: str,
     video_ids: Union[str, List[str]],
-    nsfw_label: bool = False,
+    nsfw_label: bool,
     since_timestamp: Optional[float] = None,
     config: Optional[Dict[str, Any]] = None,
 ) -> Union[bool, Dict[str, bool]]:
@@ -293,11 +343,12 @@ def check_user_watched_videos(
         results = check_user_watched_videos("user123", ["video1", "video2", "video3"])
     """
     checker = UserRealtimeHistoryChecker(config=config)
-    return checker.has_watched_videos(user_id, video_ids, since_timestamp, nsfw_label)
+    return checker.has_watched_videos(user_id, video_ids, nsfw_label, since_timestamp)
 
 
 # Example usage
 if __name__ == "__main__":
+    nsfw_label = True
     # Log the mode we're running in
     logger.info(f"Running in {'DEV_MODE' if DEV_MODE else 'PRODUCTION'} mode")
 
@@ -305,7 +356,8 @@ if __name__ == "__main__":
     checker = UserRealtimeHistoryChecker()
 
     # Example user (using one from the test data)
-    test_user = "epg3q-ibcya-jf3cc-4dfbd-77u5m-p4ed7-6oj5a-vvgng-xcjfo-zgbor-dae"
+    # test_user = "epg3q-ibcya-jf3cc-4dfbd-77u5m-p4ed7-6oj5a-vvgng-xcjfo-zgbor-dae"
+    test_user = "qvtbm-uxoge-q54c7-jwbgd-mseza-zvni6-aoncc-72hby-nuqnz-dvkdi-aae"
 
     # Example videos to check
     test_videos = [
@@ -322,12 +374,16 @@ if __name__ == "__main__":
     logger.info("=== Testing Single Video Check ===")
     # Check single video
     single_video = test_videos[0]
-    has_watched_single = checker.has_watched_videos(test_user, single_video)
+    has_watched_single = checker.has_watched_videos(
+        test_user, single_video, nsfw_label=nsfw_label
+    )
     logger.info(f"User {test_user} has watched {single_video}: {has_watched_single}")
 
     logger.info("\n=== Testing Multiple Videos Check ===")
     # Check multiple videos
-    has_watched_multiple = checker.has_watched_videos(test_user, test_videos)
+    has_watched_multiple = checker.has_watched_videos(
+        test_user, test_videos, nsfw_label=nsfw_label
+    )
     logger.info(f"User {test_user} watch status:")
     for video_id, watched in has_watched_multiple.items():
         logger.info(f"  - {video_id}: {'Watched' if watched else 'Not watched'}")
@@ -338,7 +394,7 @@ if __name__ == "__main__":
 
     yesterday = time.time() - (24 * 60 * 60)
     recent_watched = checker.has_watched_videos(
-        test_user, test_videos, since_timestamp=yesterday
+        test_user, test_videos, nsfw_label=nsfw_label, since_timestamp=yesterday
     )
     logger.info(f"Videos watched in last 24 hours:")
     for video_id, watched in recent_watched.items():
@@ -346,9 +402,17 @@ if __name__ == "__main__":
             f"  - {video_id}: {'Watched recently' if watched else 'Not watched recently'}"
         )
 
+    logger.info("\n=== Testing Recently Watched Videos ===")
+    recently_watched = checker.get_recently_watched_videos(
+        test_user, nsfw_label=nsfw_label
+    )
+    logger.info(f"Recently watched videos: {recently_watched}")
+
     logger.info("\n=== Testing Convenience Function ===")
     # Using convenience function
-    convenience_result = check_user_watched_videos(test_user, test_videos)
+    convenience_result = check_user_watched_videos(
+        test_user, test_videos, nsfw_label=nsfw_label
+    )
     logger.info(
         f"Convenience function results match: {convenience_result == has_watched_multiple}"
     )
@@ -356,7 +420,9 @@ if __name__ == "__main__":
     logger.info("\n=== Testing Non-Existent User ===")
     # Test with a user that likely doesn't exist
     nonexistent_user = "nonexistent-user-id-for-testing"
-    nonexistent_result = checker.has_watched_videos(nonexistent_user, test_videos)
+    nonexistent_result = checker.has_watched_videos(
+        nonexistent_user, test_videos, nsfw_label=nsfw_label
+    )
     logger.info(
         f"Non-existent user check returned all False: {all(not watched for watched in nonexistent_result.values())}"
     )
