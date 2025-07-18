@@ -94,6 +94,22 @@ st.markdown(
         font-weight: bold;
         font-size: 1rem;
     }
+    .nsfw-badge {
+        background-color: #ff6b6b;
+        color: white;
+        padding: 0.3rem 0.6rem;
+        border-radius: 0.3rem;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+    .clean-badge {
+        background-color: #51cf66;
+        color: white;
+        padding: 0.3rem 0.6rem;
+        border-radius: 0.3rem;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
 </style>
 """,
     unsafe_allow_html=True,
@@ -101,16 +117,42 @@ st.markdown(
 
 
 def load_user_profiles(uploaded_file):
+    """Load user profiles from JSONL file (lines=True format)."""
     try:
-        content = uploaded_file.read()
-        data = json.loads(content.decode("utf-8"))
-        if isinstance(data, dict):
-            return [data]
-        elif isinstance(data, list):
-            return data
-        else:
-            st.error("Invalid JSON format. Expected object or array.")
-            return []
+        content = uploaded_file.read().decode("utf-8")
+        profiles = []
+        lines = content.strip().split("\n")
+
+        for line_num, line in enumerate(lines, 1):
+            if line.strip():  # Skip empty lines
+                try:
+                    data = json.loads(line.strip())
+                    if isinstance(data, dict):
+                        # Check if this is a request_params format
+                        if "request_params" in data:
+                            request_params = data["request_params"]
+                            if isinstance(request_params, str):
+                                request_params = json.loads(request_params)
+
+                            user_profile = {
+                                "user_id": request_params.get("user_id"),
+                                "watch_history": request_params.get(
+                                    "watch_history", []
+                                ),
+                                "nsfw_label": request_params.get("nsfw_label", False),
+                                "request_params": request_params,
+                            }
+                            profiles.append(user_profile)
+                        else:
+                            # Regular user profile format
+                            profiles.append(data)
+                    else:
+                        st.warning(f"Invalid JSON object at line {line_num}")
+                except json.JSONDecodeError as e:
+                    st.warning(f"Invalid JSON at line {line_num}: {e}")
+                    continue
+
+        return profiles
     except Exception as e:
         st.error(f"Error loading file: {e}")
         return []
@@ -159,7 +201,8 @@ def render_video_card(video_id, url, metadata: dict, label: str = None):
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def fetch_recommendations_from_api(user_profile, params):
+def fetch_recommendations_from_api(user_profile, request_params):
+    """Fetch recommendations using the request_params from the uploaded data."""
     payload = {
         "user_id": user_profile["user_id"],
         "watch_history": [
@@ -170,7 +213,7 @@ def fetch_recommendations_from_api(user_profile, params):
             }
             for v in user_profile.get("watch_history", [])
         ],
-        **params,
+        "nsfw_label": request_params.get("nsfw_label"),
     }
     try:
         resp = requests.post(RECOMMENDATION_API_URL, json=payload, timeout=180)
@@ -190,12 +233,12 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # Sidebar: Upload, user select, parameters
-    st.sidebar.markdown("## Upload User Profiles")
+    # Sidebar: Upload, user select
+    st.sidebar.markdown("## Upload Data")
     uploaded_file = st.sidebar.file_uploader(
-        "Choose a JSON file with user profiles",
-        type=["json"],
-        help="Upload a JSON file containing user profile(s). Can be a single profile object or an array of profiles.",
+        "Choose a JSON or CSV file with user profiles",
+        type=["json", "csv"],
+        help="Upload a JSON file containing user profile(s) or CSV file with request_params column.",
     )
     user_profiles = []
     user_options = []
@@ -213,29 +256,6 @@ def main():
                 format_func=lambda i: user_options[i],
             )
 
-    st.sidebar.markdown("## Parameters")
-    top_k = st.sidebar.slider("Top K", min_value=5, max_value=100, value=25, step=5)
-    fallback_top_k = st.sidebar.slider(
-        "Fallback Top K", min_value=10, max_value=200, value=100, step=10
-    )
-    threshold = st.sidebar.slider(
-        "Threshold", min_value=0.0, max_value=1.0, value=0.1, step=0.05
-    )
-    min_similarity = st.sidebar.slider(
-        "Min Similarity", min_value=0.0, max_value=1.0, value=0.4, step=0.1
-    )
-    with st.sidebar.expander("Advanced Parameters"):
-        enable_deduplication = st.checkbox("Enable Deduplication", value=True)
-        max_workers = st.slider("Max Workers", min_value=1, max_value=8, value=4)
-        max_fallback_candidates = st.slider(
-            "Max Fallback Candidates", min_value=50, max_value=500, value=200, step=50
-        )
-        recency_weight = st.slider(
-            "Recency Weight", min_value=0.0, max_value=1.0, value=0.8, step=0.1
-        )
-        watch_percentage_weight = st.slider(
-            "Watch % Weight", min_value=0.0, max_value=1.0, value=0.2, step=0.1
-        )
     display_cache_stats()
 
     # Main layout: 3 columns (Watched | Spacer | Recommended)
@@ -245,31 +265,45 @@ def main():
             "user_id": profile.get("user_id"),
             "watch_history": profile.get("watch_history", []),
         }
-        params = {
-            "top_k": top_k,
-            "fallback_top_k": fallback_top_k,
-            "threshold": threshold,
-            "enable_deduplication": enable_deduplication,
-            "max_workers": max_workers,
-            "max_fallback_candidates": max_fallback_candidates,
-            "min_similarity_threshold": min_similarity,
-            "recency_weight": recency_weight,
-            "watch_percentage_weight": watch_percentage_weight,
-        }
+
+        # Get request_params from the profile
+        request_params = profile.get("request_params", {})
+        nsfw_label = profile.get("nsfw_label", False)
+
+        # Display request type badge
+        request_type = "NSFW Request" if nsfw_label else "Clean Request"
+        badge_class = "nsfw-badge" if nsfw_label else "clean-badge"
+        st.markdown(
+            f'<div style="text-align: center; margin-bottom: 1rem;">'
+            f'<span class="{badge_class}">{request_type}</span>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Display request parameters info
+        with st.expander("Request Parameters"):
+            st.json(request_params)
+
         # Get recommendations from API
-        recommendations = fetch_recommendations_from_api(user_profile, params)
+        recommendations = fetch_recommendations_from_api(user_profile, request_params)
         if not recommendations:
             st.error("No recommendations returned from API.")
             return
+
         # Watched video IDs
         watched_history = profile.get("watch_history", [])
         watched_video_ids = [v.get("video_id") for v in watched_history]
         watched_url_map = transform_multiple_video_ids_to_urls(watched_video_ids)
+
         # Recommended video IDs
-        rec_video_ids = recommendations.get("recommendations", [])
+        rec_posts = recommendations.get("posts", [])  # Get the posts array
+        rec_video_ids = [
+            post.get("video_id") for post in rec_posts if post.get("video_id")
+        ]  # Extract video_ids
         rec_url_map = transform_multiple_video_ids_to_urls(rec_video_ids)
         rec_scores = recommendations.get("scores", {})
         rec_sources = recommendations.get("sources", {})
+
         # Layout
         col1, col_spacer, col2 = st.columns([1.2, 0.1, 1.2])
         with col1:
@@ -297,10 +331,25 @@ def main():
                 unsafe_allow_html=True,
             )
             st.markdown('<div class="video-scroll">', unsafe_allow_html=True)
-            for i, vid in enumerate(rec_video_ids):
-                url = rec_url_map.get(vid, transform_video_id_to_url(vid))
+            for i, post in enumerate(rec_posts):
+                vid = post.get("video_id")
+                if not vid:
+                    continue
+
+                # Construct URL directly from canister_id and post_id
+                canister_id = post.get("canister_id")
+                post_id = post.get("post_id")
+                if canister_id and post_id is not None:
+                    url = f"https://yral.com/hot-or-not/{canister_id}/{post_id}"
+                else:
+                    # Fallback to video_id transformation if canister_id or post_id is missing
+                    url = rec_url_map.get(vid, transform_video_id_to_url(vid))
+
                 meta = {
                     "Score": f"{rec_scores.get(vid, 0):.4f}",
+                    "NSFW Probability": f"{post.get('nsfw_probability', 0):.2f}",
+                    "Post ID": str(post.get("post_id", "N/A")),
+                    "Publisher": post.get("publisher_user_id", "N/A")[:16] + "...",
                 }
                 # Add source info if available
                 source_info = rec_sources.get(vid, {})
@@ -322,11 +371,14 @@ def main():
         st.markdown(
             """
         How to Use This App
-        1. Upload User Profile: Upload a JSON file containing user profile(s)
+        1. Upload Data: Upload a JSON file containing user profile(s) or CSV file with request_params column
         2. Select User: Use the sidebar to select a user
-        3. Configure Parameters: Adjust parameters in the sidebar
-        4. View Watched and Recommended Videos: Scroll through the center and right columns
-        5. All video links are rendered as playable videos (iframe)
+        3. View Request Type: The app will show if this is an NSFW or Clean request
+        4. View Request Parameters: Expand the "Request Parameters" section to see the full request
+        5. View Watched and Recommended Videos: Scroll through the center and right columns
+        6. All video links are rendered as playable videos (iframe)
+
+        CSV Format: The CSV file should have a 'request_params' column containing JSON data with the request parameters.
         """
         )
 

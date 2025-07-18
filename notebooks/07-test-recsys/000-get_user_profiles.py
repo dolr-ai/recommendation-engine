@@ -418,8 +418,12 @@ def generate_request_parameters(df_user_clusters, df_sampled_users):
 
 
 df_proc = generate_request_parameters(df_user_clusters, df_sampled_users)
-df_proc
-df_proc.to_parquet(DATA_ROOT / "df_user_profiles.parquet")
+df_proc.to_json(DATA_ROOT / "df_user_profiles.json", orient="records", lines=True)
 # %%
-print(df_proc.iloc[0])
+idx = random.randint(0, len(df_proc))
+print(idx)
+
+print(df_proc.iloc[idx]["request_params"])
+# %%
+
 print(df_proc.iloc[0]["request_params"])
