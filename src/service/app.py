@@ -97,6 +97,7 @@ async def debug_info():
     global recommendation_service
     import psutil
     import threading
+    from utils.gcp_utils import get_bigquery_client_stats
 
     return {
         "status": "ok",
@@ -104,6 +105,7 @@ async def debug_info():
         "active_threads": threading.active_count(),
         "memory_usage_mb": psutil.Process().memory_info().rss / 1024 / 1024,
         "cpu_percent": psutil.Process().cpu_percent(),
+        "bigquery_client_stats": get_bigquery_client_stats(),
     }
 
 
@@ -267,7 +269,7 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        workers=int(os.environ.get("WORKERS", 8)),
+        workers=int(os.environ.get("WORKERS", 32)),
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,

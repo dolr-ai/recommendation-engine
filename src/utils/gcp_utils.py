@@ -16,8 +16,103 @@ from datetime import datetime
 from google.cloud import bigquery, storage
 from google.oauth2 import service_account
 from .common_utils import time_execution, get_logger
+import threading
 
 logger = get_logger(__name__)
+
+
+class BigQueryClientManager:
+    """
+    Singleton manager for BigQuery clients with connection pooling.
+    Provides shared BigQuery clients to avoid connection overhead.
+    """
+
+    _instance = None
+    _lock = threading.Lock()
+    _clients = {}
+    _client_lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def get_client(self, project_id: str, credentials) -> bigquery.Client:
+        """
+        Get or create a BigQuery client for the given project and credentials.
+
+        Args:
+            project_id: GCP project ID
+            credentials: GCP credentials object
+
+        Returns:
+            Shared BigQuery client instance
+        """
+        # Create a key based on project_id and credentials info
+        cred_key = (
+            f"{project_id}_{getattr(credentials, 'service_account_email', 'default')}"
+        )
+
+        with self._client_lock:
+            if cred_key not in self._clients:
+                logger.info(
+                    f"🔥 Creating NEW BigQuery client for project: {project_id} (total clients will be: {len(self._clients) + 1})"
+                )
+                self._clients[cred_key] = bigquery.Client(
+                    credentials=credentials,
+                    project=project_id,
+                    # Configure client for better connection handling
+                    default_query_job_config=bigquery.QueryJobConfig(
+                        use_query_cache=True,  # Enable query caching
+                        maximum_bytes_billed=10**12,  # 1TB limit for safety
+                    ),
+                )
+                logger.info(
+                    f"✅ BigQuery client created and cached for key: {cred_key}"
+                )
+            else:
+                logger.info(
+                    f"♻️  REUSING existing BigQuery client for key: {cred_key} (total clients: {len(self._clients)})"
+                )
+
+            return self._clients[cred_key]
+
+    def clear_clients(self):
+        """Clear all cached clients (for testing or cleanup)."""
+        with self._client_lock:
+            logger.info(f"Clearing {len(self._clients)} cached BigQuery clients")
+            self._clients.clear()
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get statistics about cached clients."""
+        with self._client_lock:
+            return {
+                "total_clients": len(self._clients),
+                "client_keys": list(self._clients.keys()),
+            }
+
+
+# Global singleton instance
+_bq_client_manager = BigQueryClientManager()
+
+
+def get_bigquery_client_stats() -> Dict[str, Any]:
+    """
+    Get statistics about BigQuery client pooling for monitoring.
+
+    Returns:
+        Dictionary with client pool statistics
+    """
+    return _bq_client_manager.get_stats()
+
+
+def clear_bigquery_clients():
+    """
+    Clear all cached BigQuery clients (useful for testing or forced cleanup).
+    """
+    _bq_client_manager.clear_clients()
 
 
 class GCPCore:
@@ -402,8 +497,9 @@ class GCPBigQueryService:
             core: Initialized GCPCore instance
         """
         self.core = core
-        self.client = bigquery.Client(
-            credentials=core.credentials, project=core.project_id
+        # Use the singleton client manager to get a shared client
+        self.client = _bq_client_manager.get_client(
+            project_id=core.project_id, credentials=core.credentials
         )
 
     def verify_connection(self) -> bool:
@@ -430,21 +526,31 @@ class GCPBigQueryService:
         query: str,
         to_dataframe: bool = True,
         create_bqstorage_client: bool = False,
+        timeout: int = 300,  # 5 minutes default timeout
     ):
         """
-        Execute a BigQuery query
+        Execute a BigQuery query with optimized configuration
 
         Args:
             query: SQL query to execute
             to_dataframe: Whether to convert results to pandas DataFrame
+            create_bqstorage_client: Whether to use BigQuery Storage API for faster downloads
+            timeout: Query timeout in seconds
 
         Returns:
             Query result as RowIterator or DataFrame
         """
         try:
-            # Execute query
-            query_job = self.client.query(query)
-            result = query_job.result()
+            # Configure query job for better performance
+            job_config = bigquery.QueryJobConfig(
+                use_query_cache=True,  # Enable query result caching
+                use_legacy_sql=False,  # Use standard SQL
+                maximum_bytes_billed=10**12,  # 1TB limit for safety
+            )
+
+            # Execute query with configuration and timeout
+            query_job = self.client.query(query, job_config=job_config, timeout=timeout)
+            result = query_job.result(timeout=timeout)
 
             # Convert to DataFrame if requested
             if to_dataframe:
