@@ -385,6 +385,24 @@ class RecommendationEngine:
         start_time = datetime.datetime.now()
         user_id = user_profile.get("user_id", "unknown")
 
+        # Circuit breaker: Detect overload conditions and reduce processing complexity
+        high_load_detected = False
+        if hasattr(self, "_recent_latencies"):
+            # Check if recent requests have been slow (simple circuit breaker)
+            recent_avg = sum(self._recent_latencies[-10:]) / min(
+                len(self._recent_latencies), 10
+            )
+            if recent_avg > 15.0:  # If average latency > 15s, reduce complexity
+                high_load_detected = True
+                logger.warning(
+                    f"High load detected (avg latency: {recent_avg:.1f}s), reducing processing complexity"
+                )
+                max_workers = min(max_workers, 4)  # Reduce parallelism
+                if num_results > 20:
+                    num_results = 20  # Reduce result set size
+        else:
+            self._recent_latencies = []
+
         # Enrich user profile with metadata if needed
         metadata_found = False
         enriched_profile = self._enrich_user_profile(user_profile, nsfw_label)
@@ -623,4 +641,16 @@ class RecommendationEngine:
             "backend_time": backend_time,
             "total_time": total_time,
         }
+
+        # Track request latency for circuit breaker
+        request_latency = (datetime.datetime.now() - start_time).total_seconds()
+        self._recent_latencies.append(request_latency)
+        if len(self._recent_latencies) > 50:  # Keep only recent 50 requests
+            self._recent_latencies = self._recent_latencies[-50:]
+
+        if high_load_detected:
+            logger.info(
+                f"Request completed under high load mode: {request_latency:.2f}s"
+            )
+
         return recommendations

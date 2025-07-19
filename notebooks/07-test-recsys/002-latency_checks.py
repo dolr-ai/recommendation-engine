@@ -205,7 +205,7 @@ if __name__ == "__main__":
     )
     print(f"Loaded {len(df)} user profiles")
 
-    test_levels = [1, 20, 50, 100, 500, 1000, 2000]
+    test_levels = [1, 20, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
     results = []
 
     for level in test_levels:

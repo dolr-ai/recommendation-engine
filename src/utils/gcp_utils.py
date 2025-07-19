@@ -249,7 +249,7 @@ class ValkeyThreadPoolManager:
 
         # Create shared thread pool for Valkey operations - increased for high concurrency
         self._executor = ThreadPoolExecutor(
-            max_workers=32,  # Increased from 8 to 32 for better concurrency handling
+            max_workers=100,  # Increased from 32 to 100 for extreme concurrency handling
             thread_name_prefix="valkey-pool",
         )
         self._initialized = True

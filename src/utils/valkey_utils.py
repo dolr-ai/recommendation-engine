@@ -141,7 +141,7 @@ class ValkeyService:
                     "socket_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
                     "socket_connect_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
                     "decode_responses": True,
-                    "max_connections": 50,  # Add connection pooling
+                    "max_connections": 200,  # Increased from 50 to 200 for high concurrency
                     "retry_on_timeout": True,  # Retry on timeout
                     "health_check_interval": 30,  # Health check every 30 seconds
                 }
@@ -181,7 +181,7 @@ class ValkeyService:
                     "socket_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
                     "socket_connect_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
                     "decode_responses": True,
-                    "max_connections": 50,  # Add connection pooling
+                    "max_connections": 200,  # Increased from 50 to 200 for high concurrency
                     "retry_on_timeout": True,  # Retry on timeout
                     "health_check_interval": 30,  # Health check every 30 seconds
                 }
