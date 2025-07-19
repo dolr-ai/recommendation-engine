@@ -14,6 +14,7 @@ from candidate_cache.get_candidates import (
     WatchTimeQuantileCandidateFetcher,
     FallbackCandidateFetcher,
 )
+from utils.gcp_utils import ValkeyThreadPoolManager
 
 logger = get_logger(__name__)
 
@@ -113,7 +114,8 @@ class CandidateManager:
         cluster_id_str = str(cluster_id)
 
         try:
-            fallback_miou = self.fallback_fetcher.get_fallback_candidates(
+            # Use optimized fallback method to avoid expensive KEYS operations
+            fallback_miou = self.fallback_fetcher.get_fallback_candidates_optimized(
                 cluster_id_str, "modified_iou"
             )
 
@@ -133,7 +135,8 @@ class CandidateManager:
         cluster_id_str = str(cluster_id)
 
         try:
-            fallback_wt = self.fallback_fetcher.get_fallback_candidates(
+            # Use optimized fallback method to avoid expensive KEYS operations
+            fallback_wt = self.fallback_fetcher.get_fallback_candidates_optimized(
                 cluster_id_str, "watch_time_quantile"
             )
 
@@ -194,28 +197,30 @@ class CandidateManager:
         wt_candidates = {}
         fallback_candidates = {}
 
-        # Use ThreadPoolExecutor for parallel fetching
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit tasks for parallel execution
+        # Use shared Valkey thread pool for parallel fetching - candidate fetchers now manage their own connections
+        try:
+            thread_pool_manager = ValkeyThreadPoolManager()
+
+            # Submit tasks to shared thread pool for parallel execution
             if need_miou:
-                tasks["miou"] = executor.submit(
+                tasks["miou"] = thread_pool_manager.submit_task(
                     self._fetch_miou_candidates, cluster_id, query_videos
                 )
 
             if need_wt:
-                tasks["wt"] = executor.submit(
+                tasks["wt"] = thread_pool_manager.submit_task(
                     self._fetch_wt_candidates, cluster_id, bin_id, query_videos
                 )
 
             if need_fallback_miou:
-                tasks["fallback_miou"] = executor.submit(
+                tasks["fallback_miou"] = thread_pool_manager.submit_task(
                     self._fetch_fallback_miou_candidates,
                     cluster_id,
                     max_fallback_candidates,
                 )
 
             if need_fallback_wt:
-                tasks["fallback_wt"] = executor.submit(
+                tasks["fallback_wt"] = thread_pool_manager.submit_task(
                     self._fetch_fallback_wt_candidates,
                     cluster_id,
                     max_fallback_candidates,
@@ -247,6 +252,49 @@ class CandidateManager:
                         fallback_candidates["fallback_modified_iou"] = []
                     elif name == "fallback_wt":
                         fallback_candidates["fallback_watch_time_quantile"] = []
+
+        except Exception as e:
+            logger.error(f"Error initializing shared thread pool: {e}")
+            # Fallback to sequential processing if shared pool fails
+            if need_miou:
+                try:
+                    miou_candidates = self._fetch_miou_candidates(
+                        cluster_id, query_videos
+                    )
+                except Exception as e:
+                    logger.error(f"Error fetching miou candidates: {e}")
+                    miou_candidates = {}
+
+            if need_wt:
+                try:
+                    wt_candidates = self._fetch_wt_candidates(
+                        cluster_id, bin_id, query_videos
+                    )
+                except Exception as e:
+                    logger.error(f"Error fetching wt candidates: {e}")
+                    wt_candidates = {}
+
+            if need_fallback_miou:
+                try:
+                    fallback_candidates["fallback_modified_iou"] = (
+                        self._fetch_fallback_miou_candidates(
+                            cluster_id, max_fallback_candidates
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Error fetching fallback miou candidates: {e}")
+                    fallback_candidates["fallback_modified_iou"] = []
+
+            if need_fallback_wt:
+                try:
+                    fallback_candidates["fallback_watch_time_quantile"] = (
+                        self._fetch_fallback_wt_candidates(
+                            cluster_id, max_fallback_candidates
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Error fetching fallback wt candidates: {e}")
+                    fallback_candidates["fallback_watch_time_quantile"] = []
 
         # Organize candidates by query video and type in an ordered dictionary
         query_videos_to_all_candidates = OrderedDict()

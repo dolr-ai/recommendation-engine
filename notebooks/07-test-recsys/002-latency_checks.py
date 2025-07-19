@@ -28,13 +28,22 @@ def make_simple_request(request_params, api_url, timeout=30):
             try:
                 resp_data = response.json()
                 debug = resp_data.get("debug", {})
+                # Collect all timing keys present in the debug info
                 debug_info = {
-                    "backend_time": debug.get("backend_time", 0),
-                    "bq_similarity_time": debug.get("bq_similarity_time", 0),
-                    "rerank_time": debug.get("rerank_time", 0),
-                    "total_time": debug.get("total_time", 0),
+                    k: debug.get(k, 0)
+                    for k in [
+                        "backend_time",
+                        "bq_similarity_time",
+                        "rerank_time",
+                        "candidate_fetching_time",
+                        "mixer_time",
+                        "filter_time",
+                        "reported_time",
+                        "total_time",
+                    ]
+                    if k in debug
                 }
-            except:
+            except Exception:
                 pass
 
         return {
@@ -127,13 +136,25 @@ def run_concurrent_test(df, api_url, concurrent_requests, timeout=30):
     latency_stats = calc_percentiles(latencies)
 
     # Component analysis with percentiles
-    components = {}
+    # Collect all possible timing keys for reporting
+    all_timing_keys = [
+        "backend_time",
+        "bq_similarity_time",
+        "rerank_time",
+        "candidate_fetching_time",
+        "mixer_time",
+        "filter_time",
+        "reported_time",
+        "total_time",
+    ]
+    components = {k: [] for k in all_timing_keys}
     for result in successful:
-        for comp, time_val in result["debug"].items():
+        for comp in all_timing_keys:
+            time_val = result["debug"].get(comp, 0)
             if time_val > 0:
-                if comp not in components:
-                    components[comp] = []
                 components[comp].append(time_val)
+    # Remove empty lists
+    components = {k: v for k, v in components.items() if v}
 
     component_stats = {}
     for comp, times in components.items():
@@ -153,11 +174,13 @@ def run_concurrent_test(df, api_url, concurrent_requests, timeout=30):
 
     if component_stats:
         print(f"🔍 Component breakdown (with percentiles):")
-        for comp, stats in component_stats.items():
-            print(f"   {comp}:")
-            print(
-                f"     P50: {stats['p50']:.3f}s, P90: {stats['p90']:.3f}s, P95: {stats['p95']:.3f}s, Avg: {stats['mean']:.3f}s"
-            )
+        for comp in all_timing_keys:
+            if comp in component_stats:
+                stats = component_stats[comp]
+                print(f"   {comp}:")
+                print(
+                    f"     P50: {stats['p50']:.3f}s, P90: {stats['p90']:.3f}s, P95: {stats['p95']:.3f}s, Avg: {stats['mean']:.3f}s"
+                )
 
     return {
         "concurrent_requests": concurrent_requests,
@@ -182,7 +205,7 @@ if __name__ == "__main__":
     )
     print(f"Loaded {len(df)} user profiles")
 
-    test_levels = [1, 20, 50, 100]
+    test_levels = [1, 20, 50, 100, 500, 1000, 2000]
     results = []
 
     for level in test_levels:
@@ -240,6 +263,7 @@ if __name__ == "__main__":
 
         # Component insights
         if best.get("component_stats"):
+            # Only consider components that actually exist in the best result
             slowest_comp = max(
                 best["component_stats"].items(), key=lambda x: x[1]["mean"]
             )

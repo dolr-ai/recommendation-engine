@@ -17,6 +17,7 @@ from google.cloud import bigquery, storage
 from google.oauth2 import service_account
 from .common_utils import time_execution, get_logger
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 logger = get_logger(__name__)
 
@@ -113,6 +114,171 @@ def clear_bigquery_clients():
     Clear all cached BigQuery clients (useful for testing or forced cleanup).
     """
     _bq_client_manager.clear_clients()
+
+
+class ValkeyConnectionManager:
+    """Singleton manager for shared Valkey connections."""
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        self._connections = {}
+        self._connection_lock = threading.Lock()
+        self._initialized = True
+        logger.info("ValkeyConnectionManager singleton initialized")
+
+    def get_connection(
+        self, config: dict, connection_key: str = "default"
+    ) -> "ValkeyService":
+        """
+        Get or create a shared Valkey connection.
+
+        Args:
+            config: Valkey configuration dictionary
+            connection_key: Unique key for this connection configuration
+
+        Returns:
+            Shared ValkeyService instance
+        """
+        with self._connection_lock:
+            if connection_key not in self._connections:
+                try:
+                    from utils.valkey_utils import ValkeyService
+
+                    # Create GCPCore instance for Valkey
+                    gcp_core = GCPCore()
+
+                    # Create ValkeyService with configuration
+                    valkey_service = ValkeyService(
+                        core=gcp_core,
+                        host=config.get("host"),
+                        port=config.get("port", 6379),
+                        instance_id=config.get("instance_id"),
+                        socket_connect_timeout=config.get("socket_connect_timeout", 15),
+                        socket_timeout=config.get("socket_timeout", 15),
+                        decode_responses=config.get("decode_responses", True),
+                        ssl_enabled=config.get("ssl_enabled", False),
+                        cluster_enabled=config.get("cluster_enabled", False),
+                        authkey=config.get("authkey"),
+                    )
+
+                    # Test connection
+                    if valkey_service.verify_connection():
+                        self._connections[connection_key] = valkey_service
+                        logger.info(
+                            f"Created shared Valkey connection: {connection_key}"
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to verify Valkey connection: {connection_key}"
+                        )
+                        raise Exception(f"Valkey connection verification failed")
+
+                except Exception as e:
+                    logger.error(
+                        f"Failed to create Valkey connection {connection_key}: {e}"
+                    )
+                    raise
+
+            return self._connections[connection_key]
+
+    def get_connection_stats(self) -> dict:
+        """Get statistics about current connections."""
+        with self._connection_lock:
+            stats = {
+                "total_connections": len(self._connections),
+                "connection_keys": list(self._connections.keys()),
+            }
+
+            # Test each connection
+            active_connections = 0
+            for key, connection in self._connections.items():
+                try:
+                    if connection.verify_connection():
+                        active_connections += 1
+                except:
+                    pass
+
+            stats["active_connections"] = active_connections
+            return stats
+
+    def close_all_connections(self):
+        """Close all managed connections."""
+        with self._connection_lock:
+            for key, connection in self._connections.items():
+                try:
+                    if hasattr(connection, "client") and connection.client:
+                        connection.client.close()
+                        logger.info(f"Closed Valkey connection: {key}")
+                except Exception as e:
+                    logger.error(f"Error closing Valkey connection {key}: {e}")
+
+            self._connections.clear()
+            logger.info("All Valkey connections closed")
+
+
+class ValkeyThreadPoolManager:
+    """Singleton manager for shared thread pools for Valkey operations."""
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        # Create shared thread pool for Valkey operations - increased for high concurrency
+        self._executor = ThreadPoolExecutor(
+            max_workers=32,  # Increased from 8 to 32 for better concurrency handling
+            thread_name_prefix="valkey-pool",
+        )
+        self._initialized = True
+        logger.info("ValkeyThreadPoolManager singleton initialized with 32 workers")
+
+    def submit_task(self, fn, *args, **kwargs):
+        """Submit a task to the shared thread pool."""
+        return self._executor.submit(fn, *args, **kwargs)
+
+    def get_stats(self) -> dict:
+        """Get thread pool statistics."""
+        return {
+            "max_workers": self._executor._max_workers,
+            "active_threads": (
+                len([t for t in self._executor._threads if t.is_alive()])
+                if hasattr(self._executor, "_threads")
+                else "unknown"
+            ),
+            "queue_size": (
+                self._executor._work_queue.qsize()
+                if hasattr(self._executor, "_work_queue")
+                else "unknown"
+            ),
+        }
+
+    def shutdown(self, wait: bool = True):
+        """Shutdown the thread pool."""
+        self._executor.shutdown(wait=wait)
+        logger.info("ValkeyThreadPoolManager shutdown")
 
 
 class GCPCore:

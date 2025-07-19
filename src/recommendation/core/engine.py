@@ -417,21 +417,24 @@ class RecommendationEngine:
             candidate_types = self.config.candidate_types
 
         bq_similarity_time = 0
+        candidate_fetching_time = 0
         if metadata_found:
             # Step 1: Run reranking logic
             rerank_start = datetime.datetime.now()
-            df_reranked, bq_similarity_time = self.reranking_manager.reranking_logic(
-                user_profile=enriched_profile,
-                candidate_types_dict=candidate_types,
-                threshold=threshold,
-                enable_deduplication=enable_deduplication,  # this is just video_id level dedup
-                max_workers=max_workers,
-                max_fallback_candidates=max_fallback_candidates,
-                nsfw_label=nsfw_label,
+            df_reranked, bq_similarity_time, candidate_fetching_time = (
+                self.reranking_manager.reranking_logic(
+                    user_profile=enriched_profile,
+                    candidate_types_dict=candidate_types,
+                    threshold=threshold,
+                    enable_deduplication=enable_deduplication,  # this is just video_id level dedup
+                    max_workers=max_workers,
+                    max_fallback_candidates=max_fallback_candidates,
+                    nsfw_label=nsfw_label,
+                )
             )
             rerank_time = (datetime.datetime.now() - rerank_start).total_seconds()
             logger.info(
-                f"Reranking completed in {rerank_time:.2f} seconds, bq_similarity_time: {bq_similarity_time:.2f} seconds"
+                f"Reranking completed in {rerank_time:.2f} seconds, bq_similarity_time: {bq_similarity_time:.2f} seconds, candidate_fetching_time: {candidate_fetching_time:.2f} seconds"
             )
 
             # Step 2: Run mixer algorithm
@@ -591,6 +594,10 @@ class RecommendationEngine:
         logger.info("Recommendation process timing summary:")
         if metadata_found:
             logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
+            logger.info(
+                f"  >> Candidate fetching step: {candidate_fetching_time:.2f} seconds"
+            )
+            logger.info(f"  >> BQ similarity step: {bq_similarity_time:.2f} seconds")
             logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
         else:
             logger.info(f"  - Fallback logic step: {fallback_time:.2f} seconds")
@@ -609,6 +616,7 @@ class RecommendationEngine:
         recommendations["debug"] = {
             "rerank_time": rerank_time,
             "bq_similarity_time": bq_similarity_time,
+            "candidate_fetching_time": candidate_fetching_time,
             "mixer_time": mixer_time,
             "filter_time": filter_time,
             "reported_time": reported_time,

@@ -277,6 +277,7 @@ class RerankingManager:
             return pd.DataFrame(columns=columns)
 
         # 2. Fetch candidates for all query videos
+        t_candidates_start = time.time()
         self.candidate_manager._set_key_prefix(nsfw_label)
         all_candidates = self.candidate_manager.fetch_candidates(
             query_videos,
@@ -286,6 +287,11 @@ class RerankingManager:
             nsfw_label=nsfw_label,  # Pass nsfw_label to determine content type
             max_fallback_candidates=max_fallback_candidates,
             max_workers=max_workers,  # Pass max_workers to enable parallel fetching
+        )
+        t_candidates_end = time.time()
+        candidate_fetching_time = t_candidates_end - t_candidates_start
+        logger.info(
+            f"⏱️ Candidate fetching took: {t_candidates_end - t_candidates_start:.3f} seconds"
         )
         bq_time = 0
         t0 = time.time()
@@ -299,7 +305,7 @@ class RerankingManager:
         )
         t1 = time.time()
         bq_time = t1 - t0  # seconds
-        logger.info(f"total time taken for bq similarity: {bq_time:.3f} seconds")
+        logger.info(f"⏱️ BQ similarity took: {bq_time:.3f} seconds")
 
         # Convert to DataFrame format
         df_data = []
@@ -315,4 +321,4 @@ class RerankingManager:
         # Create DataFrame with query videos ordered from latest to oldest watched
         result_df = pd.DataFrame(df_data)
         logger.info(f"total rows in result_df: {len(result_df)} for user: {user_id}")
-        return result_df, bq_time
+        return result_df, bq_time, candidate_fetching_time

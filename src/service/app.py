@@ -97,7 +97,24 @@ async def debug_info():
     global recommendation_service
     import psutil
     import threading
-    from utils.gcp_utils import get_bigquery_client_stats
+    from utils.gcp_utils import (
+        get_bigquery_client_stats,
+        ValkeyConnectionManager,
+        ValkeyThreadPoolManager,
+    )
+
+    # Get Valkey connection and thread pool stats
+    try:
+        valkey_conn_manager = ValkeyConnectionManager()
+        valkey_conn_stats = valkey_conn_manager.get_connection_stats()
+    except Exception as e:
+        valkey_conn_stats = {"error": str(e)}
+
+    try:
+        valkey_thread_manager = ValkeyThreadPoolManager()
+        valkey_thread_stats = valkey_thread_manager.get_stats()
+    except Exception as e:
+        valkey_thread_stats = {"error": str(e)}
 
     return {
         "status": "ok",
@@ -106,6 +123,8 @@ async def debug_info():
         "memory_usage_mb": psutil.Process().memory_info().rss / 1024 / 1024,
         "cpu_percent": psutil.Process().cpu_percent(),
         "bigquery_client_stats": get_bigquery_client_stats(),
+        "valkey_connection_stats": valkey_conn_stats,
+        "valkey_thread_stats": valkey_thread_stats,
     }
 
 
