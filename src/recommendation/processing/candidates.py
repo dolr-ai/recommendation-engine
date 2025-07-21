@@ -34,6 +34,12 @@ class CandidateManager:
         self.wt_fetcher = None
         self.fallback_fetcher = None
         self.nsfw_label = nsfw_label
+
+        # Track the nsfw_label used for each fetcher
+        self.miou_fetcher_nsfw_label = None
+        self.wt_fetcher_nsfw_label = None
+        self.fallback_fetcher_nsfw_label = None
+
         if nsfw_label is not None:
             self.key_prefix = "nsfw:" if nsfw_label else "clean:"
         else:
@@ -69,21 +75,30 @@ class CandidateManager:
         need_fallback_miou = "fallback_modified_iou" in candidate_type_name_to_num
         need_fallback_wt = "fallback_watch_time_quantile" in candidate_type_name_to_num
 
-        # Only initialize the fetchers we need
-        if need_miou and not self.miou_fetcher:
+        # Only initialize the fetchers we need, considering nsfw_label
+        if need_miou and (
+            not self.miou_fetcher or self.miou_fetcher_nsfw_label != nsfw_label
+        ):
             self.miou_fetcher = ModifiedIoUCandidateFetcher(
                 nsfw_label=nsfw_label, config=self.valkey_config
             )
+            self.miou_fetcher_nsfw_label = nsfw_label
 
-        if need_wt and not self.wt_fetcher:
+        if need_wt and (
+            not self.wt_fetcher or self.wt_fetcher_nsfw_label != nsfw_label
+        ):
             self.wt_fetcher = WatchTimeQuantileCandidateFetcher(
                 nsfw_label=nsfw_label, config=self.valkey_config
             )
+            self.wt_fetcher_nsfw_label = nsfw_label
 
-        if (need_fallback_miou or need_fallback_wt) and not self.fallback_fetcher:
+        if (need_fallback_miou or need_fallback_wt) and (
+            not self.fallback_fetcher or self.fallback_fetcher_nsfw_label != nsfw_label
+        ):
             self.fallback_fetcher = FallbackCandidateFetcher(
                 nsfw_label=nsfw_label, config=self.valkey_config
             )
+            self.fallback_fetcher_nsfw_label = nsfw_label
 
     def _fetch_miou_candidates(self, cluster_id, query_videos):
         """Fetch Modified IoU candidates in parallel."""

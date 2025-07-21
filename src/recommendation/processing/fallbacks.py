@@ -33,7 +33,7 @@ class FallbackManager:
             nsfw_label: Whether to use NSFW or clean fallbacks (can be None)
         """
         self.valkey_config = valkey_config
-        self.fallback_fetchers = {}  # Cache fetchers by type
+        self.fallback_fetchers = {}  # Cache fetchers by type and nsfw_label
         logger.info("FallbackManager initialized")
 
     def get_fallback_recommendations(
@@ -61,15 +61,18 @@ class FallbackManager:
             return {"recommendations": [], "fallback_recommendations": []}
 
         try:
-            # Get or initialize fetcher for this type
-            if fallback_type not in self.fallback_fetchers:
+            # Create cache key that includes both fallback_type and nsfw_label
+            cache_key = f"{fallback_type}_{nsfw_label}"
+
+            # Get or initialize fetcher for this type and nsfw_label combination
+            if cache_key not in self.fallback_fetchers:
                 fetcher_class = self.FALLBACK_FETCHERS[fallback_type]
-                self.fallback_fetchers[fallback_type] = fetcher_class(
+                self.fallback_fetchers[cache_key] = fetcher_class(
                     nsfw_label=nsfw_label, config=self.valkey_config
                 )
 
             # Get all available fallbacks
-            fetcher = self.fallback_fetchers[fallback_type]
+            fetcher = self.fallback_fetchers[cache_key]
             all_fetched_fallback_recs = fetcher.get_fallbacks(fallback_type)
 
             if not all_fetched_fallback_recs:

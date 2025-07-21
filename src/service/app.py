@@ -23,10 +23,11 @@ from service.models import (
 )
 from history.get_realtime_history_items import UserRealtimeHistory
 from service.recommendation_service import RecommendationService
+from service.fallback_recommendation_service import FallbackRecommendationService
 
 logger = get_logger(__name__)
 
-MAX_UNIQUE_HISTORY_ITEMS = 500
+MAX_UNIQUE_HISTORY_ITEMS = 100
 
 # Create FastAPI app
 app = FastAPI(
@@ -54,12 +55,18 @@ async def startup_event():
     """Initialize recommendation service on startup."""
     global recommendation_service
     global user_realtime_history
+    global fallback_recommendation_service
+
+    # Initialize services
     logger.info("Starting up recommendation service")
     try:
         # Initialize the recommendation service singleton
         recommendation_service = RecommendationService.get_instance()
-        user_realtime_history = UserRealtimeHistory()
         logger.info("Recommendation service initialized")
+        user_realtime_history = UserRealtimeHistory()
+        logger.info("User realtime history initialized")
+        fallback_recommendation_service = FallbackRecommendationService.get_instance()
+        logger.info("Fallback recommendation service initialized")
     except Exception as e:
         logger.error(f"Failed to initialize recommendation service: {e}")
         raise
@@ -211,6 +218,26 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
 
 
 @app.post(
+    "/recommendations/cache",
+    tags=["CacheRecommendations"],
+    response_model_exclude_none=True,
+)
+async def get_cache_recommendations(request: RecommendationRequest):
+    """
+    Get recommendations from cache.
+    """
+    logger.info(f"Received cache recommendation request for user {request.user_id}")
+
+    recommendations = fallback_recommendation_service.get_cached_recommendations(
+        user_id=request.user_id,
+        nsfw_label=request.nsfw_label,
+        num_results=request.num_results,
+    )
+
+    return JSONResponse(content=recommendations)
+
+
+@app.post(
     "/recommendations",
     tags=["Recommendations"],
     response_model_exclude_none=True,
@@ -303,7 +330,7 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        workers=int(os.environ.get("WORKERS", 32)),
+        # workers=int(os.environ.get("WORKERS", 32)),
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,
