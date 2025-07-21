@@ -140,7 +140,7 @@ class ValkeyConnectionManager:
         logger.info("ValkeyConnectionManager singleton initialized")
 
     def get_connection(
-        self, config: dict, connection_key: str = "default"
+        self, config: dict, connection_key: str = "default", gcp_core=None
     ) -> "ValkeyService":
         """
         Get or create a shared Valkey connection.
@@ -148,6 +148,7 @@ class ValkeyConnectionManager:
         Args:
             config: Valkey configuration dictionary
             connection_key: Unique key for this connection configuration
+            gcp_core: Optional GCPCore instance to use (if not provided, creates new one)
 
         Returns:
             Shared ValkeyService instance
@@ -157,8 +158,13 @@ class ValkeyConnectionManager:
                 try:
                     from utils.valkey_utils import ValkeyService
 
-                    # Create GCPCore instance for Valkey
-                    gcp_core = GCPCore()
+                    # Use provided GCPCore or create new one
+                    if gcp_core is None:
+                        # Create GCPCore instance for Valkey - need credentials
+                        logger.warning(
+                            "No GCPCore provided, creating new one - this may fail without proper credentials"
+                        )
+                        gcp_core = GCPCore()
 
                     # Create ValkeyService with configuration
                     valkey_service = ValkeyService(

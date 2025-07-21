@@ -102,6 +102,7 @@ async def debug_info():
         ValkeyConnectionManager,
         ValkeyThreadPoolManager,
     )
+    from recommendation.data.backend import get_video_metadata_cache_stats
 
     # Get Valkey connection and thread pool stats
     try:
@@ -116,6 +117,12 @@ async def debug_info():
     except Exception as e:
         valkey_thread_stats = {"error": str(e)}
 
+    # Get video metadata cache stats
+    try:
+        video_cache_stats = get_video_metadata_cache_stats()
+    except Exception as e:
+        video_cache_stats = {"error": str(e)}
+
     return {
         "status": "ok",
         "service_initialized": recommendation_service is not None,
@@ -125,6 +132,7 @@ async def debug_info():
         "bigquery_client_stats": get_bigquery_client_stats(),
         "valkey_connection_stats": valkey_conn_stats,
         "valkey_thread_stats": valkey_thread_stats,
+        "video_metadata_cache_stats": video_cache_stats,
     }
 
 

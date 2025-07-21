@@ -98,6 +98,10 @@ class MetadataFetcher(ABC):
             nsfw_label: Whether to use NSFW or clean metadata
             config: Optional configuration dictionary to override defaults
         """
+        # Store nsfw_label FIRST before any other initialization
+        self.nsfw_label = nsfw_label
+        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
+
         self.config = DEFAULT_CONFIG.copy()
         if config:
             self._update_nested_dict(self.config, config)
@@ -105,12 +109,8 @@ class MetadataFetcher(ABC):
         # Setup GCP utils directly from environment variable
         self.gcp_utils = self._setup_gcp_utils()
 
-        # Initialize Valkey service
+        # Initialize Valkey service (now nsfw_label is available)
         self._init_valkey_service()
-
-        # Store nsfw_label for key prefixing
-        self.nsfw_label = nsfw_label
-        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
 
     def _update_nested_dict(self, d: Dict, u: Dict) -> Dict:
         """Recursively update nested dictionary."""
@@ -141,9 +141,11 @@ class MetadataFetcher(ABC):
             # Create connection key based on config and nsfw_label
             connection_key = f"metadata_{self.nsfw_label}_{hash(str(sorted(self.config['valkey'].items())))}"
 
-            # Get shared Valkey service
+            # Get shared Valkey service, passing our GCP core
             self.valkey_service = valkey_conn_manager.get_connection(
-                config=self.config["valkey"], connection_key=connection_key
+                config=self.config["valkey"],
+                connection_key=connection_key,
+                gcp_core=self.gcp_utils.core,
             )
 
             # Get shared thread pool manager

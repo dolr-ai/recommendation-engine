@@ -389,17 +389,19 @@ class RecommendationEngine:
         high_load_detected = False
         if hasattr(self, "_recent_latencies"):
             # Check if recent requests have been slow (simple circuit breaker)
-            recent_avg = sum(self._recent_latencies[-10:]) / min(
-                len(self._recent_latencies), 10
-            )
-            if recent_avg > 15.0:  # If average latency > 15s, reduce complexity
-                high_load_detected = True
-                logger.warning(
-                    f"High load detected (avg latency: {recent_avg:.1f}s), reducing processing complexity"
+            if (
+                len(self._recent_latencies) > 0
+            ):  # Only calculate if we have latency data
+                recent_avg = sum(self._recent_latencies[-10:]) / min(
+                    len(self._recent_latencies), 10
                 )
-                max_workers = min(max_workers, 4)  # Reduce parallelism
-                if num_results > 20:
-                    num_results = 20  # Reduce result set size
+                if recent_avg > 10.0:  # If average latency > 10s, reduce complexity
+                    high_load_detected = True
+                    logger.warning(
+                        f"High load detected (avg latency: {recent_avg:.1f}s), reducing processing complexity"
+                    )
+                    max_workers = min(max_workers, 4)  # Reduce parallelism
+
         else:
             self._recent_latencies = []
 

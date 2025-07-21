@@ -1,8 +1,15 @@
 from utils.gcp_utils import GCPUtils
 import os
 from utils.common_utils import get_logger
+import threading
+from typing import Dict, List
 
 logger = get_logger(__name__)
+
+# Global cache for video metadata to prevent repeated BigQuery calls
+_video_metadata_cache = {}
+_cache_lock = threading.Lock()
+_cache_stats = {"hits": 0, "misses": 0, "queries": 0}
 
 
 def transform_mixer_output(mixer_output):
@@ -29,7 +36,7 @@ def transform_mixer_output(mixer_output):
 
 def get_video_metadata(video_ids, gcp_utils):
     """
-    Get metadata for video IDs from BigQuery.
+    Get metadata for video IDs from BigQuery with caching.
 
     Args:
         video_ids: List of video IDs to fetch metadata for
@@ -42,74 +49,130 @@ def get_video_metadata(video_ids, gcp_utils):
         logger.warning("Empty video IDs list")
         return []
 
-    try:
-        # Format video IDs for SQL query
-        video_ids_str = ", ".join([f"'{video_id}'" for video_id in video_ids])
+    # Remove duplicates while preserving order
+    unique_video_ids = list(dict.fromkeys(video_ids))
 
-        # The BigQuery table containing video metadata
-        video_index_table = os.environ.get(
-            "VIDEO_INDEX_TABLE",
-            "jay-dhanwant-experiments.stage_tables.stage_video_index",
-        )
+    # Check cache for existing metadata
+    cached_metadata = {}
+    uncached_video_ids = []
 
-        # Construct and execute BigQuery query
-        query = f"""
-        SELECT
-            vi.uri,
-            vi.post_id,
-            vi.canister_id,
-            vi.publisher_user_id,
-            `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) as video_id,
-            CAST(nsfw.probability AS FLOAT64) as nsfw_probability
-        FROM `{video_index_table}` vi
-        LEFT JOIN `jay-dhanwant-experiments.stage_tables.stage_video_nsfw_agg` nsfw
-            ON `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) = nsfw.video_id
-        WHERE `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) IN ({video_ids_str})
-        """
+    with _cache_lock:
+        for video_id in unique_video_ids:
+            if video_id in _video_metadata_cache:
+                cached_metadata[video_id] = _video_metadata_cache[video_id]
+                _cache_stats["hits"] += 1
+            else:
+                uncached_video_ids.append(video_id)
+                _cache_stats["misses"] += 1
 
-        logger.debug(f"Executing BigQuery: {query}")
+    logger.debug(
+        f"Cache stats: {len(cached_metadata)} hits, {len(uncached_video_ids)} misses"
+    )
 
-        # Execute the query
-        results_df = gcp_utils.bigquery.execute_query(query, to_dataframe=True)
+    # Fetch uncached metadata from BigQuery
+    new_metadata = {}
+    if uncached_video_ids:
+        try:
+            _cache_stats["queries"] += 1
 
-        # Set nsfw_probability to 0 and convert post_id to int
-        results_df["nsfw_probability"] = results_df["nsfw_probability"].fillna(0.0)
-        results_df["post_id"] = results_df["post_id"].astype(int)
+            # Format video IDs for SQL query
+            video_ids_str = ", ".join(
+                [f"'{video_id}'" for video_id in uncached_video_ids]
+            )
 
-        # Identify records with NA values in critical columns
-        na_mask = (
-            results_df[["video_id", "post_id", "canister_id", "publisher_user_id"]]
-            .isna()
-            .any(axis=1)
-        )
-        na_records = results_df[na_mask]
+            # The BigQuery table containing video metadata
+            video_index_table = os.environ.get(
+                "VIDEO_INDEX_TABLE",
+                "jay-dhanwant-experiments.stage_tables.stage_video_index",
+            )
 
-        # Log the records with NA values
-        if not na_records.empty:
-            logger.warning(f"Found {len(na_records)} records with NA values:")
-            logger.warning(na_records.to_dict(orient="records"))
-            logger.warning("end logging NA records")
+            # Construct and execute BigQuery query
+            query = f"""
+            SELECT
+                vi.uri,
+                vi.post_id,
+                vi.canister_id,
+                vi.publisher_user_id,
+                `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) as video_id,
+                CAST(nsfw.probability AS FLOAT64) as nsfw_probability
+            FROM `{video_index_table}` vi
+            LEFT JOIN `jay-dhanwant-experiments.stage_tables.stage_video_nsfw_agg` nsfw
+                ON `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) = nsfw.video_id
+            WHERE `jay-dhanwant-experiments.stage_test_tables.extract_video_id`(vi.uri) IN ({video_ids_str})
+            """
 
-        # Drop records with NA values from the results
-        results_df = results_df[~na_mask]
-        results_df = results_df.reset_index(drop=True)
+            logger.debug(
+                f"Executing BigQuery for {len(uncached_video_ids)} uncached video IDs"
+            )
 
-        # Convert results to the expected format using to_dict
-        metadata_list = results_df[
-            [
-                "video_id",
-                "canister_id",
-                "post_id",
-                "publisher_user_id",
-                "nsfw_probability",
-            ]
-        ].to_dict(orient="records")
+            # Execute the query
+            results_df = gcp_utils.bigquery.execute_query(query, to_dataframe=True)
 
-        return metadata_list
+            # Set nsfw_probability to 0 and convert post_id to int
+            results_df["nsfw_probability"] = results_df["nsfw_probability"].fillna(0.0)
+            results_df["post_id"] = results_df["post_id"].astype(int)
 
-    except Exception as e:
-        logger.error(f"Error fetching video metadata from BigQuery: {e}", exc_info=True)
-        return []
+            # Identify records with NA values in critical columns
+            na_mask = (
+                results_df[["video_id", "post_id", "canister_id", "publisher_user_id"]]
+                .isna()
+                .any(axis=1)
+            )
+            na_records = results_df[na_mask]
+
+            # Log the records with NA values
+            if not na_records.empty:
+                logger.warning(f"Found {len(na_records)} records with NA values:")
+                logger.warning(na_records.to_dict(orient="records"))
+                logger.warning("end logging NA records")
+
+            # Drop records with NA values from the results
+            results_df = results_df[~na_mask]
+            results_df = results_df.reset_index(drop=True)
+
+            # Convert results to the expected format using to_dict
+            metadata_list = results_df[
+                [
+                    "video_id",
+                    "canister_id",
+                    "post_id",
+                    "publisher_user_id",
+                    "nsfw_probability",
+                ]
+            ].to_dict(orient="records")
+
+            # Cache the new metadata
+            with _cache_lock:
+                for item in metadata_list:
+                    video_id = item["video_id"]
+                    _video_metadata_cache[video_id] = item
+                    new_metadata[video_id] = item
+
+                # Log cache statistics periodically
+                total_requests = _cache_stats["hits"] + _cache_stats["misses"]
+                if total_requests > 0 and total_requests % 100 == 0:
+                    hit_rate = (_cache_stats["hits"] / total_requests) * 100
+                    logger.info(
+                        f"Video metadata cache stats: {hit_rate:.1f}% hit rate, "
+                        f"{len(_video_metadata_cache)} cached items, "
+                        f"{_cache_stats['queries']} BigQuery calls"
+                    )
+
+        except Exception as e:
+            logger.error(
+                f"Error fetching video metadata from BigQuery: {e}", exc_info=True
+            )
+            return []
+
+    # Combine cached and new metadata, preserving original order
+    all_metadata = {**cached_metadata, **new_metadata}
+    result_metadata = []
+
+    for video_id in unique_video_ids:
+        if video_id in all_metadata:
+            result_metadata.append(all_metadata[video_id])
+
+    return result_metadata
 
 
 def transform_recommendations_with_metadata(mixer_output, gcp_utils):
@@ -152,6 +215,41 @@ def transform_recommendations_with_metadata(mixer_output, gcp_utils):
     }
 
     return result
+
+
+def get_video_metadata_cache_stats():
+    """
+    Get video metadata cache statistics.
+
+    Returns:
+        Dictionary with cache statistics
+    """
+    with _cache_lock:
+        total_requests = _cache_stats["hits"] + _cache_stats["misses"]
+        hit_rate = (
+            (_cache_stats["hits"] / total_requests * 100) if total_requests > 0 else 0
+        )
+
+        return {
+            "cache_size": len(_video_metadata_cache),
+            "total_requests": total_requests,
+            "cache_hits": _cache_stats["hits"],
+            "cache_misses": _cache_stats["misses"],
+            "hit_rate_percent": hit_rate,
+            "bigquery_calls": _cache_stats["queries"],
+        }
+
+
+def clear_video_metadata_cache():
+    """
+    Clear the video metadata cache (for testing or memory management).
+    """
+    with _cache_lock:
+        _video_metadata_cache.clear()
+        _cache_stats["hits"] = 0
+        _cache_stats["misses"] = 0
+        _cache_stats["queries"] = 0
+    logger.info("Video metadata cache cleared")
 
 
 if __name__ == "__main__":
