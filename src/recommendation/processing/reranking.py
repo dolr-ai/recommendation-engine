@@ -6,8 +6,6 @@ This module provides functionality for reranking candidates based on similarity 
 
 import time
 import re
-import concurrent.futures
-from functools import partial
 from collections import OrderedDict
 from datetime import datetime
 import pandas as pd
@@ -165,15 +163,15 @@ class RerankingManager:
         max_workers=4,
     ):
         """
-        Process multiple query videos and candidate types in batch to calculate similarity scores.
-        Each candidate type is processed in parallel.
+        Process multiple query videos and candidate types using BATCHED BigQuery similarity calculation.
+        Instead of 4 separate BigQuery calls, this makes 1 combined call for all candidate types.
 
         Args:
             query_videos: List of query video IDs
             candidate_type_info: Dictionary mapping candidate type numbers to their info
             all_candidates: Dictionary of all candidates organized by query video and type
             enable_deduplication: Whether to remove duplicates from candidates
-            max_workers: Maximum number of worker threads for parallel processing
+            max_workers: Maximum number of worker threads (unused in batched approach)
 
         Returns:
             Dictionary mapping each query video to a dictionary of candidate types and their formatted results
@@ -185,48 +183,30 @@ class RerankingManager:
             for type_num in sorted(candidate_type_info.keys()):
                 batch_results[q_video_id][type_num] = []
 
-        # Process each candidate type in parallel
-        tasks = []
-        for type_num, type_info in candidate_type_info.items():
-            tasks.append((type_num, type_info))
+        logger.info(
+            f"🚀 BATCHED BigQuery approach: Processing {len(query_videos)} query videos with {len(candidate_type_info)} candidate types in SINGLE query"
+        )
 
-        results = []
-        successful_tasks = 0
-        failed_tasks = 0
+        # Use the new batched similarity calculation instead of parallel processing
+        batch_similarity_results = self.similarity_manager.calculate_similarity_batch(
+            query_videos=query_videos,
+            candidate_type_info=candidate_type_info,
+            all_candidates=all_candidates,
+            enable_deduplication=enable_deduplication,
+        )
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Create a partial function with fixed arguments
-            process_func = partial(
-                self._process_single_candidate_type,
-                query_videos=query_videos,
-                all_candidates=all_candidates,
-                enable_deduplication=enable_deduplication,
-            )
-
-            # Submit all tasks
-            future_to_task = {
-                executor.submit(process_func, t_num, t_info): t_num
-                for t_num, t_info in tasks
-            }
-
-            # Collect results as they complete
-            for future in concurrent.futures.as_completed(future_to_task):
-                try:
-                    type_num, type_results = future.result()
-                    results.append((type_num, type_results))
-                    successful_tasks += 1
-                except Exception as exc:
-                    t_num = future_to_task[future]
-                    logger.error(
-                        f"Task for candidate type {t_num} generated an exception: {exc}",
-                        exc_info=True,
-                    )
-                    failed_tasks += 1
-
-        # Merge results into the batch_results structure
-        for type_num, type_results in results:
-            for q_video_id, formatted_results in type_results.items():
-                batch_results[q_video_id][type_num] = formatted_results
+        # Convert to the expected format
+        for q_video_id in query_videos:
+            for type_num in sorted(candidate_type_info.keys()):
+                if (
+                    type_num in batch_similarity_results
+                    and q_video_id in batch_similarity_results[type_num]
+                ):
+                    batch_results[q_video_id][type_num] = batch_similarity_results[
+                        type_num
+                    ][q_video_id]
+                else:
+                    batch_results[q_video_id][type_num] = []
 
         return batch_results
 
@@ -297,6 +277,7 @@ class RerankingManager:
             return pd.DataFrame(columns=columns)
 
         # 2. Fetch candidates for all query videos
+        t_candidates_start = time.time()
         self.candidate_manager._set_key_prefix(nsfw_label)
         all_candidates = self.candidate_manager.fetch_candidates(
             query_videos,
@@ -306,6 +287,11 @@ class RerankingManager:
             nsfw_label=nsfw_label,  # Pass nsfw_label to determine content type
             max_fallback_candidates=max_fallback_candidates,
             max_workers=max_workers,  # Pass max_workers to enable parallel fetching
+        )
+        t_candidates_end = time.time()
+        candidate_fetching_time = t_candidates_end - t_candidates_start
+        logger.info(
+            f"⏱️ Candidate fetching took: {t_candidates_end - t_candidates_start:.3f} seconds"
         )
         bq_time = 0
         t0 = time.time()
@@ -319,7 +305,7 @@ class RerankingManager:
         )
         t1 = time.time()
         bq_time = t1 - t0  # seconds
-        logger.info(f"total time taken for bq similarity: {bq_time:.3f} seconds")
+        logger.info(f"⏱️ BQ similarity took: {bq_time:.3f} seconds")
 
         # Convert to DataFrame format
         df_data = []
@@ -335,4 +321,4 @@ class RerankingManager:
         # Create DataFrame with query videos ordered from latest to oldest watched
         result_df = pd.DataFrame(df_data)
         logger.info(f"total rows in result_df: {len(result_df)} for user: {user_id}")
-        return result_df, bq_time
+        return result_df, bq_time, candidate_fetching_time

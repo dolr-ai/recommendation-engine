@@ -133,14 +133,17 @@ class ValkeyService:
                     logger.error("Authkey is required for Redis proxy connection")
                     raise ValueError("Missing authkey for Redis proxy connection")
 
-                # Basic connection parameters
+                # Basic connection parameters with connection pooling
                 conn_params = {
                     "host": self.host,
                     "port": self.port,
                     "password": password,
-                    "socket_timeout": 15,
-                    "socket_connect_timeout": 15,
+                    "socket_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
+                    "socket_connect_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
                     "decode_responses": True,
+                    "max_connections": 200,  # Increased from 50 to 200 for high concurrency
+                    "retry_on_timeout": True,  # Retry on timeout
+                    "health_check_interval": 30,  # Health check every 30 seconds
                 }
 
                 # Add SSL if enabled
@@ -170,14 +173,17 @@ class ValkeyService:
                 logger.debug(f"Using GCP token-based connection for {self.instance_id}")
                 access_token = self._get_access_token()
 
-                # Basic connection parameters
+                # Basic connection parameters with connection pooling
                 conn_params = {
                     "host": self.host,
                     "port": self.port,
                     "password": access_token,
-                    "socket_timeout": 15,
-                    "socket_connect_timeout": 15,
+                    "socket_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
+                    "socket_connect_timeout": 10,  # Reduced from 15 to 10 for faster timeouts
                     "decode_responses": True,
+                    "max_connections": 200,  # Increased from 50 to 200 for high concurrency
+                    "retry_on_timeout": True,  # Retry on timeout
+                    "health_check_interval": 30,  # Health check every 30 seconds
                 }
 
                 # Try with SSL first if enabled

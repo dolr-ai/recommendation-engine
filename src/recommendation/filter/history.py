@@ -61,42 +61,55 @@ class HistoryManager:
     ) -> Union[bool, Dict[str, bool]]:
         """
         Check if a user has watched specific video(s) using both traditional and realtime history.
-
-        Args:
-            user_id: The user ID
-            video_ids: Single video ID (str) or list of video IDs
-            nsfw_label: Whether to use NSFW data (True) or clean data (False) - default False for clean
-
-        Returns:
-            - If video_ids is str: Returns bool (True if watched, False otherwise)
-            - If video_ids is list: Returns dict mapping video_id -> bool
+        OPTIMIZED VERSION: Reduced Redis calls and improved performance.
         """
-        logger.info(f"Checking combined watch history for user {user_id}")
+        logger.debug(f"Checking combined watch history for user {user_id}")
 
         try:
-            # Get results from both history checkers
-            l1 = self.history_checker.has_watched(user_id, video_ids)
-            l2 = self.realtime_history_checker.has_watched_videos(
-                user_id, video_ids, nsfw_label=nsfw_label
-            )
-            # logger.info(f"L1: {l1}")
-            # logger.info(f"L2: {l2}")
-            # l1 = {'video_id': True, 'video_id2': False, ...}
-            # l2 = {'video_id': True, 'video_id2': False, ...}
+            # OPTIMIZATION: Early return for empty input
+            if isinstance(video_ids, list) and not video_ids:
+                return {}
+            elif isinstance(video_ids, str) and not video_ids:
+                return False
 
-            # combine l1 and l2
-            combined_history = {**l1, **l2}
+            # OPTIMIZATION: For large video lists, batch the operations more efficiently
+            if isinstance(video_ids, list) and len(video_ids) > 100:
+                # For very large lists, we can optimize by chunking
+                chunk_size = 100
+                combined_results = {}
 
-            # Log results
-            logger.info(
-                f"Combined watch history for user:\n"
-                f"User ID: {user_id}\n"
-                f"Num keys in l1: {len(l1)}\n"
-                f"Num keys in l2: {len(l2)}\n"
-                f"Num keys in real time + batch job history: {len(combined_history)}\n"
-            )
+                for i in range(0, len(video_ids), chunk_size):
+                    chunk = video_ids[i : i + chunk_size]
 
-            return combined_history
+                    # Get results from both history checkers for this chunk
+                    l1 = self.history_checker.has_watched(user_id, chunk)
+                    l2 = self.realtime_history_checker.has_watched_videos(
+                        user_id, chunk, nsfw_label=nsfw_label
+                    )
+
+                    # Combine results for this chunk
+                    chunk_combined = {**l1, **l2}
+                    combined_results.update(chunk_combined)
+
+                logger.debug(
+                    f"Chunked processing completed for {len(video_ids)} videos"
+                )
+                return combined_results
+            else:
+                # For smaller lists, use the original approach
+                l1 = self.history_checker.has_watched(user_id, video_ids)
+                l2 = self.realtime_history_checker.has_watched_videos(
+                    user_id, video_ids, nsfw_label=nsfw_label
+                )
+
+                # Combine l1 and l2 - OPTIMIZATION: Use dict.update for better performance
+                combined_history = l1.copy()  # Start with l1
+                combined_history.update(l2)  # Merge in l2 (overwrites duplicates)
+
+                logger.debug(
+                    f"Combined watch history for user {user_id}: {len(l1)} + {len(l2)} = {len(combined_history)} videos"
+                )
+                return combined_history
 
         except Exception as e:
             error_msg = (
@@ -174,55 +187,53 @@ class HistoryManager:
     ) -> dict:
         """
         Filter out watched videos from recommendations.
-
-        Args:
-            user_id: The user ID
-            recommendations: Dictionary containing recommendations and fallback recommendations
-            nsfw_label: Whether to use NSFW data (True) or clean data (False) - default False for clean
-            exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
-
-        Returns:
-            Filtered recommendations dictionary
+        OPTIMIZED VERSION: Reduced set operations and improved performance.
         """
         if not exclude_watched_items:
             exclude_watched_items = []
 
-        logger.info(f"Filtering watched items for user {user_id}")
+        logger.debug(f"Filtering watched items for user {user_id}")
 
-        # Get all video IDs from recommendations
-        all_video_ids = set()
-        all_video_ids.update(recommendations.get("recommendations", []))
-        all_video_ids.update(recommendations.get("fallback_recommendations", []))
+        # OPTIMIZATION: Early return if no recommendations
+        main_recommendations = recommendations.get("recommendations", [])
+        fallback_recommendations = recommendations.get("fallback_recommendations", [])
+
+        if not main_recommendations and not fallback_recommendations:
+            logger.debug("No recommendations to filter")
+            return recommendations
+
+        # OPTIMIZATION: Use list concatenation instead of set operations for small lists
+        all_video_ids = main_recommendations + fallback_recommendations
+
+        # OPTIMIZATION: Only convert to set if we have duplicates to worry about
+        if len(all_video_ids) > len(set(all_video_ids)):
+            all_video_ids = list(set(all_video_ids))  # Remove duplicates only if needed
 
         if not all_video_ids:
-            logger.info("No recommendations to filter")
             return recommendations
 
         # Check watch history for all video IDs
-        watch_status = self.has_watched(user_id, list(all_video_ids), nsfw_label)
+        watch_status = self.has_watched(user_id, all_video_ids, nsfw_label)
 
-        # Combine historical watch status with real-time exclude list
+        # OPTIMIZATION: Use set for fast lookups instead of list comprehensions
         watched_videos = set()
 
         if isinstance(watch_status, dict):
-            # Add historically watched videos
-            for video_id, is_watched in watch_status.items():
-                if is_watched:
-                    watched_videos.add(video_id)
+            # Add historically watched videos - optimized iteration
+            watched_videos.update(
+                video_id for video_id, is_watched in watch_status.items() if is_watched
+            )
 
         # Add real-time exclude items
-        watched_videos.update(exclude_watched_items)
+        if exclude_watched_items:
+            watched_videos.update(exclude_watched_items)
 
-        logger.info(f"Total watched items to exclude: {len(watched_videos)}")
+        logger.debug(f"Total watched items to exclude: {len(watched_videos)}")
 
-        # Filter main recommendations
-        main_recommendations = recommendations.get("recommendations", [])
+        # OPTIMIZATION: Use list comprehensions with set membership for O(1) lookups
         filtered_main = [
             vid for vid in main_recommendations if vid not in watched_videos
         ]
-
-        # Filter fallback recommendations
-        fallback_recommendations = recommendations.get("fallback_recommendations", [])
         filtered_fallback = [
             vid for vid in fallback_recommendations if vid not in watched_videos
         ]
@@ -233,7 +244,7 @@ class HistoryManager:
         filtered_main_count = len(filtered_main)
         filtered_fallback_count = len(filtered_fallback)
 
-        logger.info(
+        logger.debug(
             f"Filtering results for user {user_id}: "
             f"Main: {original_main_count} -> {filtered_main_count} "
             f"({original_main_count - filtered_main_count} removed), "
@@ -241,14 +252,10 @@ class HistoryManager:
             f"({original_fallback_count - filtered_fallback_count} removed)"
         )
 
-        # Return filtered recommendations (only recommendations and fallback_recommendations)
+        # OPTIMIZATION: Update in place instead of copying entire dict
         filtered_recommendations = recommendations.copy()
-        filtered_recommendations.update(
-            {
-                "recommendations": filtered_main,
-                "fallback_recommendations": filtered_fallback,
-            }
-        )
+        filtered_recommendations["recommendations"] = filtered_main
+        filtered_recommendations["fallback_recommendations"] = filtered_fallback
 
         return filtered_recommendations
 

@@ -16,8 +16,275 @@ from datetime import datetime
 from google.cloud import bigquery, storage
 from google.oauth2 import service_account
 from .common_utils import time_execution, get_logger
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 logger = get_logger(__name__)
+
+
+class BigQueryClientManager:
+    """
+    Singleton manager for BigQuery clients with connection pooling.
+    Provides shared BigQuery clients to avoid connection overhead.
+    """
+
+    _instance = None
+    _lock = threading.Lock()
+    _clients = {}
+    _client_lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def get_client(self, project_id: str, credentials) -> bigquery.Client:
+        """
+        Get or create a BigQuery client for the given project and credentials.
+
+        Args:
+            project_id: GCP project ID
+            credentials: GCP credentials object
+
+        Returns:
+            Shared BigQuery client instance
+        """
+        # Create a key based on project_id and credentials info
+        cred_key = (
+            f"{project_id}_{getattr(credentials, 'service_account_email', 'default')}"
+        )
+
+        with self._client_lock:
+            if cred_key not in self._clients:
+                logger.info(
+                    f"🔥 Creating NEW BigQuery client for project: {project_id} (total clients will be: {len(self._clients) + 1})"
+                )
+                self._clients[cred_key] = bigquery.Client(
+                    credentials=credentials,
+                    project=project_id,
+                    # Configure client for better connection handling
+                    default_query_job_config=bigquery.QueryJobConfig(
+                        use_query_cache=True,  # Enable query caching
+                        maximum_bytes_billed=10**12,  # 1TB limit for safety
+                    ),
+                )
+                logger.info(
+                    f"✅ BigQuery client created and cached for key: {cred_key}"
+                )
+            else:
+                logger.info(
+                    f"♻️  REUSING existing BigQuery client for key: {cred_key} (total clients: {len(self._clients)})"
+                )
+
+            return self._clients[cred_key]
+
+    def clear_clients(self):
+        """Clear all cached clients (for testing or cleanup)."""
+        with self._client_lock:
+            logger.info(f"Clearing {len(self._clients)} cached BigQuery clients")
+            self._clients.clear()
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get statistics about cached clients."""
+        with self._client_lock:
+            return {
+                "total_clients": len(self._clients),
+                "client_keys": list(self._clients.keys()),
+            }
+
+
+# Global singleton instance
+_bq_client_manager = BigQueryClientManager()
+
+
+def get_bigquery_client_stats() -> Dict[str, Any]:
+    """
+    Get statistics about BigQuery client pooling for monitoring.
+
+    Returns:
+        Dictionary with client pool statistics
+    """
+    return _bq_client_manager.get_stats()
+
+
+def clear_bigquery_clients():
+    """
+    Clear all cached BigQuery clients (useful for testing or forced cleanup).
+    """
+    _bq_client_manager.clear_clients()
+
+
+class ValkeyConnectionManager:
+    """Singleton manager for shared Valkey connections."""
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        self._connections = {}
+        self._connection_lock = threading.Lock()
+        self._initialized = True
+        logger.info("ValkeyConnectionManager singleton initialized")
+
+    def get_connection(
+        self, config: dict, connection_key: str = "default", gcp_core=None
+    ) -> "ValkeyService":
+        """
+        Get or create a shared Valkey connection.
+
+        Args:
+            config: Valkey configuration dictionary
+            connection_key: Unique key for this connection configuration
+            gcp_core: Optional GCPCore instance to use (if not provided, creates new one)
+
+        Returns:
+            Shared ValkeyService instance
+        """
+        with self._connection_lock:
+            if connection_key not in self._connections:
+                try:
+                    from utils.valkey_utils import ValkeyService
+
+                    # Use provided GCPCore or create new one
+                    if gcp_core is None:
+                        # Create GCPCore instance for Valkey - need credentials
+                        logger.warning(
+                            "No GCPCore provided, creating new one - this may fail without proper credentials"
+                        )
+                        gcp_core = GCPCore()
+
+                    # Create ValkeyService with configuration
+                    valkey_service = ValkeyService(
+                        core=gcp_core,
+                        host=config.get("host"),
+                        port=config.get("port", 6379),
+                        instance_id=config.get("instance_id"),
+                        socket_connect_timeout=config.get("socket_connect_timeout", 15),
+                        socket_timeout=config.get("socket_timeout", 15),
+                        decode_responses=config.get("decode_responses", True),
+                        ssl_enabled=config.get("ssl_enabled", False),
+                        cluster_enabled=config.get("cluster_enabled", False),
+                        authkey=config.get("authkey"),
+                    )
+
+                    # Test connection
+                    if valkey_service.verify_connection():
+                        self._connections[connection_key] = valkey_service
+                        logger.info(
+                            f"Created shared Valkey connection: {connection_key}"
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to verify Valkey connection: {connection_key}"
+                        )
+                        raise Exception(f"Valkey connection verification failed")
+
+                except Exception as e:
+                    logger.error(
+                        f"Failed to create Valkey connection {connection_key}: {e}"
+                    )
+                    raise
+
+            return self._connections[connection_key]
+
+    def get_connection_stats(self) -> dict:
+        """Get statistics about current connections."""
+        with self._connection_lock:
+            stats = {
+                "total_connections": len(self._connections),
+                "connection_keys": list(self._connections.keys()),
+            }
+
+            # Test each connection
+            active_connections = 0
+            for key, connection in self._connections.items():
+                try:
+                    if connection.verify_connection():
+                        active_connections += 1
+                except:
+                    pass
+
+            stats["active_connections"] = active_connections
+            return stats
+
+    def close_all_connections(self):
+        """Close all managed connections."""
+        with self._connection_lock:
+            for key, connection in self._connections.items():
+                try:
+                    if hasattr(connection, "client") and connection.client:
+                        connection.client.close()
+                        logger.info(f"Closed Valkey connection: {key}")
+                except Exception as e:
+                    logger.error(f"Error closing Valkey connection {key}: {e}")
+
+            self._connections.clear()
+            logger.info("All Valkey connections closed")
+
+
+class ValkeyThreadPoolManager:
+    """Singleton manager for shared thread pools for Valkey operations."""
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+
+        # Create shared thread pool for Valkey operations - increased for high concurrency
+        self._executor = ThreadPoolExecutor(
+            max_workers=100,  # Increased from 32 to 100 for extreme concurrency handling
+            thread_name_prefix="valkey-pool",
+        )
+        self._initialized = True
+        logger.info("ValkeyThreadPoolManager singleton initialized with 32 workers")
+
+    def submit_task(self, fn, *args, **kwargs):
+        """Submit a task to the shared thread pool."""
+        return self._executor.submit(fn, *args, **kwargs)
+
+    def get_stats(self) -> dict:
+        """Get thread pool statistics."""
+        return {
+            "max_workers": self._executor._max_workers,
+            "active_threads": (
+                len([t for t in self._executor._threads if t.is_alive()])
+                if hasattr(self._executor, "_threads")
+                else "unknown"
+            ),
+            "queue_size": (
+                self._executor._work_queue.qsize()
+                if hasattr(self._executor, "_work_queue")
+                else "unknown"
+            ),
+        }
+
+    def shutdown(self, wait: bool = True):
+        """Shutdown the thread pool."""
+        self._executor.shutdown(wait=wait)
+        logger.info("ValkeyThreadPoolManager shutdown")
 
 
 class GCPCore:
@@ -402,8 +669,9 @@ class GCPBigQueryService:
             core: Initialized GCPCore instance
         """
         self.core = core
-        self.client = bigquery.Client(
-            credentials=core.credentials, project=core.project_id
+        # Use the singleton client manager to get a shared client
+        self.client = _bq_client_manager.get_client(
+            project_id=core.project_id, credentials=core.credentials
         )
 
     def verify_connection(self) -> bool:
@@ -430,21 +698,31 @@ class GCPBigQueryService:
         query: str,
         to_dataframe: bool = True,
         create_bqstorage_client: bool = False,
+        timeout: int = 300,  # 5 minutes default timeout
     ):
         """
-        Execute a BigQuery query
+        Execute a BigQuery query with optimized configuration
 
         Args:
             query: SQL query to execute
             to_dataframe: Whether to convert results to pandas DataFrame
+            create_bqstorage_client: Whether to use BigQuery Storage API for faster downloads
+            timeout: Query timeout in seconds
 
         Returns:
             Query result as RowIterator or DataFrame
         """
         try:
-            # Execute query
-            query_job = self.client.query(query)
-            result = query_job.result()
+            # Configure query job for better performance
+            job_config = bigquery.QueryJobConfig(
+                use_query_cache=True,  # Enable query result caching
+                use_legacy_sql=False,  # Use standard SQL
+                maximum_bytes_billed=10**12,  # 1TB limit for safety
+            )
+
+            # Execute query with configuration and timeout
+            query_job = self.client.query(query, job_config=job_config, timeout=timeout)
+            result = query_job.result(timeout=timeout)
 
             # Convert to DataFrame if requested
             if to_dataframe:

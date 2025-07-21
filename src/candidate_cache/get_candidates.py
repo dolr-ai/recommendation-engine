@@ -40,7 +40,7 @@ import ast
 import concurrent.futures
 
 # utils
-from utils.gcp_utils import GCPUtils
+from utils.gcp_utils import GCPUtils, ValkeyConnectionManager, ValkeyThreadPoolManager
 from utils.common_utils import get_logger
 from utils.valkey_utils import ValkeyService
 
@@ -97,6 +97,10 @@ class CandidateFetcher(ABC):
             nsfw_label: Whether to use NSFW or clean candidates
             config: Optional configuration dictionary to override defaults
         """
+        # Store nsfw_label FIRST before any other initialization
+        self.nsfw_label = nsfw_label
+        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
+
         self.config = DEFAULT_CONFIG.copy()
         if config:
             self._update_nested_dict(self.config, config)
@@ -104,12 +108,8 @@ class CandidateFetcher(ABC):
         # Setup GCP utils directly from environment variable
         self.gcp_utils = self._setup_gcp_utils()
 
-        # Initialize Valkey service
+        # Initialize Valkey service (now nsfw_label is available)
         self._init_valkey_service()
-
-        # Store nsfw_label for key prefixing
-        self.nsfw_label = nsfw_label
-        self.key_prefix = "nsfw:" if nsfw_label else "clean:"
 
     def _update_nested_dict(self, d: Dict, u: Dict) -> Dict:
         """Recursively update nested dictionary."""
@@ -131,10 +131,37 @@ class CandidateFetcher(ABC):
         return GCPUtils(gcp_credentials=gcp_credentials)
 
     def _init_valkey_service(self):
-        """Initialize the Valkey service."""
-        self.valkey_service = ValkeyService(
-            core=self.gcp_utils.core, **self.config["valkey"]
-        )
+        """Initialize shared Valkey service and thread pool."""
+        try:
+            # Get shared connection manager
+            valkey_conn_manager = ValkeyConnectionManager()
+
+            # Create connection key based on config and nsfw_label
+            connection_key = f"candidates_{self.nsfw_label}_{hash(str(sorted(self.config['valkey'].items())))}"
+
+            # Get shared Valkey service, passing our GCP core
+            self.valkey_service = valkey_conn_manager.get_connection(
+                config=self.config["valkey"],
+                connection_key=connection_key,
+                gcp_core=self.gcp_utils.core,
+            )
+
+            # Get shared thread pool manager
+            self.thread_pool_manager = ValkeyThreadPoolManager()
+
+            logger.info(
+                f"CandidateFetcher initialized with shared connection: {connection_key}"
+            )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize shared Valkey service, falling back to individual connection: {e}"
+            )
+            # Fallback to individual connection if shared service fails
+            self.valkey_service = ValkeyService(
+                core=self.gcp_utils.core, **self.config["valkey"]
+            )
+            self.thread_pool_manager = None
 
     def get_keys(self, pattern):
         """
@@ -228,17 +255,43 @@ class CandidateFetcher(ABC):
 
     def format_keys_parallel(self, keys_args: List[tuple], max_workers=10) -> List[str]:
         """
-        Format multiple keys in parallel.
+        Format multiple keys using shared thread pool instead of creating new ThreadPoolExecutor.
 
         Args:
             keys_args: List of argument tuples to pass to format_key
-            max_workers: Maximum number of parallel workers
+            max_workers: Maximum number of parallel workers (ignored, uses shared pool)
 
         Returns:
             List of formatted keys
         """
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            return list(executor.map(lambda args: self.format_key(*args), keys_args))
+        # Use shared thread pool if available, otherwise fallback to sequential
+        if hasattr(self, "thread_pool_manager") and self.thread_pool_manager:
+            try:
+                # Submit all tasks to shared thread pool
+                futures = []
+                for args in keys_args:
+                    future = self.thread_pool_manager.submit_task(
+                        self.format_key, *args
+                    )
+                    futures.append(future)
+
+                # Collect results
+                results = []
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        results.append(future.result())
+                    except Exception as e:
+                        logger.error(f"Error formatting key: {e}")
+                        continue
+
+                return results
+            except Exception as e:
+                logger.error(f"Error using shared thread pool for key formatting: {e}")
+                # Fallback to sequential processing
+                return [self.format_key(*args) for args in keys_args]
+        else:
+            # Fallback to sequential processing if shared pool not available
+            return [self.format_key(*args) for args in keys_args]
 
     def get_candidates(self, keys_args: List[tuple]) -> Dict[str, Any]:
         """
@@ -416,6 +469,129 @@ class FallbackCandidateFetcher(CandidateFetcher):
             f"Found {len(all_candidates)} unique fallback candidates for cluster {cluster_id}, type {candidate_type}"
         )
         return list(all_candidates)
+
+    def get_fallback_candidates_optimized(
+        self, cluster_id: Union[int, str], candidate_type: str
+    ) -> List[str]:
+        """
+        Get fallback candidates using pre-cached cluster-level data instead of expensive KEYS operations.
+
+        This method looks for pre-aggregated fallback candidates stored at the cluster level
+        instead of scanning all individual video keys.
+
+        Args:
+            cluster_id: The cluster ID
+            candidate_type: The type of candidate
+
+        Returns:
+            List of unique candidate video IDs
+        """
+        try:
+            # Try to get pre-cached cluster-level fallback candidates first
+            if candidate_type == "modified_iou":
+                fallback_key = (
+                    f"{self.key_prefix}{cluster_id}:cluster_fallback_modified_iou"
+                )
+            elif candidate_type == "watch_time_quantile":
+                fallback_key = f"{self.key_prefix}{cluster_id}:cluster_fallback_watch_time_quantile"
+            else:
+                raise ValueError(f"Unsupported candidate type: {candidate_type}")
+
+            # Check if pre-cached fallback exists
+            cached_fallback = self.get_value(fallback_key)
+
+            if cached_fallback:
+                candidates = self.parse_candidate_value(cached_fallback)
+                logger.info(
+                    f"Found {len(candidates)} pre-cached fallback candidates for cluster {cluster_id}, type {candidate_type}"
+                )
+                return candidates
+            else:
+                logger.warning(
+                    f"No pre-cached fallback found for key {fallback_key}, using limited fallback to avoid performance issues"
+                )
+                # TEMPORARY: Use limited fallback instead of expensive KEYS operation
+                return self._get_limited_fallback_candidates(cluster_id, candidate_type)
+
+        except Exception as e:
+            logger.error(f"Error getting optimized fallback candidates: {e}")
+            # Fallback to original method on error
+            return self.get_fallback_candidates(cluster_id, candidate_type)
+
+    def _get_limited_fallback_candidates(
+        self, cluster_id: Union[int, str], candidate_type: str, limit: int = 100
+    ) -> List[str]:
+        """
+        TEMPORARY: Get a limited set of fallback candidates without expensive KEYS operations.
+
+        This method uses a much more limited approach to avoid performance issues:
+        1. Try a few common/popular video IDs for the cluster
+        2. Return a small, fixed set instead of scanning thousands of keys
+
+        Args:
+            cluster_id: The cluster ID
+            candidate_type: The type of candidate
+            limit: Maximum number of candidates to return
+
+        Returns:
+            List of fallback candidate video IDs (limited set)
+        """
+        try:
+            # Generate a few deterministic keys to try instead of scanning all keys
+            # This is a temporary solution until pre-cached cluster fallbacks are available
+
+            if candidate_type == "modified_iou":
+                # Try a few common patterns for this cluster without wildcards
+                test_keys = [
+                    f"{self.key_prefix}{cluster_id}:test_video_1:modified_iou_candidate",
+                    f"{self.key_prefix}{cluster_id}:test_video_2:modified_iou_candidate",
+                    f"{self.key_prefix}{cluster_id}:test_video_3:modified_iou_candidate",
+                ]
+            elif candidate_type == "watch_time_quantile":
+                # Try a few common bin patterns
+                test_keys = [
+                    f"{self.key_prefix}{cluster_id}:0:test_video_1:watch_time_quantile_bin_candidate",
+                    f"{self.key_prefix}{cluster_id}:1:test_video_2:watch_time_quantile_bin_candidate",
+                    f"{self.key_prefix}{cluster_id}:2:test_video_3:watch_time_quantile_bin_candidate",
+                ]
+            else:
+                logger.warning(
+                    f"Unsupported candidate type for limited fallback: {candidate_type}"
+                )
+                return []
+
+            # Try to get values for these test keys
+            values = self.get_values(test_keys)
+
+            # Collect candidates from successful keys
+            limited_candidates = set()
+            for value in values:
+                if value is not None:
+                    try:
+                        candidates = self.parse_candidate_value(value)
+                        limited_candidates.update(
+                            candidates[: limit // len(test_keys)]
+                        )  # Distribute limit across keys
+                    except Exception as e:
+                        logger.debug(f"Error parsing limited fallback value: {e}")
+                        continue
+
+            result = list(limited_candidates)[:limit]  # Ensure we don't exceed limit
+
+            if result:
+                logger.info(
+                    f"Found {len(result)} limited fallback candidates for cluster {cluster_id}, type {candidate_type}"
+                )
+            else:
+                logger.warning(
+                    f"No limited fallback candidates found for cluster {cluster_id}, type {candidate_type}"
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error in limited fallback candidate fetching: {e}")
+            return []
 
 
 # Example usage

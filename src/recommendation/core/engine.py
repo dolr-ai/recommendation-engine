@@ -385,6 +385,26 @@ class RecommendationEngine:
         start_time = datetime.datetime.now()
         user_id = user_profile.get("user_id", "unknown")
 
+        # Circuit breaker: Detect overload conditions and reduce processing complexity
+        high_load_detected = False
+        if hasattr(self, "_recent_latencies"):
+            # Check if recent requests have been slow (simple circuit breaker)
+            if (
+                len(self._recent_latencies) > 0
+            ):  # Only calculate if we have latency data
+                recent_avg = sum(self._recent_latencies[-10:]) / min(
+                    len(self._recent_latencies), 10
+                )
+                if recent_avg > 10.0:  # If average latency > 10s, reduce complexity
+                    high_load_detected = True
+                    logger.warning(
+                        f"High load detected (avg latency: {recent_avg:.1f}s), reducing processing complexity"
+                    )
+                    max_workers = min(max_workers, 4)  # Reduce parallelism
+
+        else:
+            self._recent_latencies = []
+
         # Enrich user profile with metadata if needed
         metadata_found = False
         enriched_profile = self._enrich_user_profile(user_profile, nsfw_label)
@@ -417,21 +437,24 @@ class RecommendationEngine:
             candidate_types = self.config.candidate_types
 
         bq_similarity_time = 0
+        candidate_fetching_time = 0
         if metadata_found:
             # Step 1: Run reranking logic
             rerank_start = datetime.datetime.now()
-            df_reranked, bq_similarity_time = self.reranking_manager.reranking_logic(
-                user_profile=enriched_profile,
-                candidate_types_dict=candidate_types,
-                threshold=threshold,
-                enable_deduplication=enable_deduplication,  # this is just video_id level dedup
-                max_workers=max_workers,
-                max_fallback_candidates=max_fallback_candidates,
-                nsfw_label=nsfw_label,
+            df_reranked, bq_similarity_time, candidate_fetching_time = (
+                self.reranking_manager.reranking_logic(
+                    user_profile=enriched_profile,
+                    candidate_types_dict=candidate_types,
+                    threshold=threshold,
+                    enable_deduplication=enable_deduplication,  # this is just video_id level dedup
+                    max_workers=max_workers,
+                    max_fallback_candidates=max_fallback_candidates,
+                    nsfw_label=nsfw_label,
+                )
             )
             rerank_time = (datetime.datetime.now() - rerank_start).total_seconds()
             logger.info(
-                f"Reranking completed in {rerank_time:.2f} seconds, bq_similarity_time: {bq_similarity_time:.2f} seconds"
+                f"Reranking completed in {rerank_time:.2f} seconds, bq_similarity_time: {bq_similarity_time:.2f} seconds, candidate_fetching_time: {candidate_fetching_time:.2f} seconds"
             )
 
             # Step 2: Run mixer algorithm
@@ -591,6 +614,10 @@ class RecommendationEngine:
         logger.info("Recommendation process timing summary:")
         if metadata_found:
             logger.info(f"  - Reranking step: {rerank_time:.2f} seconds")
+            logger.info(
+                f"  >> Candidate fetching step: {candidate_fetching_time:.2f} seconds"
+            )
+            logger.info(f"  >> BQ similarity step: {bq_similarity_time:.2f} seconds")
             logger.info(f"  - Mixer algorithm step: {mixer_time:.2f} seconds")
         else:
             logger.info(f"  - Fallback logic step: {fallback_time:.2f} seconds")
@@ -609,10 +636,23 @@ class RecommendationEngine:
         recommendations["debug"] = {
             "rerank_time": rerank_time,
             "bq_similarity_time": bq_similarity_time,
+            "candidate_fetching_time": candidate_fetching_time,
             "mixer_time": mixer_time,
             "filter_time": filter_time,
             "reported_time": reported_time,
             "backend_time": backend_time,
             "total_time": total_time,
         }
+
+        # Track request latency for circuit breaker
+        request_latency = (datetime.datetime.now() - start_time).total_seconds()
+        self._recent_latencies.append(request_latency)
+        if len(self._recent_latencies) > 50:  # Keep only recent 50 requests
+            self._recent_latencies = self._recent_latencies[-50:]
+
+        if high_load_detected:
+            logger.info(
+                f"Request completed under high load mode: {request_latency:.2f}s"
+            )
+
         return recommendations
