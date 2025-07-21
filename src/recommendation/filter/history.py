@@ -9,7 +9,7 @@ import os
 import asyncio
 from typing import Dict, Any, Optional, List, Union
 from history.get_history_items import UserHistoryChecker, DEFAULT_CONFIG
-from history.get_realtime_history_items import UserRealtimeHistoryChecker
+from history.get_realtime_history_items import UserRealtimeHistory
 from utils.common_utils import get_logger
 
 logger = get_logger(__name__)
@@ -48,9 +48,7 @@ class HistoryManager:
 
             # Initialize history checker
             self.history_checker = UserHistoryChecker(config=self.config)
-            self.realtime_history_checker = UserRealtimeHistoryChecker(
-                config=self.config
-            )
+            self.realtime_history_checker = UserRealtimeHistory(config=self.config)
             logger.info("History manager initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize history manager: {e}")

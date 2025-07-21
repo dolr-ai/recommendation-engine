@@ -8,6 +8,7 @@ import json
 import traceback
 import asyncio
 import time
+import datetime
 from typing import Optional
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,9 +21,12 @@ from service.models import (
     RecommendationRequest,
     RecommendationResponse,
 )
+from history.get_realtime_history_items import UserRealtimeHistory
 from service.recommendation_service import RecommendationService
 
 logger = get_logger(__name__)
+
+MAX_UNIQUE_HISTORY_ITEMS = 500
 
 # Create FastAPI app
 app = FastAPI(
@@ -49,10 +53,12 @@ recommendation_service: Optional[RecommendationService] = None
 async def startup_event():
     """Initialize recommendation service on startup."""
     global recommendation_service
+    global user_realtime_history
     logger.info("Starting up recommendation service")
     try:
         # Initialize the recommendation service singleton
         recommendation_service = RecommendationService.get_instance()
+        user_realtime_history = UserRealtimeHistory()
         logger.info("Recommendation service initialized")
     except Exception as e:
         logger.error(f"Failed to initialize recommendation service: {e}")
@@ -148,16 +154,17 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
 
     try:
         # Convert watch history items to dictionaries
-        watch_history = []
-        if request.watch_history:
-            for item in request.watch_history:
-                watch_history.append(
-                    {
-                        "video_id": item.video_id,
-                        "last_watched_timestamp": item.last_watched_timestamp,
-                        "mean_percentage_watched": item.mean_percentage_watched,
-                    }
-                )
+        epoch_time = int(datetime.datetime.now().timestamp())
+        watch_history = (
+            user_realtime_history.get_history_items_for_recommendation_service(
+                user_id=request.user_id,
+                start=0,
+                end=epoch_time,
+                buffer=10_000,
+                max_unique_history_items=MAX_UNIQUE_HISTORY_ITEMS,
+                nsfw_label=request.nsfw_label,
+            )
+        )
 
         # Create user profile from request
         user_profile = {

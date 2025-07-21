@@ -269,12 +269,12 @@ class RerankingManager:
             logger.warning(
                 f"No videos in watch history meet the threshold of {threshold}"
             )
-            # Return empty DataFrame with correct columns
+            # Return empty DataFrame with correct columns and zero timing values
             columns = ["query_video_id", "watch_percentage"] + [
                 f"candidate_type_{type_num}"
                 for type_num in sorted(candidate_types_dict.keys())
             ]
-            return pd.DataFrame(columns=columns)
+            return pd.DataFrame(columns=columns), 0.0, 0.0
 
         # 2. Fetch candidates for all query videos
         t_candidates_start = time.time()

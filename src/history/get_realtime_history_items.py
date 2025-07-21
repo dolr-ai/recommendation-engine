@@ -22,9 +22,9 @@ Operations:
 - Time-range filtering: Optional filtering by timestamp ranges
 
 Usage:
-    from history.get_realtime_history_items import UserRealtimeHistoryChecker
+    from history.get_realtime_history_items import UserRealtimeHistory
 
-    checker = UserRealtimeHistoryChecker()
+    checker = UserRealtimeHistory()
 
     # Check single video
     has_watched = checker.has_watched_videos("user123", "video456")
@@ -36,6 +36,8 @@ Usage:
 import os
 import json
 from typing import Dict, List, Optional, Any, Union
+import pandas as pd
+from datetime import datetime
 
 # utils
 from utils.gcp_utils import GCPUtils
@@ -85,7 +87,7 @@ if DEV_MODE:
 logger.info(DEFAULT_CONFIG)
 
 
-class UserRealtimeHistoryChecker:
+class UserRealtimeHistory:
     """
     Class for checking if videos are in a user's real-time watch history.
     Uses Redis sorted sets to efficiently scan through watch history and check video existence.
@@ -312,6 +314,61 @@ class UserRealtimeHistoryChecker:
             )
         return video_ids
 
+    def get_history_items_for_recommendation_service(
+        self,
+        user_id: str,
+        start: int,
+        end: int,
+        nsfw_label: bool,
+        buffer: int = 10_000,
+        max_unique_history_items: int = 500,
+    ):
+        """
+        Fetches items from a sorted set in Valkey (reverse order), parses JSON, and loads into a pandas DataFrame.
+        Args:
+            user_id: User ID
+            start: Start index (inclusive)
+            end: End index (inclusive)
+            nsfw_only: Whether to filter out NSFW items
+        Returns:
+            pd.DataFrame with columns: publisher_user_id, canister_id, post_id, video_id, item_type, timestamp, percent_watched
+        """
+
+        logger.info(
+            f"Getting history items for user {user_id} from {start} to {end} with buffer {buffer} and max_unique_history_items {max_unique_history_items}"
+        )
+
+        if nsfw_label:
+            key = f"{user_id}_watch_nsfw_v2"
+        else:
+            key = f"{user_id}_watch_clean_v2"
+
+        # get all items in the range, with a buffer to ensure we get all items
+        items = self.valkey_service.zrevrange(key, start, end + buffer, withscores=True)
+        try:
+            df_items = pd.DataFrame(items, columns=["item", "score"])
+            df_records = pd.json_normalize(df_items["item"].apply(json.loads))
+            df_records = df_records.rename(
+                columns={
+                    "video_id": "video_id",
+                    "timestamp.secs_since_epoch": "last_watched_timestamp",
+                    "percent_watched": "mean_percentage_watched",
+                },
+            )
+            df_records = df_records.drop_duplicates(
+                subset=["video_id"], keep="first"
+            ).head(max_unique_history_items)
+            df_records["last_watched_timestamp"] = pd.to_datetime(
+                df_records["last_watched_timestamp"], unit="s"
+            ).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+            logger.info(f"number of history items: {len(df_records)}")
+
+            return df_records.to_dict(orient="records")
+        except Exception as e:
+            print(f"Error parsing items: {e}")
+            return []
+
 
 # Convenience function for quick usage
 def check_user_watched_videos(
@@ -342,7 +399,7 @@ def check_user_watched_videos(
         # Check multiple videos
         results = check_user_watched_videos("user123", ["video1", "video2", "video3"])
     """
-    checker = UserRealtimeHistoryChecker(config=config)
+    checker = UserRealtimeHistory(config=config)
     return checker.has_watched_videos(user_id, video_ids, nsfw_label, since_timestamp)
 
 
@@ -353,7 +410,7 @@ if __name__ == "__main__":
     logger.info(f"Running in {'DEV_MODE' if DEV_MODE else 'PRODUCTION'} mode")
 
     # Create real-time history checker
-    checker = UserRealtimeHistoryChecker()
+    checker = UserRealtimeHistory()
 
     # Example user (using one from the test data)
     # test_user = "epg3q-ibcya-jf3cc-4dfbd-77u5m-p4ed7-6oj5a-vvgng-xcjfo-zgbor-dae"
@@ -426,3 +483,15 @@ if __name__ == "__main__":
     logger.info(
         f"Non-existent user check returned all False: {all(not watched for watched in nonexistent_result.values())}"
     )
+
+    # Example usage of getting realtime history items for recommendation service
+    checker = UserRealtimeHistory()
+    df = checker.get_history_items_for_recommendation_service(
+        user_id="epg3q-ibcya-jf3cc-4dfbd-77u5m-p4ed7-6oj5a-vvgng-xcjfo-zgbor-dae",
+        start=0,
+        end=int(datetime.now().timestamp()),
+        nsfw_label=False,
+        buffer=10_000,
+        max_unique_history_items=500,
+    )
+    print(df)
