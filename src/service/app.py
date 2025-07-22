@@ -228,13 +228,19 @@ async def get_cache_recommendations(request: RecommendationRequest):
     """
     logger.info(f"Received cache recommendation request for user {request.user_id}")
 
-    recommendations = fallback_recommendation_service.get_cached_recommendations(
-        user_id=request.user_id,
-        nsfw_label=request.nsfw_label,
-        num_results=request.num_results,
-    )
+    try:
+        recommendations = fallback_recommendation_service.get_cached_recommendations(
+            user_id=request.user_id,
+            nsfw_label=request.nsfw_label,
+            num_results=request.num_results,
+        )
 
-    return JSONResponse(content=recommendations)
+        return JSONResponse(content=recommendations)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting cache recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post(
@@ -330,7 +336,7 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        # workers=int(os.environ.get("WORKERS", 32)),
+        workers=int(os.environ.get("WORKERS", 16)),
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,

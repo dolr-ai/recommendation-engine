@@ -51,44 +51,46 @@ class FallbackRecommendationEngine(RecommendationEngine):
             "fallback_recommendations": fallback_recommendations,
         }
         """
-        filtered_start_time = datetime.datetime.now()
-        filtered_recommendations = self._filter_watched_items(
-            user_id=user_id,
-            recommendations=fallback_recommendations,
-            nsfw_label=nsfw_label,
-            exclude_watched_items=exclude_watched_items,
-        )
-        filtered_watched_items_time = (
-            datetime.datetime.now() - filtered_start_time
-        ).total_seconds()
+        # NOTE: as this is for cold start, we don't need to filter items
 
-        filtered_reported_items_start_time = datetime.datetime.now()
-        filtered_recommendations = self._filter_reported_videos(
-            user_id=user_id,
-            recommendations=filtered_recommendations,
-            exclude_reported_items=exclude_reported_items,
-        )
-        filtered_reported_items_time = (
-            datetime.datetime.now() - filtered_reported_items_start_time
-        ).total_seconds()
+        # filtered_start_time = datetime.datetime.now()
+        # fallback_recommendations = self._filter_watched_items(
+        #     user_id=user_id,
+        #     recommendations=fallback_recommendations,
+        #     nsfw_label=nsfw_label,
+        #     exclude_watched_items=exclude_watched_items,
+        # )
+        # filtered_watched_items_time = (
+        #     datetime.datetime.now() - filtered_start_time
+        # ).total_seconds()
+
+        # filtered_reported_items_start_time = datetime.datetime.now()
+        # fallback_recommendations = self._filter_reported_videos(
+        #     user_id=user_id,
+        #     recommendations=fallback_recommendations,
+        #     exclude_reported_items=exclude_reported_items,
+        # )
+        # filtered_reported_items_time = (
+        #     datetime.datetime.now() - filtered_reported_items_start_time
+        # ).total_seconds()
 
         # Filter out excluded items if any (this is empty so not needed)
-        # if "recommendations" in filtered_recommendations:
-        #     filtered_recommendations["recommendations"] = self._filter_excluded_items(
-        #         filtered_recommendations["recommendations"], exclude_items
+        # if "recommendations" in fallback_recommendations:
+        #     fallback_recommendations["recommendations"] = self._filter_excluded_items(
+        #         fallback_recommendations["recommendations"], exclude_items
         #     )
 
-        if "fallback_recommendations" in filtered_recommendations and exclude_items:
-            filtered_recommendations["fallback_recommendations"] = (
+        if "fallback_recommendations" in fallback_recommendations and exclude_items:
+            fallback_recommendations["fallback_recommendations"] = (
                 self._filter_excluded_items(
-                    filtered_recommendations["fallback_recommendations"], exclude_items
+                    fallback_recommendations["fallback_recommendations"], exclude_items
                 )
             )
 
         # Trim results to requested number if specified
-        if num_results is not None and "posts" in filtered_recommendations:
-            old_total_results = len(filtered_recommendations["posts"])
-            filtered_recommendations["posts"] = filtered_recommendations["posts"][
+        if num_results is not None and "posts" in fallback_recommendations:
+            old_total_results = len(fallback_recommendations["posts"])
+            fallback_recommendations["posts"] = fallback_recommendations["posts"][
                 :num_results
             ]
             logger.info(
@@ -97,7 +99,7 @@ class FallbackRecommendationEngine(RecommendationEngine):
 
         backend_start_time = datetime.datetime.now()
         processed_fallback_recommendations = transform_recommendations_with_metadata(
-            filtered_recommendations, self.config.gcp_utils
+            fallback_recommendations, self.config.gcp_utils
         )
         backend_time = (datetime.datetime.now() - backend_start_time).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")
@@ -107,8 +109,8 @@ class FallbackRecommendationEngine(RecommendationEngine):
         processed_fallback_recommendations["debug"] = {
             # time taken to get these recommendations
             "fallback_recommendations_time": fallback_recommendations_time,
-            "filtered_watched_items_time": filtered_watched_items_time,
-            "filtered_reported_items_time": filtered_reported_items_time,
+            # "filtered_watched_items_time": filtered_watched_items_time,
+            # "filtered_reported_items_time": filtered_reported_items_time,
             "backend_time": backend_time,
             "total_time": (end_time - start_time).total_seconds(),
         }
