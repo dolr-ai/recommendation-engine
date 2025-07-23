@@ -190,6 +190,7 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
             exclude_reported_items=request.exclude_reported_items,
             exclude_items=request.exclude_items,
             num_results=request.num_results,
+            region=request.region,
         )
 
         processing_time = (time.time() - start_time) * 1000

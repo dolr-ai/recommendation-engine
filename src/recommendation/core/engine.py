@@ -11,6 +11,7 @@ from typing import List, Optional
 from utils.common_utils import get_logger
 from recommendation.utils.similarity_bq import SimilarityManager
 from recommendation.processing.candidates import CandidateManager
+from recommendation.processing.location import LocationCandidateManager
 from recommendation.processing.fallbacks import FallbackManager
 from recommendation.processing.reranking import RerankingManager
 from recommendation.processing.mixer import MixerManager
@@ -321,7 +322,7 @@ class RecommendationEngine:
             )
 
             logger.info(
-                f"Retrieved {len(fallback_recommendations.get('recommendations', []))} fallback recommendations "
+                f"Retrieved {len(fallback_recommendations.get('fallback_recommendations', []))} fallback recommendations "
                 f"for user {user_id} with fallback type: {fallback_type}"
             )
 
@@ -333,10 +334,68 @@ class RecommendationEngine:
             )
             return {"recommendations": [], "fallback_recommendations": []}
 
+    def _call_location_logic(self, user_id, region, nsfw_label, top_k):
+        """
+        Call location logic for a user based on their region.
+
+        Args:
+            user_id: The user ID
+            region: The user's region (e.g., "Delhi", "Banten")
+            nsfw_label: Whether to use NSFW or clean content
+            top_k: Number of location-based recommendations to return
+
+        Returns:
+            Dictionary with location-based recommendations
+        """
+        logger.info(
+            f"Calling location logic for user {user_id} in region {region} with content type: {'NSFW' if nsfw_label else 'Clean'}"
+        )
+
+        if region is None:
+            logger.warning(
+                f"Region is not provided for user {user_id}, skipping location logic"
+            )
+            return {"recommendations": [], "fallback_recommendations": []}
+
+        try:
+            # Initialize location candidate manager if not already done
+            if not hasattr(self, "location_manager"):
+
+                self.location_manager = LocationCandidateManager(
+                    valkey_config=self.config.valkey_config
+                )
+                logger.info("LocationCandidateManager initialized on demand")
+
+            # Get location-based recommendations using the location manager
+            location_recommendations = (
+                self.location_manager.get_location_recommendations(
+                    region=region, nsfw_label=nsfw_label, top_k=top_k
+                )
+            )
+
+            # location_recommendations = {
+            #     "recommendations": [],
+            #     "fallback_recommendations": [location candidates will be added here],
+            # }
+            logger.info(
+                f"Retrieved {len(location_recommendations.get('fallback_recommendations', []))} location-based recommendations "
+                f"for user {user_id} in region {region}"
+            )
+
+            return location_recommendations
+
+        except Exception as e:
+            logger.error(
+                f"Error in location logic for user {user_id} in region {region}: {e}",
+                exc_info=True,
+            )
+            return {"recommendations": [], "location_recommendations": []}
+
     def get_recommendations(
         self,
         user_profile,
         nsfw_label,
+        region=None,
         candidate_types=None,
         threshold=RecommendationConfig.THRESHOLD,
         top_k=RecommendationConfig.TOP_K,
@@ -421,12 +480,31 @@ class RecommendationEngine:
 
             # Call fallback logic to get global popular videos
             fallback_start = datetime.datetime.now()
-            mixer_output = self._call_fallback_logic(
+            # call location logic
+            location_recommendations = self._call_location_logic(
+                user_id=user_id,
+                nsfw_label=nsfw_label,
+                top_k=fallback_top_k,
+                region=region,
+            )
+
+            # call global popular videos fallback logic
+            global_popular_videos_fallback = self._call_fallback_logic(
                 user_id=user_id,
                 nsfw_label=nsfw_label,
                 fallback_top_k=fallback_top_k,
                 fallback_type="global_popular_videos",
             )
+            # Location recommendations first, then fallback recommendations
+            location_recs = location_recommendations.get("fallback_recommendations", [])
+            fallback_recs = global_popular_videos_fallback.get(
+                "fallback_recommendations", []
+            )
+
+            mixer_output = {
+                "recommendations": [],
+                "fallback_recommendations": location_recs + fallback_recs,
+            }
             fallback_time = (datetime.datetime.now() - fallback_start).total_seconds()
             logger.info(f"Fallback logic completed in {fallback_time:.2f} seconds")
         else:
@@ -522,12 +600,28 @@ class RecommendationEngine:
             logger.info(
                 f"Mixer output is empty, calling fallback recommendations for user {user_id}"
             )
-            mixer_output = self._call_fallback_logic(
+
+            # call location logic
+            location_recommendations = self._call_location_logic(
+                user_id=user_id,
+                nsfw_label=nsfw_label,
+                top_k=fallback_top_k,
+                region=region,
+            )
+
+            # call global popular videos fallback logic
+            popular_videos_fallback = self._call_fallback_logic(
                 user_id=user_id,
                 nsfw_label=nsfw_label,
                 fallback_top_k=fallback_top_k,
                 fallback_type="global_popular_videos",
             )
+            # Location recommendations first, then fallback recommendations
+            location_recs = location_recommendations.get("fallback_recommendations", [])
+            fallback_recs = popular_videos_fallback.get("fallback_recommendations", [])
+
+            # add location recommendations to mixer output
+            mixer_output["fallback_recommendations"] = location_recs + fallback_recs
 
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()

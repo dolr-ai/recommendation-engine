@@ -136,7 +136,7 @@ class LocationCandidateRetriever:
         if content_type.lower() not in ["nsfw", "clean"]:
             raise ValueError("content_type must be either 'nsfw' or 'clean'")
 
-        return f"{content_type.lower()}:{region}:location_candidates"
+        return f"{content_type.lower()}:{region.title()}:location_candidates"
 
     def get_location_candidates(
         self,
