@@ -42,6 +42,9 @@ jobs:
           - dockerfile: populate_reported_items.dockerfile
             service_name: recommendation-reported-items
             image: recommendation-reported-items
+          - dockerfile: populate_location_candidates.dockerfile
+            service_name: recommendation-location-candidates
+            image: recommendation-location-candidates
 
     steps:
       - name: Checkout code
@@ -118,6 +121,7 @@ jobs:
             "populate_fallback_cache.dockerfile",
             "populate_history.dockerfile",
             "populate_reported_items.dockerfile",
+            "populate_location_candidates.dockerfile",
           ]
 
     steps:
