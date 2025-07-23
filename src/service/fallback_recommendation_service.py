@@ -51,6 +51,7 @@ class FallbackRecommendationService:
         exclude_reported_items: Optional[List[str]] = None,
         exclude_items: Optional[List[str]] = None,
         num_results: int = None,
+        region: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get recommendations for a user.
@@ -76,6 +77,7 @@ class FallbackRecommendationService:
             exclude_watched_items=exclude_watched_items,
             exclude_reported_items=exclude_reported_items,
             exclude_items=exclude_items,
+            region=region,
         )
 
         return recommendations
