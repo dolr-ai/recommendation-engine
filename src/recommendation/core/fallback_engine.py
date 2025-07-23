@@ -30,6 +30,7 @@ class FallbackRecommendationEngine(RecommendationEngine):
         exclude_watched_items: Optional[List[str]] = None,
         exclude_reported_items: Optional[List[str]] = None,
         exclude_items: Optional[List[str]] = None,
+        region: Optional[str] = None,
     ):
         """
         Get cached recommendations for a user.
@@ -79,6 +80,18 @@ class FallbackRecommendationEngine(RecommendationEngine):
         #     fallback_recommendations["recommendations"] = self._filter_excluded_items(
         #         fallback_recommendations["recommendations"], exclude_items
         #     )
+
+        if region is not None:
+            location_recommendations = self._call_location_logic(
+                user_id=user_id,
+                region=region,
+                nsfw_label=nsfw_label,
+                top_k=num_results,
+            )
+            fallback_recommendations["fallback_recommendations"] = (
+                location_recommendations.get("fallback_recommendations", [])
+                + fallback_recommendations["fallback_recommendations"]
+            )
 
         if "fallback_recommendations" in fallback_recommendations and exclude_items:
             fallback_recommendations["fallback_recommendations"] = (

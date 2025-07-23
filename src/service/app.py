@@ -190,6 +190,7 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
             exclude_reported_items=request.exclude_reported_items,
             exclude_items=request.exclude_items,
             num_results=request.num_results,
+            region=request.region,
         )
 
         processing_time = (time.time() - start_time) * 1000
@@ -233,6 +234,7 @@ async def get_cache_recommendations(request: RecommendationRequest):
             user_id=request.user_id,
             nsfw_label=request.nsfw_label,
             num_results=request.num_results,
+            region=request.region,
         )
 
         return JSONResponse(content=recommendations)
@@ -336,7 +338,7 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        workers=int(os.environ.get("WORKERS", 16)),
+        # workers=int(os.environ.get("WORKERS", 16)),
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,

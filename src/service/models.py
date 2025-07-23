@@ -64,6 +64,9 @@ class RecommendationRequest(BaseModel):
         default=50,
     )
     nsfw_label: bool = Field(description="Set true if nsfw recommendations are needed")
+    region: Optional[str] = Field(
+        default=None, description="Region for location-based recommendations"
+    )
 
 
 class RecommendationResponse(BaseModel):
