@@ -338,7 +338,7 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        # workers=int(os.environ.get("WORKERS", 16)),
+        workers=int(os.environ.get("WORKERS", 16)),
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,
