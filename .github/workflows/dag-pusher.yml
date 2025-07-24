@@ -61,7 +61,7 @@ jobs:
               --environment data-pipeline-orchestrator \
               --location us-central1 \
               --source "/tmp/$dir_name" \
-              --destination "dags/$dir_name"
+              --destination "recsys-dags/$dir_name"
           done
 
       - name: Move Init script to GCS
