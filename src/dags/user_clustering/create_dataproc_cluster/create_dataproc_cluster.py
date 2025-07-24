@@ -50,6 +50,9 @@ REGION = "us-central1"
 # GitHub repo to clone
 GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 
+# Initialization action script path
+INIT_ACTION_SCRIPT = "gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh"
+
 # Define the cluster configuration based on your gcloud command
 CLUSTER_CONFIG = {
     "master_config": {
@@ -98,7 +101,7 @@ CLUSTER_CONFIG = {
     },
     "initialization_actions": [
         {
-            "executable_file": "gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh",
+            "executable_file": INIT_ACTION_SCRIPT,
             "execution_timeout": {"seconds": 120},  # 2 minutes timeout
         }
     ],

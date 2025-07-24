@@ -34,11 +34,12 @@ DAG_ID = "cg_create_dataproc_cluster"
 # Cluster variables
 CLUSTER_NAME_TEMPLATE = "staging-cluster-candidate-generation-{ds_nodash}"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name_candidate_generation"
+INIT_ACTION_SCRIPT = "gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh"
 
 # todo: change this later after dev testing
 CLUSTER_IDLE_DELETE_TTL = 14400  # 4 hours
 CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
-AUTOSCALING_POLICY_ID = "test-dataproc-policy"
+AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
@@ -101,7 +102,7 @@ CLUSTER_CONFIG = {
     },
     "initialization_actions": [
         {
-            "executable_file": "gs://stage-yral-ds-dataproc-bucket/scripts/dataproc_initialization_action.sh",
+            "executable_file": INIT_ACTION_SCRIPT,
             "execution_timeout": {"seconds": 120},  # 2 minutes timeout
         }
     ],
