@@ -31,7 +31,7 @@ default_args = {
 DAG_ID = "user_cluster_distribution"
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
-SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
+SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"

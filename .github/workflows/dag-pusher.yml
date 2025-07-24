@@ -2,7 +2,7 @@ name: Move DAGs to GCS
 
 on:
   push:
-    branches: [ dev, main, master]
+    branches: [dev, main, master, stage-to-prod]
   workflow_dispatch: # Enable manual trigger
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v1
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          credentials_json: ${{ secrets.RECSYS_GCP_CREDENTIALS }}
 
       - name: Move DAG files to Cloud Composer
         run: |
@@ -34,8 +34,8 @@ jobs:
           # Add new DAG folders here when needed (comma-separated, no trailing comma)
           dag_directories=(
             "src/dags/user_clustering"
-            "src/dags/candidate_generation"
-            "src/dags/cache_refresh"
+            # "src/dags/candidate_generation"
+            # "src/dags/cache_refresh"
             # "src/dags/yet_another_dag_folder"
           )
 
@@ -63,7 +63,7 @@ jobs:
             filename=$(basename "$file")
             echo "Copying $filename to Cloud Composer"
             gcloud composer environments storage dags import \
-              --environment test-composer-for-dataproc \
+              --environment data-pipeline-orchestrator \
               --location us-central1 \
               --source "$file"
           done
@@ -75,4 +75,4 @@ jobs:
 
           echo "Copying initialization script from $init_script_path to GCS"
           gcloud storage cp "$init_script_path" \
-            gs://stage-yral-ds-dataproc-bucket/scripts/dataproc_initialization_action.sh
+            gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh

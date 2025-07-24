@@ -41,13 +41,15 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": os.environ.get("SERVICE_REDIS_HOST"),
+        "host": os.environ.get("RECSYS_SERVICE_REDIS_HOST"),
         "port": int(os.environ.get("SERVICE_REDIS_PORT", 6379)),
-        "instance_id": os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+        "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
         "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED", "false").lower()
+        "cluster_enabled": os.environ.get(
+            "SERVICE_REDIS_CLUSTER_ENABLED", "false"
+        ).lower()
         in ("true", "1", "yes"),
     }
 }
@@ -64,7 +66,7 @@ if DEV_MODE:
             "port": int(
                 os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
             ),
-            "authkey": os.environ.get("SERVICE_REDIS_AUTHKEY"),
+            "authkey": os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY"),
             "ssl_enabled": False,  # Disable SSL for proxy connection
         }
     )
@@ -328,7 +330,9 @@ if __name__ == "__main__":
     logger.info(f"NSFW fallbacks count (L7D): {len(nsfw_fallbacks)}")
 
     # Example 2: Get top 10 clean fallbacks (L7D)
-    top_clean_fallbacks = clean_fallback_fetcher.get_top_fallbacks(n=10, fallback_type=fallback_type)
+    top_clean_fallbacks = clean_fallback_fetcher.get_top_fallbacks(
+        n=10, fallback_type=fallback_type
+    )
     logger.info(f"Top 10 clean fallbacks (L7D): {top_clean_fallbacks}")
 
     # Example 3: Check if fallbacks exist (L7D)

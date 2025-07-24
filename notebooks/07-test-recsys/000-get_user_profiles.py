@@ -33,15 +33,17 @@ MIN_VIDEOS_PER_USER_FOR_SAMPLING = 50
 DEFAULT_CONFIG = {
     "valkey": {
         "host": os.environ.get(
-            "PROXY_REDIS_HOST", os.environ.get("SERVICE_REDIS_HOST")
+            "PROXY_REDIS_HOST", os.environ.get("RECSYS_SERVICE_REDIS_HOST")
         ),
         "port": int(
             os.environ.get(
                 "PROXY_REDIS_PORT", os.environ.get("SERVICE_REDIS_PORT", 6379)
             )
         ),
-        "instance_id": os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
-        "authkey": os.environ.get("SERVICE_REDIS_AUTHKEY"),  # Required for Redis proxy
+        "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
+        "authkey": os.environ.get(
+            "RECSYS_SERVICE_REDIS_AUTHKEY"
+        ),  # Required for Redis proxy
         "ssl_enabled": False,  # Disable SSL for proxy connection
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
@@ -81,10 +83,10 @@ os.environ["GCP_CREDENTIALS"] = gcp_utils_stage.core.gcp_credentials
 # Initialize GCP core for authentication
 gcp_core = GCPCore(gcp_credentials=os.environ.get("GCP_CREDENTIALS"))
 
-host = os.environ.get("PROXY_REDIS_HOST")
+host = os.environ.get("RECSYS_PROXY_REDIS_HOST")
 port = int(os.environ.get("PROXY_REDIS_PORT", 6379))
 connection_type = "Redis Proxy"
-authkey = os.environ.get("SERVICE_REDIS_AUTHKEY")
+authkey = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
 ssl_enabled = False
 
 # Initialize Redis service with appropriate parameters
@@ -92,7 +94,7 @@ redis_client = ValkeyService(
     core=gcp_core,
     host=host,
     port=port,
-    instance_id=os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+    instance_id=os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
     ssl_enabled=ssl_enabled,
     socket_timeout=15,
     socket_connect_timeout=15,

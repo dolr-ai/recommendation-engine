@@ -44,13 +44,13 @@ def test_connection(use_proxy=False):
 
     # Determine which host to use
     if use_proxy:
-        host = os.environ.get("PROXY_REDIS_HOST")
+        host = os.environ.get("RECSYS_PROXY_REDIS_HOST")
         port = int(os.environ.get("PROXY_REDIS_PORT", 6379))
         connection_type = "Redis Proxy"
-        authkey = os.environ.get("SERVICE_REDIS_AUTHKEY")
+        authkey = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
         ssl_enabled = False
     else:
-        host = os.environ.get("SERVICE_REDIS_HOST")
+        host = os.environ.get("RECSYS_SERVICE_REDIS_HOST")
         port = int(os.environ.get("SERVICE_REDIS_PORT", 6379))
         connection_type = "Direct VPC Redis"
         authkey = None
@@ -67,7 +67,7 @@ def test_connection(use_proxy=False):
             core=gcp_core,
             host=host,
             port=port,
-            instance_id=os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+            instance_id=os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
             ssl_enabled=ssl_enabled,
             socket_timeout=15,
             socket_connect_timeout=15,

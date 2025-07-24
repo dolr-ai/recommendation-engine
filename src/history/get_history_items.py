@@ -38,13 +38,15 @@ logger = get_logger(__name__)
 # Default configuration - For production: direct VPC connection
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": os.environ.get("SERVICE_REDIS_HOST"),
+        "host": os.environ.get("RECSYS_SERVICE_REDIS_HOST"),
         "port": int(os.environ.get("SERVICE_REDIS_PORT", 6379)),
-        "instance_id": os.environ.get("SERVICE_REDIS_INSTANCE_ID"),
+        "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
         "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED", "false").lower()
+        "cluster_enabled": os.environ.get(
+            "SERVICE_REDIS_CLUSTER_ENABLED", "false"
+        ).lower()
         in ("true", "1", "yes"),
     },
 }
@@ -61,7 +63,7 @@ if DEV_MODE:
             "port": int(
                 os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
             ),
-            "authkey": os.environ.get("SERVICE_REDIS_AUTHKEY"),
+            "authkey": os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY"),
             "ssl_enabled": False,  # Disable SSL for proxy connection
         }
     )
@@ -239,10 +241,14 @@ if __name__ == "__main__":
     logger.info("\n=== Testing Convenience Function ===")
     # Using convenience function
     quick_check = check_user_watched_videos(test_user, test_videos)
-    logger.info(f"Quick check results match direct checker: {quick_check == has_watched_multiple}")
+    logger.info(
+        f"Quick check results match direct checker: {quick_check == has_watched_multiple}"
+    )
 
     logger.info("\n=== Testing Non-Existent User ===")
     # Test with a user that likely doesn't exist
     nonexistent_user = "nonexistent-user-id-for-testing"
     nonexistent_result = checker.has_watched(nonexistent_user, test_videos)
-    logger.info(f"Non-existent user check returned {len(nonexistent_result)} results, all False: {all(not watched for watched in nonexistent_result.values())}")
+    logger.info(
+        f"Non-existent user check returned {len(nonexistent_result)} results, all False: {all(not watched for watched in nonexistent_result.values())}"
+    )

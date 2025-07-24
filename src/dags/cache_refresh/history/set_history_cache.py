@@ -37,8 +37,8 @@ DAG_ID = "cache_refresh_history"
 # Get environment variables and Airflow Variables
 # These should be configured in Airflow's Variables or environment
 # todo: remove this while moving to prod
-GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS_STAGE")
-SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
+GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
+SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 
 # Extract PROJECT_ID from GCP_CREDENTIALS JSON
 try:
@@ -66,15 +66,15 @@ except Exception as e:
     raise ValueError(f"Failed to get PROJECT_ID from GCP_CREDENTIALS: {str(e)}")
 
 # Redis configuration - should be configured in Airflow
-SERVICE_REDIS_INSTANCE_ID = os.environ.get("SERVICE_REDIS_INSTANCE_ID")
-SERVICE_REDIS_HOST = os.environ.get("SERVICE_REDIS_HOST")
-PROXY_REDIS_HOST = os.environ.get("PROXY_REDIS_HOST")
-SERVICE_REDIS_PORT = os.environ.get("SERVICE_REDIS_PORT")
-PROXY_REDIS_PORT = os.environ.get("PROXY_REDIS_PORT")
-SERVICE_REDIS_AUTHKEY = os.environ.get("SERVICE_REDIS_AUTHKEY")
-USE_REDIS_PROXY = os.environ.get("USE_REDIS_PROXY")
-SERVICE_REDIS_CLUSTER_ENABLED = os.environ.get("SERVICE_REDIS_CLUSTER_ENABLED")
-DEV_MODE = os.environ.get("DEV_MODE")
+SERVICE_REDIS_INSTANCE_ID = os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID")
+SERVICE_REDIS_HOST = os.environ.get("RECSYS_SERVICE_REDIS_HOST")
+PROXY_REDIS_HOST = os.environ.get("RECSYS_PROXY_REDIS_HOST")
+SERVICE_REDIS_PORT = os.environ.get("RECSYS_SERVICE_REDIS_PORT")
+PROXY_REDIS_PORT = os.environ.get("RECSYS_PROXY_REDIS_PORT")
+SERVICE_REDIS_AUTHKEY = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
+USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY")
+SERVICE_REDIS_CLUSTER_ENABLED = os.environ.get("RECSYS_SERVICE_REDIS_CLUSTER_ENABLED")
+DEV_MODE = os.environ.get("RECSYS_DEV_MODE")
 
 # Cloud Run service configuration
 SERVICE_NAME = "recommendation-history"

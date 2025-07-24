@@ -37,8 +37,8 @@ default_args = {
 DAG_ID = "cg_watch_time_quantile"
 
 # Get environment variables
-GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS_STAGE")
-SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
+GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
+SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"

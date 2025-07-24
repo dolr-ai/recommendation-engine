@@ -60,8 +60,8 @@ class ValkeyService:
         # Check environment variables for configuration
         self.host = (
             host
-            or os.environ.get("SERVICE_REDIS_HOST")
-            or os.environ.get("PROXY_REDIS_HOST")
+            or os.environ.get("RECSYS_SERVICE_REDIS_HOST")
+            or os.environ.get("RECSYS_PROXY_REDIS_HOST")
         )
         self.port = port or int(
             os.environ.get(
@@ -70,7 +70,7 @@ class ValkeyService:
         )
         self.instance_id = (
             instance_id
-            or os.environ.get("SERVICE_REDIS_INSTANCE_ID")
+            or os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID")
             or f"{self.host}:{self.port}"
         )
 
@@ -84,13 +84,13 @@ class ValkeyService:
             self.cluster_enabled = cluster_enabled
 
         # Check if we should use proxy (based on authkey presence)
-        self.authkey = authkey or os.environ.get("SERVICE_REDIS_AUTHKEY")
+        self.authkey = authkey or os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
         self.use_proxy = self.authkey is not None
 
         # If using proxy from env, use PROXY_REDIS_HOST if available
         if self.use_proxy and os.environ.get("USE_REDIS_PROXY", "").lower() == "true":
-            if os.environ.get("PROXY_REDIS_HOST"):
-                self.host = os.environ.get("PROXY_REDIS_HOST")
+            if os.environ.get("RECSYS_PROXY_REDIS_HOST"):
+                self.host = os.environ.get("RECSYS_PROXY_REDIS_HOST")
                 self.port = int(os.environ.get("PROXY_REDIS_PORT", 6379))
 
         self.client = None

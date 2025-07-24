@@ -11,14 +11,12 @@ echo "Starting repository cloning and setup process..."
 
 # Retrieve metadata values and set as environment variables
 echo "Retrieving environment variables from metadata..."
-GCP_CREDENTIALS=$(curl -f -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/GCP_CREDENTIALS")
-GCP_CREDENTIALS_STAGE=$(curl -f -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/GCP_CREDENTIALS_STAGE")
-SERVICE_ACCOUNT=$(curl -f -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/SERVICE_ACCOUNT")
+GCP_CREDENTIALS=$(curl -f -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/RECSYS_GCP_CREDENTIALS")
+SERVICE_ACCOUNT=$(curl -f -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/attributes/RECSYS_SERVICE_ACCOUNT")
 
 # Export as environment variables
 export GCP_CREDENTIALS
 export SERVICE_ACCOUNT
-export GCP_CREDENTIALS_STAGE
 
 # Verify environment variables were set
 echo "Verifying environment variables..."
@@ -30,9 +28,7 @@ if [ -z "$SERVICE_ACCOUNT" ]; then
     echo "Warning: SERVICE_ACCOUNT not set properly"
 fi
 
-if [ -z "$GCP_CREDENTIALS_STAGE" ]; then
-    echo "Warning: GCP_CREDENTIALS_STAGE not set properly"
-fi
+
 
 # Clone the repository
 echo "Cloning repository ${REPO_URL}..."
@@ -52,9 +48,6 @@ if [ ! -z "$GCP_CREDENTIALS" ]; then
     echo "Writing GCP credentials to file..."
     CREDENTIALS_FILE="${INSTALL_DIR}/credentials.json"
     echo "$GCP_CREDENTIALS" >"$CREDENTIALS_FILE"
-
-    CREDENTIALS_FILE_STAGE="${INSTALL_DIR}/credentials_stage.json"
-    echo "$GCP_CREDENTIALS_STAGE" >"$CREDENTIALS_FILE_STAGE"
 
     # Set path to credentials file in environment
     echo "Setting credential file path in environment..."

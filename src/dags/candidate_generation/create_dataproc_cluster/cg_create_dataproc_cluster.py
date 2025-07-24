@@ -42,9 +42,9 @@ AUTOSCALING_POLICY_ID = "test-dataproc-policy"
 
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
-SERVICE_ACCOUNT = os.environ.get("SERVICE_ACCOUNT")
+SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 # todo: remove this credential after dev testing
-GCP_CREDENTIALS_STAGE = os.environ.get("GCP_CREDENTIALS_STAGE")
+GCP_CREDENTIALS_STAGE = os.environ.get("RECSYS_GCP_CREDENTIALS")
 
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"
