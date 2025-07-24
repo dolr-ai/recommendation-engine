@@ -52,8 +52,8 @@ GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 INIT_ACTION_SCRIPT = "gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh"
 
 # Dataproc staging and temp buckets
-DATAPROC_CONFIG_BUCKET = "yral-recsys-dataproc-config-bucket"
-DATAPROC_TEMP_BUCKET = "yral-recsys-dataproc-temp-bucket"
+DATAPROC_CONFIG_BUCKET = "yral-ds-dataproc-bucket"
+
 
 # Define the cluster configuration based on your gcloud command
 CLUSTER_CONFIG = {
@@ -76,7 +76,6 @@ CLUSTER_CONFIG = {
         "policy_uri": f"projects/{PROJECT_ID}/regions/{REGION}/autoscalingPolicies/{AUTOSCALING_POLICY_ID}"
     },
     "config_bucket": DATAPROC_CONFIG_BUCKET,  # Staging bucket for cluster config files
-    "temp_bucket": DATAPROC_TEMP_BUCKET,  # Temp bucket for ephemeral cluster data
     "software_config": {
         "image_version": "2.2-ubuntu22",
         "optional_components": ["JUPYTER"],
