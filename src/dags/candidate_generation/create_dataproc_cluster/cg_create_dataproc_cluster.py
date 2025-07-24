@@ -142,7 +142,8 @@ with DAG(
         region=REGION,
         cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
         cluster_config=CLUSTER_CONFIG,
-        num_retries_if_resource_is_not_ready=3,
+        # num_retries_if_resource_is_not_ready=3, # for: composer-3-airflow-2.10.5-build.2
+        retry=3,  # for: composer-3-airflow-2.7.3-build.6
         labels={"job_type": DAG_ID},
     )
 

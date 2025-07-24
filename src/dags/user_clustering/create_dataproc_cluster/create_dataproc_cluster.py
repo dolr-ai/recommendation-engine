@@ -35,7 +35,7 @@ CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # todo: change this later after dev testing
 CLUSTER_IDLE_DELETE_TTL = 14400  # 4 hours
 CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
-AUTOSCALING_POLICY_ID = "test-dataproc-policy"
+AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
@@ -44,7 +44,7 @@ SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 GCP_CREDENTIALS_STAGE = os.environ.get("RECSYS_GCP_CREDENTIALS")
 
 # Project configuration
-PROJECT_ID = "jay-dhanwant-experiments"
+PROJECT_ID = "hot-or-not-feed-intelligence"
 REGION = "us-central1"
 
 # GitHub repo to clone
@@ -98,7 +98,7 @@ CLUSTER_CONFIG = {
     },
     "initialization_actions": [
         {
-            "executable_file": "gs://stage-yral-ds-dataproc-bucket/scripts/dataproc_initialization_action.sh",
+            "executable_file": "gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh",
             "execution_timeout": {"seconds": 120},  # 2 minutes timeout
         }
     ],
@@ -139,7 +139,8 @@ with DAG(
         region=REGION,
         cluster_name=CLUSTER_NAME_TEMPLATE.format(ds_nodash="{{ ds_nodash }}"),
         cluster_config=CLUSTER_CONFIG,
-        num_retries_if_resource_is_not_ready=3,
+        # num_retries_if_resource_is_not_ready=3, # for: composer-3-airflow-2.10.5-build.2
+        retry=3,  # for: composer-3-airflow-2.7.3-build.6
         labels={"job_type": DAG_ID},
     )
 
