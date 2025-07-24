@@ -40,7 +40,7 @@ GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 
 # Project configuration
-PROJECT_ID = "jay-dhanwant-experiments"
+PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
 REGION = "us-central1"
 
 # Cluster name variable - same as in other DAGs
