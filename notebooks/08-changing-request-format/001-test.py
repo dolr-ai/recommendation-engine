@@ -102,7 +102,7 @@ DATA_ROOT, gcp_utils_stage, gcp_utils_prod = setup_configs(
 os.environ["GCP_CREDENTIALS"] = gcp_utils_prod.core.gcp_credentials
 
 # Initialize GCP core for authentication
-gcp_core = GCPCore(gcp_credentials=os.environ.get("GCP_CREDENTIALS"))
+gcp_core = GCPCore(gcp_credentials=os.environ.get("RECSYS_GCP_CREDENTIALS"))
 
 host = os.environ.get("RECSYS_PROXY_REDIS_HOST")
 port = int(os.environ.get("PROXY_REDIS_PORT", 6379))

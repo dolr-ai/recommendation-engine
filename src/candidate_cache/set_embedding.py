@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 # Default configuration
 DEFAULT_CONFIG = {
-        "valkey": {
+    "valkey": {
         "host": "10.128.15.210",  # Primary endpoint
         "port": 6379,
         "instance_id": "candidate-cache",
@@ -76,7 +76,7 @@ class EmbeddingPopulator:
 
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
-        gcp_credentials = os.getenv("GCP_CREDENTIALS")
+        gcp_credentials = os.environ.get("RECSYS_GCP_CREDENTIALS")
         if not gcp_credentials:
             logger.error("GCP_CREDENTIALS environment variable not set")
             raise ValueError("GCP_CREDENTIALS environment variable is required")

@@ -53,7 +53,7 @@ class VideoURLTransformer:
             return True
 
         try:
-            gcp_credentials = os.getenv("GCP_CREDENTIALS")
+            gcp_credentials = os.environ.get("RECSYS_GCP_CREDENTIALS")
             if not gcp_credentials:
                 logger.warning("GCP_CREDENTIALS environment variable not set")
                 return False
@@ -268,7 +268,7 @@ class VideoURLTransformer:
 
 # Global instance for easy access
 video_transformer = VideoURLTransformer(
-    gcp_utils=GCPUtils(gcp_credentials=os.getenv("GCP_CREDENTIALS"))
+    gcp_utils=GCPUtils(gcp_credentials=os.environ.get("RECSYS_GCP_CREDENTIALS"))
 )
 
 

@@ -42,7 +42,7 @@ def main():
 
     # Initialize GCP utils
     logger.info("Initializing GCP utils")
-    gcp_credentials = os.environ.get("GCP_CREDENTIALS")
+    gcp_credentials = os.environ.get("RECSYS_GCP_CREDENTIALS")
     if not gcp_credentials:
         logger.error("GCP_CREDENTIALS environment variable not set")
         return

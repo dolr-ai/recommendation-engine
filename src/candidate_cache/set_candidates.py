@@ -135,7 +135,7 @@ class CandidatePopulator(ABC):
 
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
-        gcp_credentials = os.getenv("GCP_CREDENTIALS")
+        gcp_credentials = os.environ.get("RECSYS_GCP_CREDENTIALS")
         if not gcp_credentials:
             logger.error("GCP_CREDENTIALS environment variable not set")
             raise ValueError("GCP_CREDENTIALS environment variable is required")
@@ -596,7 +596,7 @@ class CandidateEmbeddingPopulator:
 
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
-        gcp_credentials = os.getenv("GCP_CREDENTIALS")
+        gcp_credentials = os.environ.get("RECSYS_GCP_CREDENTIALS")
         print(
             f"GCP_CREDENTIALS environment variable is {'set' if gcp_credentials else 'NOT set'}"
         )

@@ -30,18 +30,16 @@ default_args = {
 }
 DAG_ID = "create_dataproc_cluster"
 # Cluster variables
-CLUSTER_NAME_TEMPLATE = "staging-cluster-{ds_nodash}"
+CLUSTER_NAME_TEMPLATE = "recsys-prod-cluster-{ds_nodash}"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # todo: change this later after dev testing
-CLUSTER_IDLE_DELETE_TTL = 14400  # 4 hours
-CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
+CLUSTER_IDLE_DELETE_TTL = 2 * 60 * 60  # 2 hours
+CLUSTER_AUTO_DELETE_TTL = 2 * 60 * 60  # 2 hours
 AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 
 # Get environment variables
-GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
+GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
-# todo: remove this credential after dev testing
-GCP_CREDENTIALS_STAGE = os.environ.get("RECSYS_GCP_CREDENTIALS")
 
 # Project configuration
 PROJECT_ID = "hot-or-not-feed-intelligence"
@@ -94,8 +92,6 @@ CLUSTER_CONFIG = {
         "service_account_scopes": ["https://www.googleapis.com/auth/cloud-platform"],
         "metadata": {
             "GCP_CREDENTIALS": GCP_CREDENTIALS,
-            # todo: remove this credential after dev testing
-            "GCP_CREDENTIALS_STAGE": GCP_CREDENTIALS_STAGE,
             "SERVICE_ACCOUNT": SERVICE_ACCOUNT,
         },
     },

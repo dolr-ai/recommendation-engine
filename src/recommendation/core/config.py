@@ -88,7 +88,7 @@ class RecommendationConfig:
     def _setup_gcp_credentials(self):
         """Setup GCP credentials."""
         # Get GCP credentials directly from environment variable
-        gcp_credentials_str = os.getenv("GCP_CREDENTIALS")
+        gcp_credentials_str = os.environ.get("RECSYS_GCP_CREDENTIALS")
 
         if gcp_credentials_str:
             try:

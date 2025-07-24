@@ -18,7 +18,7 @@ def test_redis_connection():
     """Test connection to Redis VPC instance and basic operations"""
 
     # Get credentials from environment
-    gcp_credentials_str = os.environ.get("GCP_CREDENTIALS")
+    gcp_credentials_str = os.environ.get("RECSYS_GCP_CREDENTIALS")
 
     # Print environment variables for debugging
     print("Environment variables:")
@@ -60,7 +60,7 @@ def test_connection(use_proxy=False):
 
     try:
         # Initialize GCP core for authentication
-        gcp_core = GCPCore(gcp_credentials=os.environ.get("GCP_CREDENTIALS"))
+        gcp_core = GCPCore(gcp_credentials=os.environ.get("RECSYS_GCP_CREDENTIALS"))
 
         # Initialize Redis service with appropriate parameters
         redis_service = ValkeyService(

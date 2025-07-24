@@ -287,6 +287,6 @@ if __name__ == "__main__":
     ]
 
     # os.environ["GCP_CREDENTIALS"] = open("/root/credentials.json").read()
-    gcp_utils = GCPUtils(gcp_credentials=os.environ.get("GCP_CREDENTIALS"))
+    gcp_utils = GCPUtils(gcp_credentials=os.environ.get("RECSYS_GCP_CREDENTIALS"))
     final_recommendations = transform_recommendations_with_metadata(inputs, gcp_utils)
     print(final_recommendations)

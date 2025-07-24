@@ -57,7 +57,7 @@ class UserReportedVideosChecker:
 
     def _setup_gcp_utils(self):
         """Setup GCP utils from environment variable."""
-        gcp_credentials = os.getenv("GCP_CREDENTIALS")
+        gcp_credentials = os.environ.get("RECSYS_GCP_CREDENTIALS")
         if not gcp_credentials:
             raise ValueError("GCP_CREDENTIALS environment variable is required")
         return GCPUtils(gcp_credentials=gcp_credentials)

@@ -42,7 +42,7 @@ CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
 AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 
 # Get environment variables
-GCP_CREDENTIALS = os.environ.get("GCP_CREDENTIALS")
+GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 # todo: remove this credential after dev testing
 GCP_CREDENTIALS_STAGE = os.environ.get("RECSYS_GCP_CREDENTIALS")
