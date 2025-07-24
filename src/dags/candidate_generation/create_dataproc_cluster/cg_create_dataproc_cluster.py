@@ -42,10 +42,8 @@ CLUSTER_AUTO_DELETE_TTL = 14400  # 4 hours
 AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 
 # Get environment variables
-GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
-SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
-# todo: remove this credential after dev testing
-GCP_CREDENTIALS_STAGE = os.environ.get("RECSYS_GCP_CREDENTIALS")
+RECSYS_GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
+RECSYS_SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 
 # Project configuration
 PROJECT_ID = "jay-dhanwant-experiments"
@@ -91,13 +89,11 @@ CLUSTER_CONFIG = {
     },
     "gce_cluster_config": {
         "internal_ip_only": False,
-        "service_account": SERVICE_ACCOUNT,
+        "service_account": RECSYS_SERVICE_ACCOUNT,
         "service_account_scopes": ["https://www.googleapis.com/auth/cloud-platform"],
         "metadata": {
-            "GCP_CREDENTIALS": GCP_CREDENTIALS,
-            # todo: remove this credential after dev testing
-            "GCP_CREDENTIALS_STAGE": GCP_CREDENTIALS_STAGE,
-            "SERVICE_ACCOUNT": SERVICE_ACCOUNT,
+            "RECSYS_GCP_CREDENTIALS": RECSYS_GCP_CREDENTIALS,
+            "RECSYS_SERVICE_ACCOUNT": RECSYS_SERVICE_ACCOUNT,
         },
     },
     "initialization_actions": [
