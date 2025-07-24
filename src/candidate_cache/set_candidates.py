@@ -305,9 +305,9 @@ class WatchTimeQuantileCandidate(CandidatePopulator):
         super().__init__(nsfw_label=nsfw_label, **kwargs)
         # Set the appropriate table based on nsfw_label
         self.table_name = (
-            "jay-dhanwant-experiments.stage_test_tables.nsfw_watch_time_quantile_candidates"
+            "hot-or-not-feed-intelligence.yral_ds.nsfw_watch_time_quantile_candidates"
             if nsfw_label
-            else "jay-dhanwant-experiments.stage_test_tables.clean_watch_time_quantile_candidates"
+            else "hot-or-not-feed-intelligence.yral_ds.clean_watch_time_quantile_candidates"
         )
 
     def format_key(
@@ -408,9 +408,9 @@ class ModifiedIoUCandidate(CandidatePopulator):
         super().__init__(nsfw_label=nsfw_label, **kwargs)
         # Set the appropriate table based on nsfw_label
         self.table_name = (
-            "jay-dhanwant-experiments.stage_test_tables.nsfw_modified_iou_candidates"
+            "hot-or-not-feed-intelligence.yral_ds.nsfw_modified_iou_candidates"
             if nsfw_label
-            else "jay-dhanwant-experiments.stage_test_tables.clean_modified_iou_candidates"
+            else "hot-or-not-feed-intelligence.yral_ds.clean_modified_iou_candidates"
         )
 
     def format_key(

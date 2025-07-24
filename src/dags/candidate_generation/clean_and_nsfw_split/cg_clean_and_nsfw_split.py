@@ -47,11 +47,9 @@ REGION = "us-central1"
 SOURCE_VIDEO_UNIQUE_TABLE = "jay-dhanwant-experiments.stage_tables.stage_video_unique"
 SOURCE_VIDEO_NSFW_TABLE = "jay-dhanwant-experiments.stage_tables.stage_video_nsfw_agg"
 SOURCE_USER_CLUSTERS_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.test_user_clusters"
+    "hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction"
 )
-DESTINATION_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.test_clean_and_nsfw_split"
-)
+DESTINATION_TABLE = "hot-or-not-feed-intelligence.yral_ds.test_clean_and_nsfw_split"
 
 # NSFW threshold configuration
 NSFW_PROBABILITY_THRESHOLD_LOW = 0.4
@@ -134,7 +132,7 @@ def generate_clean_nsfw_split_query():
         INNER JOIN video_unique vu ON uc.video_id = vu.video_id
       )
 
-    -- Final result with NSFW labels - includes all columns from test_user_clusters
+    -- Final result with NSFW labels - includes all columns from recsys_user_cluster_interaction
     SELECT
       ucd.cluster_id,
       ucd.user_id,

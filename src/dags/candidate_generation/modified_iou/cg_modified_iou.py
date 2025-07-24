@@ -46,12 +46,12 @@ PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_clean_and_nsfw_split"
+SOURCE_TABLE = "hot-or-not-feed-intelligence.yral_ds.test_clean_and_nsfw_split"
 NSFW_DESTINATION_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.nsfw_modified_iou_candidates"
+    "hot-or-not-feed-intelligence.yral_ds.nsfw_modified_iou_candidates"
 )
 CLEAN_DESTINATION_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.clean_modified_iou_candidates"
+    "hot-or-not-feed-intelligence.yral_ds.clean_modified_iou_candidates"
 )
 
 # Threshold configuration

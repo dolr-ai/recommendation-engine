@@ -1,14 +1,19 @@
 -- derive watch time bin it will be a realtime query
 -- we will need to store cluster (for history filtering), quantile data in redis as well
-WITH user_watch_time AS (
-  SELECT
-    cluster_id,
-    user_id,
-    SUM(mean_percentage_watched) * 60 as total_watch_time
-  FROM `jay-dhanwant-experiments.stage_test_tables.test_user_clusters`
-  WHERE user_id = '5ewkg-pzewc-dg53q-2mcwx-34cku-mwmf2-dedap-267oj-5cloa-y4ue6-4qe'
-  GROUP BY cluster_id, user_id
-)
+WITH
+  user_watch_time AS (
+    SELECT
+      cluster_id,
+      user_id,
+      SUM(mean_percentage_watched) * 60 AS total_watch_time
+    FROM
+      `hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction`
+    WHERE
+      user_id = '5ewkg-pzewc-dg53q-2mcwx-34cku-mwmf2-dedap-267oj-5cloa-y4ue6-4qe'
+    GROUP BY
+      cluster_id,
+      user_id
+  )
 SELECT
   uwt.cluster_id,
   uwt.user_id,
@@ -31,23 +36,32 @@ SELECT
     WHEN uwt.total_watch_time <= cp.percentile_75 THEN 2
     WHEN uwt.total_watch_time <= cp.percentile_100 THEN 3
     ELSE -1
-  END as percentile_bin_number
-FROM user_watch_time uwt
-JOIN `jay-dhanwant-experiments.stage_test_tables.user_watch_time_quantile_bins` cp
-  ON uwt.cluster_id = cp.cluster_id
-
-
--- get cluster_id of user and corresponding history
-SELECT cluster_id, user_id, video_id, last_watched_timestamp, mean_percentage_watched
-FROM `jay-dhanwant-experiments.stage_test_tables.test_user_clusters`
-WHERE user_id = '5ewkg-pzewc-dg53q-2mcwx-34cku-mwmf2-dedap-267oj-5cloa-y4ue6-4qe'
-
-SELECT *
-FROM `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates`
-WHERE cluster_id = 7 -- fetch from above query
-AND bin = 3 -- fetch from above query
-AND query_video_id IN (
-    SELECT video_id
-    FROM `jay-dhanwant-experiments.stage_test_tables.test_user_clusters`
-    WHERE user_id = '5ewkg-pzewc-dg53q-2mcwx-34cku-mwmf2-dedap-267oj-5cloa-y4ue6-4qe'
-)
+  END AS percentile_bin_number
+FROM
+  user_watch_time uwt
+  JOIN `hot-or-not-feed-intelligence.yral_ds.user_watch_time_quantile_bins` cp ON uwt.cluster_id = cp.cluster_id -- get cluster_id of user and corresponding history
+SELECT
+  cluster_id,
+  user_id,
+  video_id,
+  last_watched_timestamp,
+  mean_percentage_watched
+FROM
+  `hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction`
+WHERE
+  user_id = '5ewkg-pzewc-dg53q-2mcwx-34cku-mwmf2-dedap-267oj-5cloa-y4ue6-4qe'
+SELECT
+  *
+FROM
+  `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_candidates`
+WHERE
+  cluster_id = 7 -- fetch from above query
+  AND bin = 3 -- fetch from above query
+  AND query_video_id IN (
+    SELECT
+      video_id
+    FROM
+      `hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction`
+    WHERE
+      user_id = '5ewkg-pzewc-dg53q-2mcwx-34cku-mwmf2-dedap-267oj-5cloa-y4ue6-4qe'
+  )

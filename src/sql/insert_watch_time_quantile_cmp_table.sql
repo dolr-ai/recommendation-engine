@@ -1,6 +1,6 @@
 -- First create or replace the table structure
 CREATE OR REPLACE TABLE
-  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate` (
+  `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate` (
     cluster_id INT64,
     bin INT64,
     list_videos_watched ARRAY<STRING>,
@@ -16,7 +16,7 @@ CREATE OR REPLACE TABLE
 
 -- Then insert data into the table
 INSERT INTO
-  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate` -- VARIABLES
+  `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate` -- VARIABLES
   -- Hardcoded values - equivalent to n_bins=4 in Python code
 WITH
   variables AS (
@@ -40,7 +40,7 @@ WITH
       cluster_label,
       updated_at
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.test_user_clusters`
+      `hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction`
   ),
   -- Get approx seconds watched per user
   clusters_with_time AS (

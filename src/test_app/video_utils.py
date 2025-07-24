@@ -106,7 +106,7 @@ class VideoURLTransformer:
                 video_url.video_id,
                 video_url.yral_url
             FROM (
-                SELECT `jay-dhanwant-experiments.stage_test_tables.video_ids_to_urls`([
+                SELECT `hot-or-not-feed-intelligence.yral_ds.video_ids_to_urls`([
                     '{video_id}'
                 ]) as video_urls
             ), UNNEST(video_urls) as video_url
@@ -196,7 +196,7 @@ class VideoURLTransformer:
                 video_url.video_id,
                 video_url.yral_url
             FROM (
-                SELECT `jay-dhanwant-experiments.stage_test_tables.video_ids_to_urls`([
+                SELECT `hot-or-not-feed-intelligence.yral_ds.video_ids_to_urls`([
                     {video_ids_str}
                 ]) as video_urls
             ), UNNEST(video_urls) as video_url

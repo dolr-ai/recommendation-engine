@@ -4,14 +4,14 @@
 -- Delete any existing data for the target cluster (cluster 1)
 -- This ensures we don't have duplicate entries when we re-run the calculation
 DELETE FROM
-  `jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates`
+  `hot-or-not-feed-intelligence.yral_ds.modified_iou_candidates`
 WHERE
   cluster_id = 1;
 
 
 -- Insert the results from the modified_iou_intermediate_table.sql calculation
 INSERT INTO
-  `jay-dhanwant-experiments.stage_test_tables.modified_iou_candidates` (
+  `hot-or-not-feed-intelligence.yral_ds.modified_iou_candidates` (
     cluster_id,
     video_id_x,
     user_id_list_min_x,
@@ -45,7 +45,7 @@ WITH
       video_id,
       mean_percentage_watched
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.test_user_clusters`
+      `hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction`
     WHERE
       mean_percentage_watched > 0.5
       AND cluster_id = 1 -- FOCUS ONLY ON CLUSTER 1
@@ -58,7 +58,7 @@ WITH
       video_id,
       mean_percentage_watched
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.test_user_clusters`
+      `hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction`
     WHERE
       mean_percentage_watched > 0.75
       AND cluster_id = 1 -- FOCUS ONLY ON CLUSTER 1

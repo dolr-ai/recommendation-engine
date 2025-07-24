@@ -45,20 +45,20 @@ PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_TABLE = "jay-dhanwant-experiments.stage_test_tables.test_clean_and_nsfw_split"
-NSFW_INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.nsfw_watch_time_quantile_comparison_intermediate"
-CLEAN_INTERMEDIATE_TABLE = "jay-dhanwant-experiments.stage_test_tables.clean_watch_time_quantile_comparison_intermediate"
+SOURCE_TABLE = "hot-or-not-feed-intelligence.yral_ds.test_clean_and_nsfw_split"
+NSFW_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.nsfw_watch_time_quantile_comparison_intermediate"
+CLEAN_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.clean_watch_time_quantile_comparison_intermediate"
 NSFW_USER_BINS_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.nsfw_user_watch_time_quantile_bins"
+    "hot-or-not-feed-intelligence.yral_ds.nsfw_user_watch_time_quantile_bins"
 )
 CLEAN_USER_BINS_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.clean_user_watch_time_quantile_bins"
+    "hot-or-not-feed-intelligence.yral_ds.clean_user_watch_time_quantile_bins"
 )
 NSFW_DESTINATION_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.nsfw_watch_time_quantile_candidates"
+    "hot-or-not-feed-intelligence.yral_ds.nsfw_watch_time_quantile_candidates"
 )
 CLEAN_DESTINATION_TABLE = (
-    "jay-dhanwant-experiments.stage_test_tables.clean_watch_time_quantile_candidates"
+    "hot-or-not-feed-intelligence.yral_ds.clean_watch_time_quantile_candidates"
 )
 
 # Algorithm configuration
@@ -902,7 +902,7 @@ def generate_candidates_for_content(content_type, **kwargs):
           -- First, flatten all embeddings with their video_ids
           embedding_elements AS (
             SELECT
-              `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) AS video_id,
+              `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id,
               embedding_value,
               pos
             FROM
@@ -912,7 +912,7 @@ def generate_candidates_for_content(content_type, **kwargs):
             OFFSET
               pos
             WHERE
-              `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) IS NOT NULL
+              `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
           ),
           -- todo: create table in production environment for average embeddings as a dag
           -- if needed, we can manually process the embeddings of current videos to backfill

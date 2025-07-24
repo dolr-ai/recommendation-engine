@@ -8,7 +8,7 @@ SELECT
   ARRAY_LENGTH(shifted_list_videos_watched) AS num_shifted_videos,
   ARRAY_LENGTH(list_videos_watched) AS num_videos
 FROM
-  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`
+  `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate`
 WHERE
   cluster_id = 0
 ORDER BY
@@ -22,7 +22,7 @@ SELECT
   flag_compare,
   ARRAY_LENGTH(shifted_list_videos_watched) AS num_shifted_videos
 FROM
-  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`
+  `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate`
 WHERE
   flag_compare = TRUE
 ORDER BY
@@ -38,7 +38,7 @@ WITH
       bin,
       query_video_id
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
+      `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE
@@ -65,7 +65,7 @@ WITH
       bin,
       query_video_id
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
+      `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE
@@ -73,11 +73,11 @@ WITH
   ),
   video_embeddings AS (
     SELECT
-      `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) AS video_id
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
     FROM
       `jay-dhanwant-experiments.stage_tables.stage_video_index` vi
     WHERE
-      `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) IS NOT NULL
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
   )
 SELECT
   qv.cluster_id,
@@ -101,7 +101,7 @@ SELECT
   bin,
   COUNT(*) AS video_count
 FROM
-  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_candidates`
+  `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_candidates`
 GROUP BY
   cluster_id,
   bin
@@ -120,23 +120,23 @@ WITH
       query_video_id,
       list_videos_watched
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
+      `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE
       AND cluster_id = 0
       AND query_video_id IN (
         SELECT
-          `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) AS video_id
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
         FROM
           `jay-dhanwant-experiments.stage_tables.stage_video_index` vi
         WHERE
-          `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) IS NOT NULL
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
       )
   ),
   embedding_elements AS (
     SELECT
-      `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) AS video_id,
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id,
       embedding_value,
       pos
     FROM
@@ -146,7 +146,7 @@ WITH
     OFFSET
       pos
     WHERE
-      `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) IS NOT NULL
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
   ),
   video_embeddings AS (
     SELECT
@@ -222,7 +222,7 @@ WITH
       bin,
       query_video_id
     FROM
-      `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate`,
+      `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate`,
       UNNEST (shifted_list_videos_watched) AS query_video_id
     WHERE
       flag_compare = TRUE
@@ -240,11 +240,11 @@ WITH
       all_videos av
       LEFT JOIN (
         SELECT
-          `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) AS video_id
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
         FROM
           `jay-dhanwant-experiments.stage_tables.stage_video_index` vi
         WHERE
-          `jay-dhanwant-experiments.stage_test_tables.extract_video_id` (vi.uri) IS NOT NULL
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
       ) ve ON av.query_video_id = ve.video_id
   )
 SELECT

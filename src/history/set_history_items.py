@@ -81,7 +81,7 @@ class UserHistoryPopulator:
 
     def __init__(
         self,
-        table_name: str = "jay-dhanwant-experiments.stage_test_tables.test_user_clusters",
+        table_name: str = "hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction",
         config: Optional[Dict[str, Any]] = None,
     ):
         """

@@ -1,6 +1,6 @@
 -- Create the table structure first
 CREATE OR REPLACE TABLE
-  `jay-dhanwant-experiments.stage_test_tables.watch_time_quantile_comparison_intermediate` (
+  `hot-or-not-feed-intelligence.yral_ds.watch_time_quantile_comparison_intermediate` (
     cluster_id INT64,
     bin INT64,
     list_videos_watched ARRAY<STRING>,
