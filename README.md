@@ -1,5 +1,8 @@
 # recommendation-engine
 
+## NOTE: Have you completed `todo-prod` in the code?
+
+
 ## Setup
 
 ### Clone the repository

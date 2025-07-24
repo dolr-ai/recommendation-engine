@@ -32,7 +32,8 @@ fi
 
 # Clone the repository
 echo "Cloning repository ${REPO_URL}..."
-git clone -b dev ${REPO_URL} ${INSTALL_DIR}
+# todo-prod: change this to main/ master after testing
+git clone -b stage-to-prod ${REPO_URL} ${INSTALL_DIR}
 
 # Check if clone was successful
 if [ $? -ne 0 ]; then

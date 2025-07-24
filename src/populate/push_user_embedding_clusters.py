@@ -172,7 +172,7 @@ def main():
 
     # todo: remove this hardcoded path
     # Load GCP credentials from environment or file
-    credentials_path = "/home/dataproc/recommendation-engine/credentials_stage.json"
+    credentials_path = "/home/dataproc/recommendation-engine/credentials.json"
     credentials_json = ""
 
     if credentials_path and os.path.exists(credentials_path):

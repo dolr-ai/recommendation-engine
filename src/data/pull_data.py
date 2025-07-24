@@ -370,4 +370,4 @@ if __name__ == "__main__":
     # todo: remove this after dev testing
     asyncio.run(main())
     # Copy local data to GCS after main has run successfully
-    copy_data_to_gcs()
+    # copy_data_to_gcs() # do not copy to GCS in prod
