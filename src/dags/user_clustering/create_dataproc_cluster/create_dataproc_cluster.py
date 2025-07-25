@@ -7,6 +7,8 @@ It's designed to create a general-purpose cluster that can be used by other DAGs
 """
 
 import os
+import json
+import requests
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.google.cloud.operators.dataproc import (
@@ -41,6 +43,9 @@ AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 RECSYS_GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
 RECSYS_SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 
+# Google Chat webhook URL - should be stored as an environment variable
+GOOGLE_CHAT_WEBHOOK = os.environ.get("RECSYS_GOOGLE_CHAT_WEBHOOK")
+
 # Project configuration
 PROJECT_ID = "hot-or-not-feed-intelligence"
 REGION = "us-central1"
@@ -53,6 +58,159 @@ INIT_ACTION_SCRIPT = "gs://yral-dataproc-notebooks/yral-dataproc-notebooks/datap
 
 # Dataproc staging and temp buckets
 DATAPROC_CONFIG_BUCKET = "yral-ds-dataproc-bucket"
+
+
+class GoogleChatAlert:
+    """
+    Class for sending alerts to Google Chat with card formatting.
+    """
+
+    def __init__(self, webhook_url=None, logo_url=None, project_id=None, dag_id=None):
+        """
+        Initialize the GoogleChatAlert class.
+
+        Args:
+            webhook_url: The Google Chat webhook URL
+            logo_url: URL for the logo to display in alerts
+            project_id: The GCP project ID
+            dag_id: The Airflow DAG ID
+        """
+        self.webhook_url = webhook_url or GOOGLE_CHAT_WEBHOOK
+        self.logo_url = (
+            logo_url or "https://placehold.co/400/0099FF/FFFFFF.png?text=ZZ&font=roboto"
+        )
+        self.project_id = project_id or PROJECT_ID
+        self.dag_id = dag_id or DAG_ID
+
+        # Status icons and messages
+        self.status_config = {
+            "started": {
+                "icon": "🔄",
+                "title": "Started",
+                "message": "Task '{task_id}' started",
+            },
+            "success": {
+                "icon": "✅",
+                "title": "Success",
+                "message": "Task '{task_id}' completed successfully",
+            },
+            "failed": {
+                "icon": "❌",
+                "title": "Failed",
+                "message": "Task '{task_id}' failed",
+            },
+        }
+
+    def send(self, context, status):
+        """
+        Send an alert to Google Chat.
+
+        Args:
+            context: The Airflow context
+            status: Status of the task/DAG - "started", "success", or "failed"
+        """
+        if not self.webhook_url:
+            print("No Google Chat webhook URL provided. Skipping alert.")
+            return
+
+        # Get task info
+        task_instance = context.get("task_instance")
+        task_id = task_instance.task_id if task_instance else "unknown"
+
+        # Get status config
+        config = self.status_config.get(status, self.status_config["failed"])
+        message = config["message"].format(task_id=task_id)
+
+        # Create card
+        card = {
+            "cards": [
+                {
+                    "header": {
+                        "title": f"Dataproc Cluster {config['title']}",
+                        "subtitle": f"{self.dag_id}",
+                        "imageUrl": self.logo_url,
+                    },
+                    "sections": [
+                        {
+                            "widgets": [
+                                {
+                                    "textParagraph": {
+                                        "text": f"{config['icon']} {message}"
+                                    }
+                                },
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Project",
+                                        "content": self.project_id,
+                                    }
+                                },
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Time",
+                                        "content": datetime.now().strftime(
+                                            "%Y-%m-%d %H:%M:%S"
+                                        ),
+                                    }
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+        # Add log URL if available
+        if task_instance and hasattr(task_instance, "log_url"):
+            card["cards"][0]["sections"][0]["widgets"].append(
+                {
+                    "textParagraph": {
+                        "text": f"<a href='{task_instance.log_url}'>View Logs</a>"
+                    }
+                }
+            )
+
+        try:
+            response = requests.post(
+                self.webhook_url,
+                headers={"Content-Type": "application/json; charset=UTF-8"},
+                json=card,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                print(f"Successfully sent {status} alert to Google Chat")
+            else:
+                print(
+                    f"Failed to send alert to Google Chat. Status code: {response.status_code}"
+                )
+        except Exception as e:
+            # Avoid failing callback
+            print(f"Failed to post alert to Google Chat: {str(e)}")
+
+    # Callback methods for easy use with Airflow
+    def on_success(self, context):
+        """Send success notification"""
+        self.send(context, "success")
+
+    def on_failure(self, context):
+        """Send failure notification"""
+        self.send(context, "failed")
+
+    def on_start(self, context):
+        """Send start notification"""
+        self.send(context, "started")
+
+
+# Initialize the alert system
+alerts = GoogleChatAlert(webhook_url=GOOGLE_CHAT_WEBHOOK)
+
+
+# Function to set the cluster name variable
+def set_cluster_name(**context):
+    """Set the cluster name as an Airflow Variable so other DAGs can use it."""
+    ds_nodash = context["ds_nodash"]
+    cluster_name = CLUSTER_NAME_TEMPLATE.format(ds_nodash=ds_nodash)
+    Variable.set(CLUSTER_NAME_VARIABLE, cluster_name)
+    return cluster_name
 
 
 # Define the cluster configuration based on your gcloud command
@@ -118,15 +276,6 @@ CLUSTER_CONFIG = {
 }
 
 
-# Function to set the cluster name variable
-def set_cluster_name(**context):
-    """Set the cluster name as an Airflow Variable so other DAGs can use it."""
-    ds_nodash = context["ds_nodash"]
-    cluster_name = CLUSTER_NAME_TEMPLATE.format(ds_nodash=ds_nodash)
-    Variable.set(CLUSTER_NAME_VARIABLE, cluster_name)
-    return cluster_name
-
-
 # Create the DAG
 with DAG(
     dag_id=DAG_ID,
@@ -135,8 +284,10 @@ with DAG(
     schedule_interval=None,
     catchup=False,
     tags=["user_clustering"],
+    on_success_callback=alerts.on_success,
+    on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag)
+    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
 
     # Set the cluster name variable for other DAGs to use
     set_cluster_variable = PythonOperator(
@@ -155,10 +306,12 @@ with DAG(
         # num_retries_if_resource_is_not_ready=3, # for: composer-3-airflow-2.10.5-build.2
         # retry=3,  # for: composer-3-airflow-2.7.3-build.6
         labels={"job_type": DAG_ID},
+        on_execute_callback=alerts.on_start,
+        on_success_callback=alerts.on_success,
+        on_failure_callback=alerts.on_failure,
     )
 
     end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
 
     # Define task dependencies
     start >> set_cluster_variable >> create_cluster >> end
-    # delete_cluster >> end
