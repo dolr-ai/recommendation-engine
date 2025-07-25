@@ -160,7 +160,7 @@ with DAG(
         asynchronous=False,  # Wait for the job to complete
         retries=1,  # Increase retries for more resilience
         retry_delay=timedelta(minutes=5),
-        execution_timeout=timedelta(hours=1),  # Set a reasonable execution timeout
+        execution_timeout=timedelta(hours=2),  # Set a reasonable execution timeout
     )
 
     # Set status to completed after job finishes successfully

@@ -59,17 +59,17 @@ DATAPROC_CONFIG_BUCKET = "yral-ds-dataproc-bucket"
 CLUSTER_CONFIG = {
     "master_config": {
         "num_instances": 1,
-        "machine_type_uri": "e2-standard-4",
+        "machine_type_uri": "c4-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
     },
     "worker_config": {
-        "num_instances": 2,
-        "machine_type_uri": "e2-standard-4",
+        "num_instances": 4,
+        "machine_type_uri": "c4-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
     },
     "secondary_worker_config": {
         "num_instances": 2,
-        "machine_type_uri": "e2-standard-4",
+        "machine_type_uri": "c4-standard-4",
         "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
     },
     "autoscaling_config": {
@@ -103,7 +103,7 @@ CLUSTER_CONFIG = {
     "initialization_actions": [
         {
             "executable_file": INIT_ACTION_SCRIPT,
-            "execution_timeout": {"seconds": 120},  # 2 minutes timeout
+            "execution_timeout": {"seconds": 300},  # 5 minutes timeout
         }
     ],
 }
