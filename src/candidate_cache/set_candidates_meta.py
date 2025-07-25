@@ -343,9 +343,7 @@ class UserWatchTimeMetadata(MetadataPopulator):
             **kwargs: Additional arguments passed to parent class
         """
         super().__init__(nsfw_label=nsfw_label, **kwargs)
-        self.table_name = (
-            "hot-or-not-feed-intelligence.yral_ds.test_clean_and_nsfw_split"
-        )
+        self.table_name = "hot-or-not-feed-intelligence.yral_ds.recsys_clean_nsfw_split_interactions_for_cg"
 
     def format_key(
         self,

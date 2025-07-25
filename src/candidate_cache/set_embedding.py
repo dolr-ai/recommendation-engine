@@ -107,7 +107,7 @@ class EmbeddingPopulator:
         """
         query = """
         SELECT DISTINCT video_id
-        FROM `jay-dhanwant-experiments.stage_tables.video_embedding_average`
+        FROM `hot-or-not-feed-intelligence.yral_ds.video_embedding_average`
         """
 
         df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
@@ -145,7 +145,7 @@ class EmbeddingPopulator:
             video_id,
             avg_embedding
         FROM
-            `jay-dhanwant-experiments.stage_tables.video_embedding_average`
+            `hot-or-not-feed-intelligence.yral_ds.video_embedding_average`
         WHERE
             video_id IN ({video_ids_str})
         """

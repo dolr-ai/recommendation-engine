@@ -30,7 +30,7 @@ class SimilarityManager:
         # The BigQuery table containing video embeddings
         self.embedding_table = os.environ.get(
             "VIDEO_EMBEDDING_TABLE",
-            "jay-dhanwant-experiments.stage_tables.video_embedding_average",
+            "hot-or-not-feed-intelligence.yral_ds.video_embedding_average",
         )
 
     def calculate_similarity_batch(

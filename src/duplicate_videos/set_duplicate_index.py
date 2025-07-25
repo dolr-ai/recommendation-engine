@@ -48,7 +48,7 @@ class DuplicateVideoPopulator:
 
     def __init__(
         self,
-        table_name: str = "jay-dhanwant-experiments.stage_tables.stage_video_unique",
+        table_name: str = "hot-or-not-feed-intelligence.yral_ds.video_unique",
         config: Optional[Dict[str, Any]] = None,
     ):
         """

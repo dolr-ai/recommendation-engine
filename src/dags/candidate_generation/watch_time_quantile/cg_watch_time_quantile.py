@@ -45,7 +45,9 @@ PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_TABLE = "hot-or-not-feed-intelligence.yral_ds.test_clean_and_nsfw_split"
+SOURCE_TABLE = (
+    "hot-or-not-feed-intelligence.yral_ds.recsys_clean_nsfw_split_interactions_for_cg"
+)
 NSFW_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.nsfw_watch_time_quantile_comparison_intermediate"
 CLEAN_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.clean_watch_time_quantile_comparison_intermediate"
 NSFW_USER_BINS_TABLE = (
@@ -124,9 +126,9 @@ def get_tables_for_content_type(content_type):
         raise ValueError(f"Invalid content type: {content_type}")
 
 
-# Function to get all cluster IDs from the test_clean_and_nsfw_split table
+# Function to get all cluster IDs from the recsys_clean_nsfw_split_interactions_for_cg table
 def get_cluster_ids(**kwargs):
-    """Get all unique cluster IDs from the test_clean_and_nsfw_split table."""
+    """Get all unique cluster IDs from the recsys_clean_nsfw_split_interactions_for_cg table."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()
@@ -906,7 +908,7 @@ def generate_candidates_for_content(content_type, **kwargs):
               embedding_value,
               pos
             FROM
-              `jay-dhanwant-experiments.stage_tables.stage_video_index` vi,
+              `hot-or-not-feed-intelligence.yral_ds.video_index` vi,
               UNNEST (vi.embedding) AS embedding_value
             WITH
             OFFSET

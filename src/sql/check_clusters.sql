@@ -75,7 +75,7 @@ WITH
     SELECT
       `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
     FROM
-      `jay-dhanwant-experiments.stage_tables.stage_video_index` vi
+      `hot-or-not-feed-intelligence.yral_ds.video_index` vi
     WHERE
       `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
   )
@@ -129,7 +129,7 @@ WITH
         SELECT
           `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
         FROM
-          `jay-dhanwant-experiments.stage_tables.stage_video_index` vi
+          `hot-or-not-feed-intelligence.yral_ds.video_index` vi
         WHERE
           `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
       )
@@ -140,7 +140,7 @@ WITH
       embedding_value,
       pos
     FROM
-      `jay-dhanwant-experiments.stage_tables.stage_video_index` vi,
+      `hot-or-not-feed-intelligence.yral_ds.video_index` vi,
       UNNEST (vi.embedding) AS embedding_value
     WITH
     OFFSET
@@ -242,7 +242,7 @@ WITH
         SELECT
           `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
         FROM
-          `jay-dhanwant-experiments.stage_tables.stage_video_index` vi
+          `hot-or-not-feed-intelligence.yral_ds.video_index` vi
         WHERE
           `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
       ) ve ON av.query_video_id = ve.video_id

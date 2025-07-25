@@ -273,12 +273,12 @@ class RegionalPopularityCandidate(LocationCandidatePopulator):
         super().__init__(nsfw_label=nsfw_label, **kwargs)
         # Main table with regional popularity data
         self.table_name = (
-            "jay-dhanwant-experiments.stage_tables.stage_region_grossing_l7d_candidates"
+            "hot-or-not-feed-intelligence.yral_ds.region_grossing_l7d_candidates"
         )
         # Video index table for NSFW classification
         self.video_index_table = os.environ.get(
             "VIDEO_INDEX_TABLE",
-            "jay-dhanwant-experiments.stage_tables.stage_video_index",
+            "hot-or-not-feed-intelligence.yral_ds.video_index",
         )
 
     def format_key(self, region: str) -> str:
@@ -301,7 +301,7 @@ class RegionalPopularityCandidate(LocationCandidatePopulator):
             END as is_nsfw,
             nsfw.probability as probability
           FROM `{self.table_name}` rg
-          LEFT JOIN `jay-dhanwant-experiments.stage_tables.stage_video_nsfw_agg` nsfw
+          LEFT JOIN `hot-or-not-feed-intelligence.yral_ds.video_nsfw_agg` nsfw
             ON rg.video_id = nsfw.video_id
           WHERE rg.within_region_popularity_score IS NOT NULL
             AND rg.within_region_popularity_score > 0

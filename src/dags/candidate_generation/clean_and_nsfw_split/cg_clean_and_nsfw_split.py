@@ -44,12 +44,10 @@ PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_VIDEO_UNIQUE_TABLE = "jay-dhanwant-experiments.stage_tables.stage_video_unique"
-SOURCE_VIDEO_NSFW_TABLE = "jay-dhanwant-experiments.stage_tables.stage_video_nsfw_agg"
-SOURCE_USER_CLUSTERS_TABLE = (
-    "hot-or-not-feed-intelligence.yral_ds.recsys_user_cluster_interaction"
-)
-DESTINATION_TABLE = "hot-or-not-feed-intelligence.yral_ds.test_clean_and_nsfw_split"
+SOURCE_VIDEO_UNIQUE_TABLE = f"{PROJECT_ID}.yral_ds.video_unique"
+SOURCE_VIDEO_NSFW_TABLE = f"{PROJECT_ID}.yral_ds.video_nsfw_agg"
+SOURCE_USER_CLUSTERS_TABLE = f"{PROJECT_ID}.yral_ds.recsys_user_cluster_interaction"
+DESTINATION_TABLE = f"{PROJECT_ID}.yral_ds.recsys_clean_and_nsfw_split"
 
 # NSFW threshold configuration
 NSFW_PROBABILITY_THRESHOLD_LOW = 0.4

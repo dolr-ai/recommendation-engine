@@ -2,7 +2,7 @@
 Modified IoU Candidate Generation DAG
 
 This DAG uses BigQuery to calculate modified IoU scores for video recommendation candidates.
-It runs the calculation for each cluster ID found in the test_clean_and_nsfw_split table.
+It runs the calculation for each cluster ID found in the recsys_clean_nsfw_split_interactions_for_cg table.
 Now handles both NSFW and clean content by splitting into separate destination tables.
 
 NOTE: For very small data sets, this percentile calculation might not work as expected.
@@ -46,7 +46,9 @@ PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_TABLE = "hot-or-not-feed-intelligence.yral_ds.test_clean_and_nsfw_split"
+SOURCE_TABLE = (
+    "hot-or-not-feed-intelligence.yral_ds.recsys_clean_nsfw_split_interactions_for_cg"
+)
 NSFW_DESTINATION_TABLE = (
     "hot-or-not-feed-intelligence.yral_ds.nsfw_modified_iou_candidates"
 )
@@ -99,9 +101,9 @@ def get_destination_table(content_type):
         raise ValueError(f"Invalid content type: {content_type}")
 
 
-# Function to get all cluster IDs from the test_clean_and_nsfw_split table
+# Function to get all cluster IDs from the recsys_clean_nsfw_split_interactions_for_cg table
 def get_cluster_ids(**kwargs):
-    """Get all unique cluster IDs from the test_clean_and_nsfw_split table."""
+    """Get all unique cluster IDs from the recsys_clean_nsfw_split_interactions_for_cg table."""
     try:
         # Create BigQuery client
         client = get_bigquery_client()

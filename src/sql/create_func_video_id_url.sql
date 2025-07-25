@@ -21,7 +21,7 @@ CREATE OR REPLACE FUNCTION
         )
       FROM
         UNNEST (input_video_ids) AS input_video_id
-        LEFT JOIN `jay-dhanwant-experiments.stage_tables.stage_video_index` vi ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) = input_video_id
+        LEFT JOIN `hot-or-not-feed-intelligence.yral_ds.video_index` vi ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) = input_video_id
     )
   );
 

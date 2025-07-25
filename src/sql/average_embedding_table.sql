@@ -1,10 +1,10 @@
 -- # initial creation of the table
 CREATE OR REPLACE TABLE
-  `jay-dhanwant-experiments.stage_tables.video_embedding_average` (video_id STRING, avg_embedding ARRAY<FLOAT64>);
+  `hot-or-not-feed-intelligence.yral_ds.video_embedding_average` (video_id STRING, avg_embedding ARRAY<FLOAT64>);
 
 
 INSERT INTO
-  `jay-dhanwant-experiments.stage_tables.video_embedding_average` (video_id, avg_embedding)
+  `hot-or-not-feed-intelligence.yral_ds.video_embedding_average` (video_id, avg_embedding)
 WITH
   flattened_embeddings AS (
     SELECT
@@ -12,7 +12,7 @@ WITH
       pos,
       embedding_value
     FROM
-      `jay-dhanwant-experiments.stage_tables.stage_video_index`,
+      `hot-or-not-feed-intelligence.yral_ds.video_index`,
       UNNEST (embedding) AS embedding_value
     WITH
     OFFSET
@@ -46,20 +46,20 @@ GROUP BY
 
 -- # consecutive updates to the table should use this query
 INSERT INTO
-  `jay-dhanwant-experiments.stage_tables.video_embedding_average` (video_id, avg_embedding)
+  `hot-or-not-feed-intelligence.yral_ds.video_embedding_average` (video_id, avg_embedding)
 WITH
   missing_videos AS (
     SELECT DISTINCT
       `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) AS video_id
     FROM
-      `jay-dhanwant-experiments.stage_tables.stage_video_index`
+      `hot-or-not-feed-intelligence.yral_ds.video_index`
     WHERE
       `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) IS NOT NULL
       AND `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) NOT IN (
         SELECT
           video_id
         FROM
-          `jay-dhanwant-experiments.stage_tables.video_embedding_average`
+          `hot-or-not-feed-intelligence.yral_ds.video_embedding_average`
         WHERE
           video_id IS NOT NULL
       )
@@ -70,7 +70,7 @@ WITH
       pos,
       embedding_value
     FROM
-      `jay-dhanwant-experiments.stage_tables.stage_video_index` s
+      `hot-or-not-feed-intelligence.yral_ds.video_index` s
       INNER JOIN missing_videos m ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (s.uri) = m.video_id,
       UNNEST (embedding) AS embedding_value
     WITH

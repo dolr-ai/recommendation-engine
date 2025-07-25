@@ -660,7 +660,7 @@ class CandidateEmbeddingPopulator:
             video_id,
             avg_embedding
         FROM
-            `jay-dhanwant-experiments.stage_tables.video_embedding_average`
+            `hot-or-not-feed-intelligence.yral_ds.video_embedding_average`
         WHERE
             video_id IN ({video_ids_str})
         """

@@ -83,7 +83,7 @@ def get_video_metadata(video_ids, gcp_utils):
             # The BigQuery table containing video metadata
             video_index_table = os.environ.get(
                 "VIDEO_INDEX_TABLE",
-                "jay-dhanwant-experiments.stage_tables.stage_video_index",
+                "hot-or-not-feed-intelligence.yral_ds.video_index",
             )
 
             # Construct and execute BigQuery query
@@ -96,7 +96,7 @@ def get_video_metadata(video_ids, gcp_utils):
                 `hot-or-not-feed-intelligence.yral_ds.extract_video_id`(vi.uri) as video_id,
                 CAST(nsfw.probability AS FLOAT64) as nsfw_probability
             FROM `{video_index_table}` vi
-            LEFT JOIN `jay-dhanwant-experiments.stage_tables.stage_video_nsfw_agg` nsfw
+            LEFT JOIN `hot-or-not-feed-intelligence.yral_ds.video_nsfw_agg` nsfw
                 ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id`(vi.uri) = nsfw.video_id
             WHERE `hot-or-not-feed-intelligence.yral_ds.extract_video_id`(vi.uri) IN ({video_ids_str})
             """

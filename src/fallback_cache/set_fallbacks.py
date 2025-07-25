@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
     },
     "expire_seconds": 86400 * 30,  # 30 days
     "verify_sample_size": 5,
-    "source_table": "jay-dhanwant-experiments.stage_tables.stage_global_popular_videos_l7d",
+    "source_table": "hot-or-not-feed-intelligence.yral_ds.global_popular_videos_l7d",
 }
 
 # Check if we're in DEV_MODE (use proxy connection instead)
