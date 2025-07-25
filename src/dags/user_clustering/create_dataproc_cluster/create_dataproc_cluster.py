@@ -113,9 +113,26 @@ class GoogleChatAlert:
             print("No Google Chat webhook URL provided. Skipping alert.")
             return
 
-        # Get task info
+        # Extract information from context
         task_instance = context.get("task_instance")
+        execution_date = context.get("execution_date", datetime.now())
+        dag_run = context.get("dag_run")
+
+        # Get task details
         task_id = task_instance.task_id if task_instance else "unknown"
+        task_operator = (
+            getattr(task_instance, "operator", "Unknown")
+            if task_instance
+            else "Unknown"
+        )
+        duration = getattr(task_instance, "duration", None) if task_instance else None
+
+        # Get DAG details
+        dag_id = getattr(dag_run, "dag_id", self.dag_id) if dag_run else self.dag_id
+        run_id = getattr(dag_run, "run_id", "unknown") if dag_run else "unknown"
+
+        # Format duration if available
+        duration_str = f"{duration:.2f}s" if duration else "N/A"
 
         # Get status config
         config = self.status_config.get(status, self.status_config["failed"])
@@ -126,8 +143,8 @@ class GoogleChatAlert:
             "cards": [
                 {
                     "header": {
-                        "title": f"Dataproc Cluster {config['title']}",
-                        "subtitle": f"{self.dag_id}",
+                        "title": f"Recsys Alert: {config['title']}",
+                        "subtitle": f"{dag_id}",
                         "imageUrl": self.logo_url,
                     },
                     "sections": [
@@ -138,12 +155,7 @@ class GoogleChatAlert:
                                         "text": f"{config['icon']} {message}"
                                     }
                                 },
-                                {
-                                    "keyValue": {
-                                        "topLabel": "Project",
-                                        "content": self.project_id,
-                                    }
-                                },
+                                {"keyValue": {"topLabel": "Run ID", "content": run_id}},
                                 {
                                     "keyValue": {
                                         "topLabel": "Time",
@@ -158,6 +170,12 @@ class GoogleChatAlert:
                 }
             ]
         }
+
+        # Add duration if available and not in "started" status
+        if duration and status != "started":
+            card["cards"][0]["sections"][0]["widgets"].append(
+                {"keyValue": {"topLabel": "Duration", "content": duration_str}}
+            )
 
         # Add log URL if available
         if task_instance and hasattr(task_instance, "log_url"):
@@ -201,6 +219,7 @@ class GoogleChatAlert:
 
 
 # Initialize the alert system
+
 alerts = GoogleChatAlert(webhook_url=GOOGLE_CHAT_WEBHOOK)
 
 
