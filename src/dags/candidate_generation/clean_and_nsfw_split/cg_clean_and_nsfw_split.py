@@ -47,7 +47,7 @@ REGION = "us-central1"
 SOURCE_VIDEO_UNIQUE_TABLE = f"{PROJECT_ID}.yral_ds.video_unique"
 SOURCE_VIDEO_NSFW_TABLE = f"{PROJECT_ID}.yral_ds.video_nsfw_agg"
 SOURCE_USER_CLUSTERS_TABLE = f"{PROJECT_ID}.yral_ds.recsys_user_cluster_interaction"
-DESTINATION_TABLE = f"{PROJECT_ID}.yral_ds.recsys_clean_and_nsfw_split"
+DESTINATION_TABLE = f"{PROJECT_ID}.yral_ds.recsys_clean_nsfw_split_interactions_for_cg"
 
 # NSFW threshold configuration
 NSFW_PROBABILITY_THRESHOLD_LOW = 0.4

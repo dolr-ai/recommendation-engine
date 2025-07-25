@@ -261,9 +261,9 @@ class UserWatchTimeQuantileBins(MetadataPopulator):
         super().__init__(nsfw_label=nsfw_label, **kwargs)
         # Set the appropriate table based on nsfw_label
         self.table_name = (
-            "hot-or-not-feed-intelligence.yral_ds.nsfw_user_watch_time_quantile_bins"
+            "hot-or-not-feed-intelligence.yral_ds.recsys_cg_pre_nsfw_user_watch_time_quantile_bins"
             if nsfw_label
-            else "hot-or-not-feed-intelligence.yral_ds.clean_user_watch_time_quantile_bins"
+            else "hot-or-not-feed-intelligence.yral_ds.recsys_cg_pre_clean_user_watch_time_quantile_bins"
         )
 
     def format_key(

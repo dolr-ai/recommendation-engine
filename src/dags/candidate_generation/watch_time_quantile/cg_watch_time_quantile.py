@@ -48,20 +48,14 @@ REGION = "us-central1"
 SOURCE_TABLE = (
     "hot-or-not-feed-intelligence.yral_ds.recsys_clean_nsfw_split_interactions_for_cg"
 )
-NSFW_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.nsfw_watch_time_quantile_comparison_intermediate"
-CLEAN_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.clean_watch_time_quantile_comparison_intermediate"
-NSFW_USER_BINS_TABLE = (
-    "hot-or-not-feed-intelligence.yral_ds.nsfw_user_watch_time_quantile_bins"
-)
-CLEAN_USER_BINS_TABLE = (
-    "hot-or-not-feed-intelligence.yral_ds.clean_user_watch_time_quantile_bins"
-)
+NSFW_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.recsys_cg_pre_nsfw_watch_time_quantile_comparison"
+CLEAN_INTERMEDIATE_TABLE = "hot-or-not-feed-intelligence.yral_ds.recsys_cg_pre_clean_watch_time_quantile_comparison"
+NSFW_USER_BINS_TABLE = "hot-or-not-feed-intelligence.yral_ds.recsys_cg_pre_nsfw_user_watch_time_quantile_bins"
+CLEAN_USER_BINS_TABLE = "hot-or-not-feed-intelligence.yral_ds.recsys_cg_pre_clean_user_watch_time_quantile_bins"
 NSFW_DESTINATION_TABLE = (
-    "hot-or-not-feed-intelligence.yral_ds.nsfw_watch_time_quantile_candidates"
+    "hot-or-not-feed-intelligence.yral_ds.recsys_cg_nsfw_watch_time_quantile_candidates"
 )
-CLEAN_DESTINATION_TABLE = (
-    "hot-or-not-feed-intelligence.yral_ds.clean_watch_time_quantile_candidates"
-)
+CLEAN_DESTINATION_TABLE = "hot-or-not-feed-intelligence.yral_ds.recsys_cg_clean_watch_time_quantile_candidates"
 
 # Algorithm configuration
 N_BINS = 4

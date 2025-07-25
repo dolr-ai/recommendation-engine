@@ -50,10 +50,10 @@ SOURCE_TABLE = (
     "hot-or-not-feed-intelligence.yral_ds.recsys_clean_nsfw_split_interactions_for_cg"
 )
 NSFW_DESTINATION_TABLE = (
-    "hot-or-not-feed-intelligence.yral_ds.nsfw_modified_iou_candidates"
+    "hot-or-not-feed-intelligence.yral_ds.recsys_cg_nsfw_modified_iou_candidates"
 )
 CLEAN_DESTINATION_TABLE = (
-    "hot-or-not-feed-intelligence.yral_ds.clean_modified_iou_candidates"
+    "hot-or-not-feed-intelligence.yral_ds.recsys_cg_clean_modified_iou_candidates"
 )
 
 # Threshold configuration
