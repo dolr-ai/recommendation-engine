@@ -60,17 +60,26 @@ CLUSTER_CONFIG = {
     "master_config": {
         "num_instances": 1,
         "machine_type_uri": "c4-standard-4",
-        "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
+        "disk_config": {
+            "boot_disk_type": "hyperdisk-balanced",
+            "boot_disk_size_gb": 100,
+        },
     },
     "worker_config": {
         "num_instances": 4,
         "machine_type_uri": "c4-standard-4",
-        "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
+        "disk_config": {
+            "boot_disk_type": "hyperdisk-balanced",
+            "boot_disk_size_gb": 100,
+        },
     },
     "secondary_worker_config": {
         "num_instances": 2,
         "machine_type_uri": "c4-standard-4",
-        "disk_config": {"boot_disk_type": "pd-ssd", "boot_disk_size_gb": 100},
+        "disk_config": {
+            "boot_disk_type": "hyperdisk-balanced",
+            "boot_disk_size_gb": 100,
+        },
     },
     "autoscaling_config": {
         "policy_uri": f"projects/{PROJECT_ID}/regions/{REGION}/autoscalingPolicies/{AUTOSCALING_POLICY_ID}"
