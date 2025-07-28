@@ -126,6 +126,69 @@ def initialize_status_variable(**kwargs):
         raise AirflowException(f"Failed to initialize status variable: {str(e)}")
 
 
+# Function to update google_cloud_default connection with service account credentials
+def setup_gcp_connection(**kwargs):
+    """Update google_cloud_default connection with service account credentials."""
+    try:
+        print("Setting up google_cloud_default connection with service account credentials...")
+        
+        if not GCP_CREDENTIALS:
+            raise ValueError("RECSYS_GCP_CREDENTIALS not found")
+            
+        # Import required modules
+        from airflow.models import Connection
+        from airflow import settings
+        
+        # Parse credentials
+        credentials_dict = json.loads(GCP_CREDENTIALS)
+        
+        # Connection ID to update
+        conn_id = "google_cloud_default"
+        
+        session = settings.Session()
+        try:
+            # Get existing connection or create new one
+            existing_conn = session.query(Connection).filter(Connection.conn_id == conn_id).first()
+            
+            if existing_conn:
+                print(f"Updating existing connection: {conn_id}")
+                # Update existing connection
+                existing_conn.conn_type = 'google_cloud_platform'
+                existing_conn.extra = json.dumps({
+                    "extra__google_cloud_platform__keyfile_dict": GCP_CREDENTIALS,
+                    "extra__google_cloud_platform__project": PROJECT_ID,
+                    "extra__google_cloud_platform__scope": "https://www.googleapis.com/auth/cloud-platform"
+                })
+            else:
+                print(f"Creating new connection: {conn_id}")
+                # Create new connection
+                new_conn = Connection(
+                    conn_id=conn_id,
+                    conn_type='google_cloud_platform',
+                    description='GCP connection with service account credentials',
+                    extra=json.dumps({
+                        "extra__google_cloud_platform__keyfile_dict": GCP_CREDENTIALS,
+                        "extra__google_cloud_platform__project": PROJECT_ID,
+                        "extra__google_cloud_platform__scope": "https://www.googleapis.com/auth/cloud-platform"
+                    })
+                )
+                session.add(new_conn)
+            
+            session.commit()
+            print(f"✅ Successfully configured connection: {conn_id}")
+            print(f"   Service Account: {credentials_dict.get('client_email')}")
+            print(f"   Project: {PROJECT_ID}")
+            
+            return True
+            
+        finally:
+            session.close()
+            
+    except Exception as e:
+        print(f"❌ Failed to setup GCP connection: {str(e)}")
+        raise AirflowException(f"Failed to setup GCP connection: {str(e)}")
+
+
 # Function to set status variable to completed
 def set_status_completed(**kwargs):
     """Set the cache_refresh_candidates_meta_completed status variable to True."""
@@ -153,6 +216,12 @@ with DAG(
     init_status = PythonOperator(
         task_id="task-init_status",
         python_callable=initialize_status_variable,
+    )
+
+    # Setup GCP connection with service account credentials
+    setup_connection = PythonOperator(
+        task_id="task-setup_gcp_connection",
+        python_callable=setup_gcp_connection,
     )
 
     # Generate a compliant job name
@@ -236,6 +305,7 @@ with DAG(
         region=REGION,
         job_name=job_name,
         job=job_config,
+        gcp_conn_id="google_cloud_default",
     )
 
     # Execute the job
@@ -244,6 +314,7 @@ with DAG(
         project_id=PROJECT_ID,
         region=REGION,
         job_name=job_name,
+        gcp_conn_id="google_cloud_default",
     )
 
     # Set status to completed
@@ -258,6 +329,7 @@ with DAG(
     (
         start
         >> init_status
+        >> setup_connection
         >> generate_job_name_task
         >> create_job
         >> run_job
