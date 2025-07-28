@@ -68,8 +68,8 @@ except Exception as e:
 SERVICE_REDIS_INSTANCE_ID = os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID")
 SERVICE_REDIS_HOST = os.environ.get("RECSYS_SERVICE_REDIS_HOST")
 PROXY_REDIS_HOST = os.environ.get("RECSYS_PROXY_REDIS_HOST")
-SERVICE_REDIS_PORT = os.environ.get("RECSYS_SERVICE_REDIS_PORT")
-PROXY_REDIS_PORT = os.environ.get("RECSYS_PROXY_REDIS_PORT")
+RECSYS_SERVICE_REDIS_PORT = os.environ.get("RECSYS_RECSYS_SERVICE_REDIS_PORT")
+RECSYS_PROXY_REDIS_PORT = os.environ.get("RECSYS_RECSYS_PROXY_REDIS_PORT")
 SERVICE_REDIS_AUTHKEY = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
 USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY")
 SERVICE_REDIS_CLUSTER_ENABLED = os.environ.get("RECSYS_SERVICE_REDIS_CLUSTER_ENABLED")
@@ -137,6 +137,77 @@ def set_status_completed(**kwargs):
         raise AirflowException(f"Failed to set status variable: {str(e)}")
 
 
+# Function to update google_cloud_default connection with service account credentials
+def setup_gcp_connection(**kwargs):
+    """Update google_cloud_default connection with service account credentials."""
+    try:
+        print(
+            "Setting up google_cloud_default connection with service account credentials..."
+        )
+
+        if not GCP_CREDENTIALS:
+            raise ValueError("RECSYS_GCP_CREDENTIALS not found")
+
+        # Import required modules
+        from airflow.models import Connection
+        from airflow import settings
+
+        # Parse credentials
+        credentials_dict = json.loads(GCP_CREDENTIALS)
+
+        # Connection ID to update
+        conn_id = "google_cloud_default"
+
+        session = settings.Session()
+        try:
+            # Get existing connection or create new one
+            existing_conn = (
+                session.query(Connection).filter(Connection.conn_id == conn_id).first()
+            )
+
+            if existing_conn:
+                print(f"Updating existing connection: {conn_id}")
+                # Update existing connection
+                existing_conn.conn_type = "google_cloud_platform"
+                existing_conn.extra = json.dumps(
+                    {
+                        "extra__google_cloud_platform__keyfile_dict": GCP_CREDENTIALS,
+                        "extra__google_cloud_platform__project": PROJECT_ID,
+                        "extra__google_cloud_platform__scope": "https://www.googleapis.com/auth/cloud-platform",
+                    }
+                )
+            else:
+                print(f"Creating new connection: {conn_id}")
+                # Create new connection
+                new_conn = Connection(
+                    conn_id=conn_id,
+                    conn_type="google_cloud_platform",
+                    description="GCP connection with service account credentials",
+                    extra=json.dumps(
+                        {
+                            "extra__google_cloud_platform__keyfile_dict": GCP_CREDENTIALS,
+                            "extra__google_cloud_platform__project": PROJECT_ID,
+                            "extra__google_cloud_platform__scope": "https://www.googleapis.com/auth/cloud-platform",
+                        }
+                    ),
+                )
+                session.add(new_conn)
+
+            session.commit()
+            print(f"✅ Successfully configured connection: {conn_id}")
+            print(f"   Service Account: {credentials_dict.get('client_email')}")
+            print(f"   Project: {PROJECT_ID}")
+
+            return True
+
+        finally:
+            session.close()
+
+    except Exception as e:
+        print(f"❌ Failed to setup GCP connection: {str(e)}")
+        raise AirflowException(f"Failed to setup GCP connection: {str(e)}")
+
+
 # Create the DAG
 with DAG(
     dag_id=DAG_ID,
@@ -154,6 +225,12 @@ with DAG(
         python_callable=initialize_status_variable,
     )
 
+    # Setup GCP connection with service account credentials
+    setup_connection = PythonOperator(
+        task_id="task-setup_gcp_connection",
+        python_callable=setup_gcp_connection,
+    )
+
     # Generate a compliant job name
     generate_job_name_task = PythonOperator(
         task_id="task-generate_job_name",
@@ -164,7 +241,9 @@ with DAG(
     job_name = "{{ task_instance.xcom_pull(task_ids='task-generate_job_name') }}"
 
     # Debug: Log the connector path being used
-    connector_path = f"projects/{PROJECT_ID}/locations/{REGION}/connectors/default"
+    connector_path = (
+        f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-cloudrun-redis"
+    )
     print(f"Using VPC connector path: {connector_path}")
 
     # Define the job configuration
@@ -177,15 +256,15 @@ with DAG(
                         "resources": {"limits": {"cpu": "4", "memory": "4Gi"}},
                         "env": [
                             {
-                                "name": "GCP_CREDENTIALS",
+                                "name": "RECSYS_GCP_CREDENTIALS",
                                 "value": GCP_CREDENTIALS,
                             },
                             {
-                                "name": "SERVICE_REDIS_INSTANCE_ID",
+                                "name": "RECSYS_SERVICE_REDIS_INSTANCE_ID",
                                 "value": SERVICE_REDIS_INSTANCE_ID,
                             },
                             {
-                                "name": "SERVICE_REDIS_HOST",
+                                "name": "RECSYS_SERVICE_REDIS_HOST",
                                 "value": SERVICE_REDIS_HOST,
                             },
                             {
@@ -193,28 +272,28 @@ with DAG(
                                 "value": PROXY_REDIS_HOST,
                             },
                             {
-                                "name": "SERVICE_REDIS_PORT",
-                                "value": SERVICE_REDIS_PORT,
+                                "name": "RECSYS_SERVICE_REDIS_PORT",
+                                "value": RECSYS_SERVICE_REDIS_PORT,
                             },
                             {
-                                "name": "PROXY_REDIS_PORT",
-                                "value": PROXY_REDIS_PORT,
+                                "name": "RECSYS_PROXY_REDIS_PORT",
+                                "value": RECSYS_PROXY_REDIS_PORT,
                             },
                             {
-                                "name": "SERVICE_REDIS_AUTHKEY",
+                                "name": "RECSYS_SERVICE_REDIS_AUTHKEY",
                                 "value": SERVICE_REDIS_AUTHKEY,
                             },
                             {
-                                "name": "USE_REDIS_PROXY",
+                                "name": "RECSYS_USE_REDIS_PROXY",
                                 "value": USE_REDIS_PROXY,
                             },
                             {
                                 "name": "SERVICE_REDIS_CLUSTER_ENABLED",
                                 "value": SERVICE_REDIS_CLUSTER_ENABLED,
                             },
-                            {"name": "DEV_MODE", "value": DEV_MODE},
-                            {"name": "PROJECT_ID", "value": PROJECT_ID},
-                            {"name": "REGION", "value": REGION},
+                            {"name": "RECSYS_DEV_MODE", "value": DEV_MODE},
+                            {"name": "RECSYS_PROJECT_ID", "value": PROJECT_ID},
+                            {"name": "RECSYS_REGION", "value": REGION},
                         ],
                     }
                 ],
@@ -242,6 +321,7 @@ with DAG(
         project_id=PROJECT_ID,
         region=REGION,
         job_name=job_name,
+        gcp_conn_id="google_cloud_default",
     )
 
     # Set status to completed
@@ -256,6 +336,7 @@ with DAG(
     (
         start
         >> init_status
+        >> setup_connection
         >> generate_job_name_task
         >> create_job
         >> run_job

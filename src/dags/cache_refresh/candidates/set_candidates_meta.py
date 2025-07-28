@@ -69,8 +69,8 @@ except Exception as e:
 SERVICE_REDIS_INSTANCE_ID = os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID")
 SERVICE_REDIS_HOST = os.environ.get("RECSYS_SERVICE_REDIS_HOST")
 PROXY_REDIS_HOST = os.environ.get("RECSYS_PROXY_REDIS_HOST")
-SERVICE_REDIS_PORT = os.environ.get("RECSYS_SERVICE_REDIS_PORT")
-PROXY_REDIS_PORT = os.environ.get("RECSYS_PROXY_REDIS_PORT")
+RECSYS_SERVICE_REDIS_PORT = os.environ.get("RECSYS_RECSYS_SERVICE_REDIS_PORT")
+RECSYS_PROXY_REDIS_PORT = os.environ.get("RECSYS_RECSYS_PROXY_REDIS_PORT")
 SERVICE_REDIS_AUTHKEY = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
 USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY")
 SERVICE_REDIS_CLUSTER_ENABLED = os.environ.get("RECSYS_SERVICE_REDIS_CLUSTER_ENABLED")
@@ -273,12 +273,12 @@ with DAG(
                                 "value": PROXY_REDIS_HOST,
                             },
                             {
-                                "name": "SERVICE_REDIS_PORT",
-                                "value": SERVICE_REDIS_PORT,
+                                "name": "RECSYS_SERVICE_REDIS_PORT",
+                                "value": RECSYS_SERVICE_REDIS_PORT,
                             },
                             {
-                                "name": "PROXY_REDIS_PORT",
-                                "value": PROXY_REDIS_PORT,
+                                "name": "RECSYS_PROXY_REDIS_PORT",
+                                "value": RECSYS_PROXY_REDIS_PORT,
                             },
                             {
                                 "name": "RECSYS_SERVICE_REDIS_AUTHKEY",

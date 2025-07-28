@@ -23,7 +23,7 @@ DEFAULT_CANDIDATE_TYPES = {
 DEFAULT_VALKEY_CONFIG = {
     "valkey": {
         "host": os.environ.get("RECSYS_SERVICE_REDIS_HOST"),
-        "port": int(os.environ.get("SERVICE_REDIS_PORT", 6379)),
+        "port": int(os.environ.get("RECSYS_SERVICE_REDIS_PORT", 6379)),
         "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
         "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,

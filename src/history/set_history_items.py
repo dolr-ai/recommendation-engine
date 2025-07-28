@@ -46,7 +46,8 @@ DEFAULT_CONFIG = {
         ),
         "port": int(
             os.environ.get(
-                "PROXY_REDIS_PORT", os.environ.get("SERVICE_REDIS_PORT", 6379)
+                "RECSYS_PROXY_REDIS_PORT",
+                os.environ.get("RECSYS_SERVICE_REDIS_PORT", 6379),
             )
         ),
         "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),

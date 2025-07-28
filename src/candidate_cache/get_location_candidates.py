@@ -40,13 +40,13 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": os.environ.get(
-            "PROXY_REDIS_HOST", os.environ.get("RECSYS_SERVICE_REDIS_HOST")
-        ),
+        "host": os.environ.get("PROXY_REDIS_HOST")
+        or os.environ.get("RECSYS_SERVICE_REDIS_HOST")
+        or "localhost",
         "port": int(
-            os.environ.get(
-                "PROXY_REDIS_PORT", os.environ.get("SERVICE_REDIS_PORT", 6379)
-            )
+            os.environ.get("RECSYS_PROXY_REDIS_PORT")
+            or os.environ.get("RECSYS_SERVICE_REDIS_PORT")
+            or "6379"
         ),
         "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
         "authkey": os.environ.get(

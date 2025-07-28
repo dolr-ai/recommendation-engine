@@ -48,8 +48,14 @@ logger = get_logger(__name__)
 # Default configuration - For production: direct VPC connection
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": os.environ.get("RECSYS_SERVICE_REDIS_HOST"),
-        "port": int(os.environ.get("SERVICE_REDIS_PORT", 6379)),
+        "host": os.environ.get("PROXY_REDIS_HOST")
+        or os.environ.get("RECSYS_SERVICE_REDIS_HOST")
+        or "localhost",
+        "port": int(
+            os.environ.get("RECSYS_PROXY_REDIS_PORT")
+            or os.environ.get("RECSYS_SERVICE_REDIS_PORT")
+            or "6379"
+        ),
         "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
         "ssl_enabled": False,  # Disable SSL since the server doesn't support it
         "socket_timeout": 15,
@@ -71,7 +77,9 @@ if DEV_MODE:
                 "PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
             ),
             "port": int(
-                os.environ.get("PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"])
+                os.environ.get(
+                    "RECSYS_PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"]
+                )
             ),
             "authkey": os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY"),
             "ssl_enabled": False,  # Disable SSL for proxy connection

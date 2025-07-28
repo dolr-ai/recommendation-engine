@@ -45,13 +45,13 @@ def test_connection(use_proxy=False):
     # Determine which host to use
     if use_proxy:
         host = os.environ.get("RECSYS_PROXY_REDIS_HOST")
-        port = int(os.environ.get("PROXY_REDIS_PORT", 6379))
+        port = int(os.environ.get("RECSYS_PROXY_REDIS_PORT", 6379))
         connection_type = "Redis Proxy"
         authkey = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
         ssl_enabled = False
     else:
         host = os.environ.get("RECSYS_SERVICE_REDIS_HOST")
-        port = int(os.environ.get("SERVICE_REDIS_PORT", 6379))
+        port = int(os.environ.get("RECSYS_SERVICE_REDIS_PORT", 6379))
         connection_type = "Direct VPC Redis"
         authkey = None
         ssl_enabled = False  # Changed to False since the server doesn't support SSL
@@ -147,8 +147,8 @@ if __name__ == "__main__":
     export SERVICE_REDIS_HOST='redis-host'
     export PROXY_REDIS_HOST='proxy-redis-host'
 
-    export SERVICE_REDIS_PORT='redis-port'
-    export PROXY_REDIS_PORT='proxy-redis-port'
+    export RECSYS_SERVICE_REDIS_PORT='redis-port'
+    export RECSYS_PROXY_REDIS_PORT='proxy-redis-port'
 
     export SERVICE_REDIS_AUTHKEY='redis-authkey'
 

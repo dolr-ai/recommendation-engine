@@ -16,13 +16,23 @@ logger = get_logger(__name__)
 # Default configuration
 DEFAULT_CONFIG = {
     "valkey": {
-        "host": "10.128.15.210",  # Primary endpoint
-        "port": 6379,
-        "instance_id": "candidate-cache",
-        "ssl_enabled": True,
+        "host": os.environ.get("PROXY_REDIS_HOST")
+        or os.environ.get("RECSYS_SERVICE_REDIS_HOST")
+        or "localhost",
+        "port": int(
+            os.environ.get("RECSYS_PROXY_REDIS_PORT")
+            or os.environ.get("RECSYS_SERVICE_REDIS_PORT")
+            or "6379"
+        ),
+        "instance_id": os.environ.get("RECSYS_SERVICE_REDIS_INSTANCE_ID"),
+        "authkey": os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY"),
+        "ssl_enabled": False,  # Disable SSL for proxy connection
         "socket_timeout": 15,
         "socket_connect_timeout": 15,
-        "cluster_enabled": True,  # Enable cluster mode
+        "cluster_enabled": os.environ.get(
+            "SERVICE_REDIS_CLUSTER_ENABLED", "false"
+        ).lower()
+        in ("true", "1", "yes"),
     },
     # todo: configure this as per CRON jobs
     "expire_seconds": None,  # Set to None for no expiry
@@ -78,8 +88,8 @@ class EmbeddingPopulator:
         """Setup GCP utils from environment variable."""
         gcp_credentials = os.environ.get("RECSYS_GCP_CREDENTIALS")
         if not gcp_credentials:
-            logger.error("GCP_CREDENTIALS environment variable not set")
-            raise ValueError("GCP_CREDENTIALS environment variable is required")
+            logger.error("RECSYS_GCP_CREDENTIALS environment variable not set")
+            raise ValueError("RECSYS_GCP_CREDENTIALS environment variable is required")
 
         logger.info("Initializing GCP utils from environment variable")
         return GCPUtils(gcp_credentials=gcp_credentials)

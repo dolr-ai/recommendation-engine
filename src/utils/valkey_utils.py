@@ -65,7 +65,8 @@ class ValkeyService:
         )
         self.port = port or int(
             os.environ.get(
-                "SERVICE_REDIS_PORT", os.environ.get("PROXY_REDIS_PORT", 6379)
+                "RECSYS_SERVICE_REDIS_PORT",
+                os.environ.get("RECSYS_PROXY_REDIS_PORT", 6379),
             )
         )
         self.instance_id = (
@@ -91,7 +92,7 @@ class ValkeyService:
         if self.use_proxy and os.environ.get("USE_REDIS_PROXY", "").lower() == "true":
             if os.environ.get("RECSYS_PROXY_REDIS_HOST"):
                 self.host = os.environ.get("RECSYS_PROXY_REDIS_HOST")
-                self.port = int(os.environ.get("PROXY_REDIS_PORT", 6379))
+                self.port = int(os.environ.get("RECSYS_PROXY_REDIS_PORT", 6379))
 
         self.client = None
         self.ssl_enabled = ssl_enabled
