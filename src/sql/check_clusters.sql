@@ -73,11 +73,11 @@ WITH
   ),
   video_embeddings AS (
     SELECT
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) AS video_id
     FROM
       `hot-or-not-feed-intelligence.yral_ds.video_index` vi
     WHERE
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) IS NOT NULL
   )
 SELECT
   qv.cluster_id,
@@ -127,16 +127,16 @@ WITH
       AND cluster_id = 0
       AND query_video_id IN (
         SELECT
-          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) AS video_id
         FROM
           `hot-or-not-feed-intelligence.yral_ds.video_index` vi
         WHERE
-          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) IS NOT NULL
       )
   ),
   embedding_elements AS (
     SELECT
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id,
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) AS video_id,
       embedding_value,
       pos
     FROM
@@ -146,7 +146,7 @@ WITH
     OFFSET
       pos
     WHERE
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) IS NOT NULL
   ),
   video_embeddings AS (
     SELECT
@@ -240,11 +240,11 @@ WITH
       all_videos av
       LEFT JOIN (
         SELECT
-          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) AS video_id
         FROM
           `hot-or-not-feed-intelligence.yral_ds.video_index` vi
         WHERE
-          `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
+          `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) IS NOT NULL
       ) ve ON av.query_video_id = ve.video_id
   )
 SELECT

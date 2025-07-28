@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION
-  `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri STRING) RETURNS STRING LANGUAGE js AS """
+  `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri STRING) RETURNS STRING LANGUAGE js AS """
   if (!uri) return null;
   const match = uri.match(/([^\\/]+)\\.mp4$/);
   return match ? match[1] : null;
@@ -21,7 +21,7 @@ CREATE OR REPLACE FUNCTION
         )
       FROM
         UNNEST (input_video_ids) AS input_video_id
-        LEFT JOIN `hot-or-not-feed-intelligence.yral_ds.video_index` vi ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) = input_video_id
+        LEFT JOIN `hot-or-not-feed-intelligence.yral_ds.video_index` vi ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) = input_video_id
     )
   );
 

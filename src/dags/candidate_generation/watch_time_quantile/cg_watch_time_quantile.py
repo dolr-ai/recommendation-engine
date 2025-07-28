@@ -898,7 +898,7 @@ def generate_candidates_for_content(content_type, **kwargs):
           -- First, flatten all embeddings with their video_ids
           embedding_elements AS (
             SELECT
-              `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) AS video_id,
+              `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) AS video_id,
               embedding_value,
               pos
             FROM
@@ -908,7 +908,7 @@ def generate_candidates_for_content(content_type, **kwargs):
             OFFSET
               pos
             WHERE
-              `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (vi.uri) IS NOT NULL
+              `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (vi.uri) IS NOT NULL
           ),
           -- todo: create table in production environment for average embeddings as a dag
           -- if needed, we can manually process the embeddings of current videos to backfill

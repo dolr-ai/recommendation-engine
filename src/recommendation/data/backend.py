@@ -93,12 +93,12 @@ def get_video_metadata(video_ids, gcp_utils):
                 vi.post_id,
                 vi.canister_id,
                 vi.publisher_user_id,
-                `hot-or-not-feed-intelligence.yral_ds.extract_video_id`(vi.uri) as video_id,
+                `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(vi.uri) as video_id,
                 CAST(nsfw.probability AS FLOAT64) as nsfw_probability
             FROM `{video_index_table}` vi
             LEFT JOIN `hot-or-not-feed-intelligence.yral_ds.video_nsfw_agg` nsfw
-                ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id`(vi.uri) = nsfw.video_id
-            WHERE `hot-or-not-feed-intelligence.yral_ds.extract_video_id`(vi.uri) IN ({video_ids_str})
+                ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(vi.uri) = nsfw.video_id
+            WHERE `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(vi.uri) IN ({video_ids_str})
             """
 
             logger.debug(

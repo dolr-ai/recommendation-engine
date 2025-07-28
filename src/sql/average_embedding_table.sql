@@ -8,7 +8,7 @@ INSERT INTO
 WITH
   flattened_embeddings AS (
     SELECT
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) AS video_id,
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) AS video_id,
       pos,
       embedding_value
     FROM
@@ -18,7 +18,7 @@ WITH
     OFFSET
       pos
     WHERE
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) IS NOT NULL
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) IS NOT NULL
   ),
   averaged_by_position AS (
     SELECT
@@ -50,12 +50,12 @@ INSERT INTO
 WITH
   missing_videos AS (
     SELECT DISTINCT
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) AS video_id
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) AS video_id
     FROM
       `hot-or-not-feed-intelligence.yral_ds.video_index`
     WHERE
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) IS NOT NULL
-      AND `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (uri) NOT IN (
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) IS NOT NULL
+      AND `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) NOT IN (
         SELECT
           video_id
         FROM
@@ -66,12 +66,12 @@ WITH
   ),
   flattened_embeddings AS (
     SELECT
-      `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (s.uri) AS video_id,
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (s.uri) AS video_id,
       pos,
       embedding_value
     FROM
       `hot-or-not-feed-intelligence.yral_ds.video_index` s
-      INNER JOIN missing_videos m ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id` (s.uri) = m.video_id,
+      INNER JOIN missing_videos m ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (s.uri) = m.video_id,
       UNNEST (embedding) AS embedding_value
     WITH
     OFFSET
