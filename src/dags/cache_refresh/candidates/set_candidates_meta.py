@@ -257,15 +257,15 @@ with DAG(
                         "resources": {"limits": {"cpu": "4", "memory": "4Gi"}},
                         "env": [
                             {
-                                "name": "GCP_CREDENTIALS",
+                                "name": "RECSYS_GCP_CREDENTIALS",
                                 "value": GCP_CREDENTIALS,
                             },
                             {
-                                "name": "SERVICE_REDIS_INSTANCE_ID",
+                                "name": "RECSYS_SERVICE_REDIS_INSTANCE_ID",
                                 "value": SERVICE_REDIS_INSTANCE_ID,
                             },
                             {
-                                "name": "SERVICE_REDIS_HOST",
+                                "name": "RECSYS_SERVICE_REDIS_HOST",
                                 "value": SERVICE_REDIS_HOST,
                             },
                             {
@@ -281,20 +281,20 @@ with DAG(
                                 "value": PROXY_REDIS_PORT,
                             },
                             {
-                                "name": "SERVICE_REDIS_AUTHKEY",
+                                "name": "RECSYS_SERVICE_REDIS_AUTHKEY",
                                 "value": SERVICE_REDIS_AUTHKEY,
                             },
                             {
-                                "name": "USE_REDIS_PROXY",
+                                "name": "RECSYS_USE_REDIS_PROXY",
                                 "value": USE_REDIS_PROXY,
                             },
                             {
                                 "name": "SERVICE_REDIS_CLUSTER_ENABLED",
                                 "value": SERVICE_REDIS_CLUSTER_ENABLED,
                             },
-                            {"name": "DEV_MODE", "value": DEV_MODE},
-                            {"name": "PROJECT_ID", "value": PROJECT_ID},
-                            {"name": "REGION", "value": REGION},
+                            {"name": "RECSYS_DEV_MODE", "value": DEV_MODE},
+                            {"name": "RECSYS_PROJECT_ID", "value": PROJECT_ID},
+                            {"name": "RECSYS_REGION", "value": REGION},
                         ],
                     }
                 ],
