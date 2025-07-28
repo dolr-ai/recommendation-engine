@@ -110,7 +110,7 @@ def generate_job_name(**kwargs):
     if len(job_name) > 63:
         # Truncate if too long, ensuring it doesn't end with hyphen
         job_name = job_name[:62] if job_name[62] == "-" else job_name[:63]
-
+    #
     return job_name
 
 
