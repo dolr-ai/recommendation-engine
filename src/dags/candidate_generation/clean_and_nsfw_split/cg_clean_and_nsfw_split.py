@@ -10,6 +10,7 @@ appropriate labels for content filtering.
 
 import os
 import json
+import requests
 from datetime import datetime, timedelta
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -38,6 +39,7 @@ DAG_ID = "cg_clean_and_nsfw_split"
 # Get environment variables
 GCP_CREDENTIALS = os.environ.get("RECSYS_GCP_CREDENTIALS")
 SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
+GOOGLE_CHAT_WEBHOOK = os.environ.get("RECSYS_GOOGLE_CHAT_WEBHOOK")
 
 # Project configuration
 PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
@@ -55,6 +57,187 @@ NSFW_PROBABILITY_THRESHOLD_HIGH = 0.7
 
 # Status variable name
 CLEAN_NSFW_SPLIT_STATUS_VARIABLE = "clean_and_nsfw_split_completed"
+
+
+class GoogleChatAlert:
+    """
+    Class for sending alerts to Google Chat with card formatting.
+    """
+
+    def __init__(self, webhook_url=None, logo_url=None, project_id=None, dag_id=None):
+        """
+        Initialize the GoogleChatAlert class.
+
+        Args:
+            webhook_url: The Google Chat webhook URL
+            logo_url: URL for the logo to display in alerts
+            project_id: The GCP project ID
+            dag_id: The Airflow DAG ID
+        """
+        self.webhook_url = webhook_url or GOOGLE_CHAT_WEBHOOK
+        self.logo_url = (
+            logo_url or "https://placehold.co/400/0099FF/FFFFFF.png?text=CG&font=roboto"
+        )
+        self.project_id = project_id or PROJECT_ID
+        self.dag_id = dag_id or DAG_ID
+
+        # Status icons and messages
+        self.status_config = {
+            "started": {
+                "icon": "🚀",
+                "title": "Clean & NSFW Split Started",
+                "message": "Clean and NSFW Split processing has started",
+            },
+            "success": {
+                "icon": "✅",
+                "title": "Clean & NSFW Split Completed",
+                "message": "Clean and NSFW Split processing completed successfully",
+            },
+            "failed": {
+                "icon": "❌",
+                "title": "Clean & NSFW Split Failed",
+                "message": "Clean and NSFW Split processing failed",
+            },
+            "progress": {
+                "icon": "⏳",
+                "title": "Clean & NSFW Split Progress",
+                "message": "Clean and NSFW Split processing stage completed",
+            },
+        }
+
+    def send(self, context, status, additional_info=None):
+        """
+        Send an alert to Google Chat.
+
+        Args:
+            context: The Airflow context
+            status: Status of the task/DAG - "started", "success", "failed", "progress"
+            additional_info: Additional information to include in the alert
+        """
+        if not self.webhook_url:
+            print("No Google Chat webhook URL provided. Skipping alert.")
+            return
+
+        # Extract information from context
+        task_instance = context.get("task_instance")
+        execution_date = context.get("execution_date", datetime.now())
+        dag_run = context.get("dag_run")
+
+        # Get task details
+        task_id = task_instance.task_id if task_instance else "unknown"
+        duration = getattr(task_instance, "duration", None) if task_instance else None
+
+        # Get DAG details
+        dag_id = getattr(dag_run, "dag_id", self.dag_id) if dag_run else self.dag_id
+        run_id = getattr(dag_run, "run_id", "unknown") if dag_run else "unknown"
+
+        # Format duration if available
+        duration_str = f"{duration:.2f}s" if duration else "N/A"
+
+        # Get status config
+        config = self.status_config.get(status, self.status_config["failed"])
+        message = config["message"]
+
+        # Create card
+        card = {
+            "cards": [
+                {
+                    "header": {
+                        "title": f"Recsys: {config['title']}",
+                        "subtitle": f"Candidate Generation - Data Processing",
+                        "imageUrl": self.logo_url,
+                    },
+                    "sections": [
+                        {
+                            "widgets": [
+                                {
+                                    "textParagraph": {
+                                        "text": f"{config['icon']} {message}"
+                                    }
+                                },
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Task",
+                                        "content": task_id.replace("task-", "")
+                                        .replace("_", " ")
+                                        .title(),
+                                    }
+                                },
+                                {"keyValue": {"topLabel": "Run ID", "content": run_id}},
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Time",
+                                        "content": datetime.now().strftime(
+                                            "%Y-%m-%d %H:%M:%S"
+                                        ),
+                                    }
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        }
+
+        # Add duration if available and not in "started" status
+        if duration and status != "started":
+            card["cards"][0]["sections"][0]["widgets"].append(
+                {"keyValue": {"topLabel": "Duration", "content": duration_str}}
+            )
+
+        # Add additional info if provided
+        if additional_info:
+            card["cards"][0]["sections"][0]["widgets"].append(
+                {"textParagraph": {"text": f"<b>Info:</b> {additional_info}"}}
+            )
+
+        # Add log URL if available
+        if task_instance and hasattr(task_instance, "log_url"):
+            card["cards"][0]["sections"][0]["widgets"].append(
+                {
+                    "textParagraph": {
+                        "text": f"<a href='{task_instance.log_url}'>View Logs</a>"
+                    }
+                }
+            )
+
+        try:
+            response = requests.post(
+                self.webhook_url,
+                headers={"Content-Type": "application/json; charset=UTF-8"},
+                json=card,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                print(f"Successfully sent {status} alert to Google Chat")
+            else:
+                print(
+                    f"Failed to send alert to Google Chat. Status code: {response.status_code}"
+                )
+        except Exception as e:
+            # Avoid failing callback
+            print(f"Failed to post alert to Google Chat: {str(e)}")
+
+    # Callback methods for easy use with Airflow
+    def on_success(self, context):
+        """Send success notification"""
+        self.send(context, "success")
+
+    def on_failure(self, context):
+        """Send failure notification"""
+        self.send(context, "failed")
+
+    def on_start(self, context):
+        """Send start notification"""
+        self.send(context, "started")
+
+    def on_progress(self, context):
+        """Send progress notification"""
+        self.send(context, "progress")
+
+
+# Initialize the alert system
+alerts = GoogleChatAlert(webhook_url=GOOGLE_CHAT_WEBHOOK)
 
 
 # Function to create BigQuery client with GCP credentials
@@ -258,34 +441,48 @@ with DAG(
     schedule_interval=None,
     catchup=False,
     tags=["data_processing", "nsfw_filtering"],
+    on_success_callback=alerts.on_success,
+    on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag)
+    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
 
     # Initialize status variable to False
     init_status = PythonOperator(
         task_id="task-init_status",
         python_callable=initialize_status_variable,
+        on_success_callback=alerts.on_progress,
+        on_failure_callback=alerts.on_failure,
     )
 
     # Execute clean and NSFW split processing (creates table with CREATE OR REPLACE)
     execute_split = PythonOperator(
         task_id="task-execute_clean_nsfw_split",
         python_callable=execute_clean_nsfw_split,
+        on_success_callback=alerts.on_progress,
+        on_failure_callback=alerts.on_failure,
     )
 
     # Verify final data
     verify_data = PythonOperator(
         task_id="task-verify_data",
         python_callable=verify_destination_data,
+        on_success_callback=alerts.on_progress,
+        on_failure_callback=alerts.on_failure,
     )
 
     # Set status to completed
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
+        on_success_callback=alerts.on_success,
+        on_failure_callback=alerts.on_failure,
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS)
+    end = DummyOperator(
+        task_id="end",
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+        on_success_callback=alerts.on_success,
+    )
 
     # Define task dependencies
     (start >> init_status >> execute_split >> verify_data >> set_status >> end)
