@@ -163,9 +163,7 @@ with DAG(
     job_name = "{{ task_instance.xcom_pull(task_ids='task-generate_job_name') }}"
 
     # Debug: Log the connector path being used
-    connector_path = (
-        f"projects/{PROJECT_ID}/locations/{REGION}/connectors/vpc-for-redis"
-    )
+    connector_path = f"projects/{PROJECT_ID}/locations/{REGION}/connectors/default"
     print(f"Using VPC connector path: {connector_path}")
 
     # Define the job configuration
