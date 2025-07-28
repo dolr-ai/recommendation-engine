@@ -18,7 +18,7 @@ on:
 
 env:
   REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
-  REPOSITORY: recommendation-engine-registry
+  REPOSITORY: ${{ secrets.RECSYS_REGISTRY_REPOSITORY }}
 
 jobs:
   build-images:
@@ -88,11 +88,11 @@ jobs:
         if: steps.check_service.outputs.BUILD == 'true'
         run: |
           # Get project ID from gcloud
-          PROJECT_ID=$(gcloud config get-value project)
-          REGISTRY="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY"
+          RECSYS_PROJECT_ID=$(gcloud config get-value project)
+          REGISTRY="$REGION-docker.pkg.dev/$RECSYS_PROJECT_ID/$REPOSITORY"
           IMAGE_NAME="$REGISTRY/${{ matrix.image }}"
 
-          echo "Project ID: $PROJECT_ID"
+          echo "Project ID: $RECSYS_PROJECT_ID"
           echo "Registry: $REGISTRY"
           echo "Image Name: $IMAGE_NAME"
           echo "Dockerfile: dockerfiles/${{ matrix.dockerfile }}"
@@ -142,8 +142,8 @@ jobs:
 
       - name: Build Docker image (validation only)
         run: |
-          PROJECT_ID=$(gcloud config get-value project)
-          REGISTRY="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY"
+          RECSYS_PROJECT_ID=$(gcloud config get-value project)
+          REGISTRY="$REGION-docker.pkg.dev/$RECSYS_PROJECT_ID/$REPOSITORY"
           IMAGE_NAME="$REGISTRY/$(basename ${{ matrix.dockerfile }} .dockerfile)"
 
           echo "🔍 Validating Docker build for PR..."
