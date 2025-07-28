@@ -219,6 +219,7 @@ with DAG(
                         ],
                     }
                 ],
+                "service_account": SERVICE_ACCOUNT,
                 "vpc_access": {
                     "connector": connector_path,
                     "egress": "PRIVATE_RANGES_ONLY",
