@@ -79,7 +79,7 @@ DEV_MODE = os.environ.get("RECSYS_DEV_MODE")
 # Cloud Run service configuration
 SERVICE_NAME = "recommendation-candidates"
 IMAGE_NAME = "recommendation-candidates"  # Matches the image name in GitHub workflow
-REPOSITORY = "recommendation-engine-registry"  # Hardcoded to match GitHub workflow
+REPOSITORY = "recsys-repository"  # Hardcoded to match GitHub workflow
 
 # Status variable name
 STATUS_VARIABLE = "cache_refresh_candidates_completed"

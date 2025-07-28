@@ -32,7 +32,7 @@ jobs:
           dag_directories=(
             "src/dags/user_clustering"
             "src/dags/candidate_generation"
-            # "src/dags/cache_refresh"
+            "src/dags/cache_refresh"
             # "src/dags/yet_another_dag_folder"
           )
 

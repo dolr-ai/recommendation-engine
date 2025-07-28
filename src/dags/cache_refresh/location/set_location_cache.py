@@ -80,7 +80,7 @@ SERVICE_NAME = "recommendation-location-candidates"
 IMAGE_NAME = (
     "recommendation-location-candidates"  # Matches the image name in GitHub workflow
 )
-REPOSITORY = "recommendation-engine-registry"  # Hardcoded to match GitHub workflow
+REPOSITORY = "recsys-repository"  # Hardcoded to match GitHub workflow
 
 # Status variable name
 STATUS_VARIABLE = "cache_refresh_location_candidates_completed"
