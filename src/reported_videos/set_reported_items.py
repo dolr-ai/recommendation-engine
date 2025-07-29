@@ -39,7 +39,7 @@ DEFAULT_CONFIG = {
         "expire_seconds": 86400 * 30,  # 1 month = 30 days - keys auto-expire
         "max_reported_items": 10_000,  # Global threshold for set size
         "batch_size": 1000,  # For batch operations
-        "table_name": "hot-or-not-feed-intelligence.yral_ds.stage_ml_feed_reports",
+        "table_name": "hot-or-not-feed-intelligence.yral_ds.ml_feed_reports",
     },
 }
 
@@ -52,7 +52,7 @@ class UserReportedVideosPopulator:
 
     def __init__(
         self,
-        table_name: str = "hot-or-not-feed-intelligence.yral_ds.stage_ml_feed_reports",
+        table_name: str = "hot-or-not-feed-intelligence.yral_ds.ml_feed_reports",
         config: Optional[Dict[str, Any]] = None,
     ):
         """
