@@ -100,7 +100,7 @@ jobs:
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:${{ github.sha }} \
             --allow-unauthenticated \
-            --service-account 749244211103-compute@developer.gserviceaccount.com \
+            --service-account dolr-ai-recommendation-engine@hot-or-not-feed-intelligence.iam.gserviceaccount.com \
             --concurrency 500 \
             --cpu 8 \
             --memory 8Gi \
