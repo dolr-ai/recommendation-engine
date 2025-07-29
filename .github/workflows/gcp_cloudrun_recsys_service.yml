@@ -105,7 +105,7 @@ jobs:
             --cpu 8 \
             --memory 8Gi \
             --env-vars-file env.yaml \
-            --vpc-connector projects/$PROJECT_ID/locations/$REGION/connectors/vpc-for-redis \
+            --vpc-connector projects/$PROJECT_ID/locations/$REGION/connectors/vpc-for-cloudrun-redis \
             --vpc-egress private-ranges-only \
             --region $REGION \
             --max-instances 10 \
