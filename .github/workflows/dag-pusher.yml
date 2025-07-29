@@ -2,7 +2,7 @@ name: Move DAGs to GCS
 
 on:
   push:
-    branches: [dev, main, master, stage-to-prod]
+    branches: [main, master, stage-to-prod]
   workflow_dispatch: # Enable manual trigger
 
 jobs:

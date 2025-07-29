@@ -2,7 +2,7 @@ name: Build Cache Refresh Docker Images
 
 on:
   push:
-    branches: [dev, main, master, stage-to-prod]
+    branches: [main, master, stage-to-prod]
     paths:
       - "dockerfiles/**"
       - "src/**"

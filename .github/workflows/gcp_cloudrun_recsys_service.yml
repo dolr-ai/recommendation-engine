@@ -2,9 +2,9 @@ name: Build and deploy recommendation service to Cloud Run
 
 on:
   push:
-    branches: [dev, main, master]
+    branches: [main, master, stage-to-prod]
   pull_request:
-    branches: [dev, main, master]
+    branches: [main, master, stage-to-prod]
   workflow_dispatch:
     inputs:
       logLevel:
@@ -22,9 +22,9 @@ on:
         type: string
 
 env:
-  REGION: ${{ secrets.REGION || 'us-central1' }}
+  REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
   SERVICE_NAME: recommendation-service
-  REPOSITORY: recommendation-engine-registry
+  REPOSITORY: ${{ secrets.RECSYS_REGISTRY_REPOSITORY }}
   IMAGE: recommendation-engine
 
 jobs:
@@ -41,7 +41,7 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          credentials_json: ${{ secrets.RECSYS_GCP_CREDENTIALS }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -81,17 +81,17 @@ jobs:
 
           # Create environment variables file to avoid JSON escaping issues
           cat > env.yaml << EOF
-          GCP_CREDENTIALS: '${{ secrets.GCP_CREDENTIALS }}'
+          RECSYS_GCP_CREDENTIALS: '${{ secrets.RECSYS_GCP_CREDENTIALS }}'
           DEV_MODE: '${{ secrets.DEV_MODE }}'
-          GCP_PROJECT_ID: '${{ secrets.PROJECT_ID }}'
-          PROXY_REDIS_HOST: '${{ secrets.PROXY_REDIS_HOST }}'
-          PROXY_REDIS_PORT: '${{ secrets.PROXY_REDIS_PORT }}'
+          GCP_PROJECT_ID: '${{ secrets.RECSYS_PROJECT_ID }}'
+          PROXY_REDIS_HOST: '${{ secrets.RECSYS_PROXY_REDIS_HOST }}'
+          RECSYS_PROXY_REDIS_PORT: '${{ secrets.RECSYS_PROXY_REDIS_PORT }}'
           REGION: '${{ secrets.REGION }}'
-          SERVICE_REDIS_AUTHKEY: '${{ secrets.SERVICE_REDIS_AUTHKEY }}'
+          RECSYS_SERVICE_REDIS_AUTHKEY: '${{ secrets.RECSYS_SERVICE_REDIS_AUTHKEY }}'
           SERVICE_REDIS_CLUSTER_ENABLED: '${{ secrets.SERVICE_REDIS_CLUSTER_ENABLED }}'
-          SERVICE_REDIS_HOST: '${{ secrets.SERVICE_REDIS_HOST }}'
-          SERVICE_REDIS_INSTANCE_ID: '${{ secrets.SERVICE_REDIS_INSTANCE_ID }}'
-          SERVICE_REDIS_PORT: '${{ secrets.SERVICE_REDIS_PORT }}'
+          RECSYS_SERVICE_REDIS_HOST: '${{ secrets.RECSYS_SERVICE_REDIS_HOST }}'
+          RECSYS_SERVICE_REDIS_INSTANCE_ID: '${{ secrets.RECSYS_SERVICE_REDIS_INSTANCE_ID }}'
+          RECSYS_SERVICE_REDIS_PORT: '${{ secrets.RECSYS_SERVICE_REDIS_PORT }}'
           USE_REDIS_PROXY: '${{ secrets.USE_REDIS_PROXY }}'
           WORKERS: '${{ secrets.WORKERS }}'
           CLOUD_RUN_DEPLOYMENT: 'true'
@@ -134,7 +134,7 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+          credentials_json: ${{ secrets.RECSYS_GCP_CREDENTIALS }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
