@@ -369,26 +369,23 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False
     init_status = PythonOperator(
         task_id="task-init_status",
         python_callable=initialize_status_variable,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 
     # Setup GCP connection with service account credentials
     setup_connection = PythonOperator(
-        task_id="task-setup_gcp_connection",
-        python_callable=setup_gcp_connection,
+        task_id="task-setup_gcp_connection", python_callable=setup_gcp_connection
     )
 
     # Generate a compliant job name
     generate_job_name_task = PythonOperator(
-        task_id="task-generate_job_name",
-        python_callable=generate_job_name,
+        task_id="task-generate_job_name", python_callable=generate_job_name
     )
 
     # Create a job configuration using a Python function to generate compliant name
@@ -484,11 +481,14 @@ with DAG(
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS, on_success_callback=alerts.on_success)
+    end = DummyOperator(
+        task_id="end",
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+        on_success_callback=alerts.on_success,
+    )
 
     # Define task dependencies
     (

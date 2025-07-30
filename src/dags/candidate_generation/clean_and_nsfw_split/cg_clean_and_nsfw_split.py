@@ -444,13 +444,12 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False
     init_status = PythonOperator(
         task_id="task-init_status",
         python_callable=initialize_status_variable,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -458,7 +457,6 @@ with DAG(
     execute_split = PythonOperator(
         task_id="task-execute_clean_nsfw_split",
         python_callable=execute_clean_nsfw_split,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -466,7 +464,6 @@ with DAG(
     verify_data = PythonOperator(
         task_id="task-verify_data",
         python_callable=verify_destination_data,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -474,7 +471,6 @@ with DAG(
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 

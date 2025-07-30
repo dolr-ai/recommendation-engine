@@ -286,7 +286,6 @@ def trigger_dag_task(
         wait_for_completion=False,
         reset_dag_run=reset_dag_run,
         conf={"master_dag_run_id": "{{ run_id }}"},
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -336,7 +335,6 @@ def wait_for_dag_task(dag_id, task_id_suffix="", timeout=60 * 60, poke_interval=
         timeout=timeout,
         poke_interval=poke_interval,
         mode="reschedule",  # Release worker slot while waiting
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -374,7 +372,7 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start")
 
     # Create Dataproc Cluster
     trigger_create_cluster = trigger_dag_task(CREATE_CLUSTER_DAG_ID)
@@ -393,9 +391,6 @@ with DAG(
         task_id="delay_before_video_clusters",
         python_callable=wait_for_delay,
         params={"delay_minutes": 15},
-        on_success_callback=lambda context: alerts.send(
-            context, "progress", "15-minute delay before Video Clusters completed"
-        ),
     )
 
     # Video Clusters
@@ -412,9 +407,7 @@ with DAG(
 
     # Join point before merge embeddings
     join_for_merge = DummyOperator(
-        task_id="join_for_merge",
-        trigger_rule=TriggerRule.ALL_SUCCESS,
-        on_success_callback=alerts.on_progress,
+        task_id="join_for_merge", trigger_rule=TriggerRule.ALL_SUCCESS
     )
 
     # Merge Part Embeddings
@@ -446,9 +439,7 @@ with DAG(
 
     # Delete Dataproc Cluster - Failure path
     trigger_delete_cluster_on_failure = trigger_dag_task(
-        DELETE_CLUSTER_DAG_ID,
-        task_id_suffix="on_failure",
-        reset_dag_run=True,
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="on_failure", reset_dag_run=True
     )
     wait_for_delete_cluster_on_failure = wait_for_dag_task(
         DELETE_CLUSTER_DAG_ID, task_id_suffix="on_failure"
@@ -462,11 +453,7 @@ with DAG(
     )
 
     end_failure = DummyOperator(
-        task_id="end_failure",
-        trigger_rule=TriggerRule.ONE_FAILED,
-        on_success_callback=lambda context: alerts.send(
-            context, "failed", "Pipeline completed with failures"
-        ),
+        task_id="end_failure", trigger_rule=TriggerRule.ONE_FAILED
     )
 
     # Define task dependencies
@@ -517,11 +504,7 @@ with DAG(
     # Set up proper failure handling
     # Create a task that will run on any failure using trigger rule
     failure_handler = DummyOperator(
-        task_id="handle_failure",
-        trigger_rule=TriggerRule.ONE_FAILED,
-        on_success_callback=lambda context: alerts.send(
-            context, "failed", "Handling failure in pipeline"
-        ),
+        task_id="handle_failure", trigger_rule=TriggerRule.ONE_FAILED
     )
 
     # Connect all tasks that could fail to the failure handler

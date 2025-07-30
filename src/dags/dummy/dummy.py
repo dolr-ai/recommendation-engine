@@ -297,9 +297,7 @@ with DAG(
     end = DummyOperator(
         task_id="end",
         trigger_rule=TriggerRule.ALL_DONE,  # Run even if upstream tasks fail
-        on_success_callback=lambda context: alerts.send(
-            context, "success", "DAG completed with all tasks attempted"
-        ),
+        on_success_callback=alerts.on_success,
     )
 
     # Define the task dependencies

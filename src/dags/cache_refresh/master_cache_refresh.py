@@ -280,13 +280,12 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize all status variables to False
     init_status_vars = PythonOperator(
         task_id="initialize_status_variables",
         python_callable=initialize_all_status_variables,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -396,11 +395,14 @@ with DAG(
     verify_completion = PythonOperator(
         task_id="verify_all_completed",
         python_callable=verify_all_completed,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS, on_success_callback=alerts.on_success)
+    end = DummyOperator(
+        task_id="end",
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+        on_success_callback=alerts.on_success,
+    )
 
     # Define task dependencies
     # Initialize status variables, then trigger all DAGs in parallel

@@ -92,14 +92,28 @@ class GoogleChatAlert:
 
     def __init__(self, webhook_url=None, logo_url=None, project_id=None, dag_id=None):
         self.webhook_url = webhook_url or GOOGLE_CHAT_WEBHOOK
-        self.logo_url = logo_url or "https://placehold.co/400/0099FF/FFFFFF.png?text=ZZ&font=roboto"
+        self.logo_url = (
+            logo_url or "https://placehold.co/400/0099FF/FFFFFF.png?text=ZZ&font=roboto"
+        )
         self.project_id = project_id or PROJECT_ID
         self.dag_id = dag_id or DAG_ID
-        
+
         self.status_config = {
-            "started": {"icon": "🔄", "title": "Started", "message": "Task '{task_id}' started"},
-            "success": {"icon": "✅", "title": "Success", "message": "Task '{task_id}' completed successfully"},
-            "failed": {"icon": "❌", "title": "Failed", "message": "Task '{task_id}' failed"},
+            "started": {
+                "icon": "🔄",
+                "title": "Started",
+                "message": "Task '{task_id}' started",
+            },
+            "success": {
+                "icon": "✅",
+                "title": "Success",
+                "message": "Task '{task_id}' completed successfully",
+            },
+            "failed": {
+                "icon": "❌",
+                "title": "Failed",
+                "message": "Task '{task_id}' failed",
+            },
         }
 
     def send(self, context, status):
@@ -113,41 +127,70 @@ class GoogleChatAlert:
         duration = getattr(task_instance, "duration", None) if task_instance else None
         dag_id = getattr(dag_run, "dag_id", self.dag_id) if dag_run else self.dag_id
         run_id = getattr(dag_run, "run_id", "unknown") if dag_run else "unknown"
-        
+
         config = self.status_config.get(status, self.status_config["failed"])
         message = config["message"].format(task_id=task_id)
-        
+
         card = {
-            "cards": [{
-                "header": {
-                    "title": f"History Cache Alert: {config['title']}",
-                    "subtitle": f"{dag_id}",
-                    "imageUrl": self.logo_url,
-                },
-                "sections": [{
-                    "widgets": [
-                        {"textParagraph": {"text": f"{config['icon']} {message}"}},
-                        {"keyValue": {"topLabel": "Run ID", "content": run_id}},
-                        {"keyValue": {"topLabel": "Time", "content": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}},
-                    ]
-                }],
-            }]
+            "cards": [
+                {
+                    "header": {
+                        "title": f"History Cache Alert: {config['title']}",
+                        "subtitle": f"{dag_id}",
+                        "imageUrl": self.logo_url,
+                    },
+                    "sections": [
+                        {
+                            "widgets": [
+                                {
+                                    "textParagraph": {
+                                        "text": f"{config['icon']} {message}"
+                                    }
+                                },
+                                {"keyValue": {"topLabel": "Run ID", "content": run_id}},
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Time",
+                                        "content": datetime.now().strftime(
+                                            "%Y-%m-%d %H:%M:%S"
+                                        ),
+                                    }
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
         }
-        
+
         if duration and status != "started":
             card["cards"][0]["sections"][0]["widgets"].append(
                 {"keyValue": {"topLabel": "Duration", "content": f"{duration:.2f}s"}}
             )
-        
+
         try:
-            response = requests.post(self.webhook_url, headers={"Content-Type": "application/json; charset=UTF-8"}, json=card, timeout=10)
-            print(f"Successfully sent {status} alert to Google Chat" if response.status_code == 200 else f"Failed to send alert. Status: {response.status_code}")
+            response = requests.post(
+                self.webhook_url,
+                headers={"Content-Type": "application/json; charset=UTF-8"},
+                json=card,
+                timeout=10,
+            )
+            print(
+                f"Successfully sent {status} alert to Google Chat"
+                if response.status_code == 200
+                else f"Failed to send alert. Status: {response.status_code}"
+            )
         except Exception as e:
             print(f"Failed to post alert to Google Chat: {str(e)}")
 
-    def on_success(self, context): self.send(context, "success")
-    def on_failure(self, context): self.send(context, "failed") 
-    def on_start(self, context): self.send(context, "started")
+    def on_success(self, context):
+        self.send(context, "success")
+
+    def on_failure(self, context):
+        self.send(context, "failed")
+
+    def on_start(self, context):
+        self.send(context, "started")
 
 
 # Initialize the alert system
@@ -287,26 +330,23 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False
     init_status = PythonOperator(
         task_id="task-init_status",
         python_callable=initialize_status_variable,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 
     # Setup GCP connection with service account credentials
     setup_connection = PythonOperator(
-        task_id="task-setup_gcp_connection",
-        python_callable=setup_gcp_connection,
+        task_id="task-setup_gcp_connection", python_callable=setup_gcp_connection
     )
 
     # Generate a compliant job name
     generate_job_name_task = PythonOperator(
-        task_id="task-generate_job_name",
-        python_callable=generate_job_name,
+        task_id="task-generate_job_name", python_callable=generate_job_name
     )
 
     # Create a job configuration using a Python function to generate compliant name
@@ -400,11 +440,14 @@ with DAG(
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 
-    end = DummyOperator(task_id="end", trigger_rule=TriggerRule.ALL_SUCCESS, on_success_callback=alerts.on_success)
+    end = DummyOperator(
+        task_id="end",
+        trigger_rule=TriggerRule.ALL_SUCCESS,
+        on_success_callback=alerts.on_success,
+    )
 
     # Define task dependencies
     (

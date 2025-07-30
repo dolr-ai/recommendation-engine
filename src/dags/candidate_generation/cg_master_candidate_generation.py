@@ -309,13 +309,12 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize all status variables to False
     init_status_vars = PythonOperator(
         task_id="initialize_status_variables",
         python_callable=initialize_all_status_variables,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -325,7 +324,6 @@ with DAG(
         trigger_dag_id="cg_clean_and_nsfw_split",
         wait_for_completion=False,
         execution_date="{{ execution_date }}",
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -336,7 +334,6 @@ with DAG(
         timeout=7200,  # 2 hour timeout
         poke_interval=30,
         mode="poke",
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -346,7 +343,6 @@ with DAG(
         trigger_dag_id="cg_modified_iou",
         wait_for_completion=False,
         execution_date="{{ execution_date }}",
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -356,7 +352,6 @@ with DAG(
         trigger_dag_id="cg_watch_time_quantile",
         wait_for_completion=False,
         execution_date="{{ execution_date }}",
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -367,7 +362,6 @@ with DAG(
         timeout=7200,
         poke_interval=30,
         mode="poke",
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -378,7 +372,6 @@ with DAG(
         timeout=7200,
         poke_interval=30,
         mode="poke",
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -386,7 +379,6 @@ with DAG(
     verify_completion = PythonOperator(
         task_id="verify_all_completed",
         python_callable=verify_all_completed,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 

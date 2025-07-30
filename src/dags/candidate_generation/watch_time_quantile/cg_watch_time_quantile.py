@@ -1383,13 +1383,12 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False
     init_status = PythonOperator(
         task_id="task-init_status",
         python_callable=initialize_status_variable,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -1397,7 +1396,6 @@ with DAG(
     get_clusters = PythonOperator(
         task_id="task-get_cluster_ids",
         python_callable=get_cluster_ids,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -1405,7 +1403,6 @@ with DAG(
     generate_intermediate = PythonOperator(
         task_id="task-generate_intermediate_table",
         python_callable=generate_intermediate_table,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -1413,7 +1410,6 @@ with DAG(
     check_intermediate = PythonOperator(
         task_id="task-check_intermediate_table",
         python_callable=check_intermediate_table,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -1421,7 +1417,6 @@ with DAG(
     check_user_bins = PythonOperator(
         task_id="task-check_user_bins_table",
         python_callable=check_user_bins_table,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -1429,7 +1424,6 @@ with DAG(
     generate_nn_candidates = PythonOperator(
         task_id="task-generate_nn_candidates",
         python_callable=generate_candidates,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -1437,7 +1431,6 @@ with DAG(
     verify_data = PythonOperator(
         task_id="task-verify_data",
         python_callable=verify_destination_data,
-        on_success_callback=alerts.on_progress,
         on_failure_callback=alerts.on_failure,
     )
 
@@ -1445,7 +1438,6 @@ with DAG(
     set_status = PythonOperator(
         task_id="task-set_status_completed",
         python_callable=set_status_completed,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 

@@ -11,9 +11,7 @@ import json
 import requests
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.providers.google.cloud.operators.dataproc import (
-    DataprocSubmitJobOperator,
-)
+from airflow.providers.google.cloud.operators.dataproc import DataprocSubmitJobOperator
 from airflow.operators.dummy import DummyOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils.trigger_rule import TriggerRule
@@ -279,12 +277,11 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Initialize status variable to False
     init_status = PythonOperator(
-        task_id="task-init_status",
-        python_callable=initialize_status_variable,
+        task_id="task-init_status", python_callable=initialize_status_variable
     )
 
     # Check if user_cluster_distribution has completed
@@ -335,8 +332,6 @@ with DAG(
         },
         asynchronous=False,  # Wait for the job to complete
         retries=3,  # Retry if the job fails
-        on_execute_callback=alerts.on_start,
-        on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
 

@@ -306,7 +306,7 @@ with DAG(
     on_success_callback=alerts.on_success,
     on_failure_callback=alerts.on_failure,
 ) as dag:
-    start = DummyOperator(task_id="start", dag=dag, on_success_callback=alerts.on_start)
+    start = DummyOperator(task_id="start", dag=dag)
 
     # Set the cluster name variable for other DAGs to use
     set_cluster_variable = PythonOperator(
@@ -325,7 +325,6 @@ with DAG(
         # num_retries_if_resource_is_not_ready=3, # for: composer-3-airflow-2.10.5-build.2
         # retry=3,  # for: composer-3-airflow-2.7.3-build.6
         labels={"job_type": DAG_ID},
-        on_execute_callback=alerts.on_start,
         on_success_callback=alerts.on_success,
         on_failure_callback=alerts.on_failure,
     )
