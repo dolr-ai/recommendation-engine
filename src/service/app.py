@@ -311,10 +311,7 @@ async def get_recommendations(request: RecommendationRequest):
     try:
         # If IP address is provided but region is not, resolve region from IP
         if request.ip_address and not request.region:
-            # Get auth token from environment variable or use the provided example token
-            auth_token = os.environ.get("MARKETING_ANALYTICS_AUTH_TOKEN")
-
-            region = await get_region_from_ip(request.ip_address, auth_token)
+            region = await get_region_from_ip(request.ip_address)
             if region:
                 request.region = region
                 logger.info(f"Resolved region '{region}' from IP {request.ip_address}")
