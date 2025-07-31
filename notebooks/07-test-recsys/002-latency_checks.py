@@ -12,6 +12,11 @@ def make_simple_request(request_params, api_url, timeout=30):
     """Simple request with basic timing"""
     headers = {"accept": "application/json", "Content-Type": "application/json"}
 
+    # delete watch history
+    # request_params = json.loads(request_params)
+    del request_params["watch_history"]
+    # request_params = json.dumps(request_params)
+
     start_time = time.time()
     try:
         response = requests.post(
@@ -196,8 +201,8 @@ def run_concurrent_test(df, api_url, concurrent_requests, timeout=30):
 # =============================================================================
 
 if __name__ == "__main__":
-    # API_URL = "https://recommendation-service-749244211103.us-central1.run.app/recommendations"
-    API_URL = "http://localhost:8000/recommendations"
+
+    # API_URL = "http://localhost:8000/recommendations"
 
     # Load test data
     df = pd.read_json(

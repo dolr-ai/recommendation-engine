@@ -1,3 +1,8 @@
+# Node.js
+node_modules/
+package-lock.json
+package.json
+
 *.env
 temp_curl.sh
 # custom

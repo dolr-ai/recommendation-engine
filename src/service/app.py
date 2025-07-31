@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 import uvicorn
+import httpx
 
 from utils.common_utils import get_logger
 from service.models import (
@@ -96,6 +97,44 @@ async def response_validation_exception_handler(
         status_code=500,
         content=error_detail,
     )
+
+
+async def get_region_from_ip(ip_address: str) -> Optional[str]:
+    """
+    Get region from IP address using marketing analytics server API.
+
+    Args:
+        ip_address: IP address to lookup
+
+    Returns:
+        Region string or None if lookup fails
+    """
+    try:
+        auth_token = os.environ.get("MARKETING_ANALYTICS_AUTH_TOKEN")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{os.environ.get('MARKETING_ANALYTICS_SERVER_BASE_URL')}/api/ip/{ip_address}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {auth_token}",
+                },
+                timeout=5.0,  # 5 second timeout
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                region = data.get("city") or data.get("region") or data.get("country")
+                logger.info(f"IP {ip_address} resolved to region: {region}")
+                return region
+            else:
+                logger.warning(
+                    f"Failed to get region for IP {ip_address}: {response.status_code}"
+                )
+                return None
+
+    except Exception as e:
+        logger.error(f"Error getting region from IP {ip_address}: {e}")
+        return None
 
 
 @app.get("/", tags=["Health"])
@@ -230,6 +269,15 @@ async def get_cache_recommendations(request: RecommendationRequest):
     logger.info(f"Received cache recommendation request for user {request.user_id}")
 
     try:
+        # If IP address is provided but region is not, resolve region from IP
+        if request.ip_address and not request.region:
+            region = await get_region_from_ip(request.ip_address)
+            if region:
+                request.region = region
+                logger.info(f"Resolved region '{region}' from IP {request.ip_address}")
+            else:
+                logger.warning(f"Could not resolve region from IP {request.ip_address}")
+
         recommendations = fallback_recommendation_service.get_cached_recommendations(
             user_id=request.user_id,
             nsfw_label=request.nsfw_label,
@@ -261,6 +309,18 @@ async def get_recommendations(request: RecommendationRequest):
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     try:
+        # If IP address is provided but region is not, resolve region from IP
+        if request.ip_address and not request.region:
+            # Get auth token from environment variable or use the provided example token
+            auth_token = os.environ.get("MARKETING_ANALYTICS_AUTH_TOKEN")
+
+            region = await get_region_from_ip(request.ip_address, auth_token)
+            if region:
+                request.region = region
+                logger.info(f"Resolved region '{region}' from IP {request.ip_address}")
+            else:
+                logger.warning(f"Could not resolve region from IP {request.ip_address}")
+
         # Process in thread pool to avoid blocking the event loop
         # This allows FastAPI to handle other requests while this one processes
         loop = asyncio.get_event_loop()

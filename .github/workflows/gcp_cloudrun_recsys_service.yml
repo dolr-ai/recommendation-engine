@@ -94,6 +94,8 @@ jobs:
           RECSYS_SERVICE_REDIS_PORT: '${{ secrets.RECSYS_SERVICE_REDIS_PORT }}'
           USE_REDIS_PROXY: '${{ secrets.USE_REDIS_PROXY }}'
           WORKERS: '${{ secrets.WORKERS }}'
+          MARKETING_ANALYTICS_AUTH_TOKEN: '${{ secrets.MARKETING_ANALYTICS_AUTH_TOKEN }}'
+          MARKETING_ANALYTICS_SERVER_BASE_URL: '${{ secrets.MARKETING_ANALYTICS_SERVER_BASE_URL }}'
           CLOUD_RUN_DEPLOYMENT: 'true'
           EOF
 
