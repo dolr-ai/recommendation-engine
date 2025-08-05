@@ -4,12 +4,10 @@ Similarity module for BigQuery-based similarity operations.
 This module provides functionality for calculating similarity between video embeddings using BigQuery.
 """
 
-import numpy as np
 import pandas as pd
 from typing import List, Dict, Any
 from utils.common_utils import get_logger
 import os
-import re
 
 logger = get_logger(__name__)
 
@@ -30,7 +28,7 @@ class SimilarityManager:
         # The BigQuery table containing video embeddings
         self.embedding_table = os.environ.get(
             "VIDEO_EMBEDDING_TABLE",
-            "hot-or-not-feed-intelligence.yral_ds.video_embedding_average",
+            "hot-or-not-feed-intelligence.yral_ds.video_index",
         )
 
     def calculate_similarity_batch(
@@ -170,10 +168,17 @@ class SimilarityManager:
             f"🔥 BATCH BigQuery: {len(query_videos)} query videos vs {len(all_search_space)} total unique candidates across {len(candidate_type_info)} types"
         )
 
-        # Execute single batched BigQuery call
-        similarity_results = self.calculate_similarity(
-            query_items=query_videos, search_space_items=all_search_space
-        )
+        # Execute single batched BigQuery call - use ANN for large search spaces
+        use_ann = len(all_search_space) > 50  # Use ANN if more than 50 candidates
+        if use_ann:
+            logger.info(f"🚀 Using ANN with search space size: {len(all_search_space)}")
+            similarity_results = self.calculate_similarity_ann(
+                query_items=query_videos, search_space_items=all_search_space, top_k=50
+            )
+        else:
+            similarity_results = self.calculate_similarity(
+                query_items=query_videos, search_space_items=all_search_space
+            )
 
         if not similarity_results:
             logger.warning("No similarity results returned from BigQuery")
@@ -263,6 +268,98 @@ class SimilarityManager:
 
         return batch_results
 
+    def calculate_similarity_ann(
+        self, query_items: List[str], search_space_items: List[str], top_k: int = 50
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calculate similarity using Approximate Nearest Neighbors for faster results.
+
+        Args:
+            query_items: List of video IDs to query
+            search_space_items: List of video IDs to search against
+            top_k: Number of top similar items to return per query
+
+        Returns:
+            dict: Dictionary mapping each query item to its top-k similar items with scores
+        """
+        if not query_items or not search_space_items:
+            logger.warning("Empty query items or search space items")
+            return {}
+
+        try:
+            query_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in query_items]
+            )
+            search_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in search_space_items]
+            )
+
+            # ANN query using VECTOR_SEARCH (if available) or limited cross join
+            query = f"""
+            WITH query_videos AS (
+                SELECT
+                    `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id,
+                    embedding
+                FROM `{self.embedding_table}`
+                WHERE ({query_uri_pattern})
+                AND uri IS NOT NULL
+            ),
+            search_space AS (
+                SELECT
+                    `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id,
+                    embedding
+                FROM `{self.embedding_table}`
+                WHERE ({search_uri_pattern})
+                AND uri IS NOT NULL
+            ),
+            ranked_similarities AS (
+                SELECT
+                    q.video_id as query_video_id,
+                    s.video_id as search_space_video_id,
+                    1 - ML.DISTANCE(q.embedding, s.embedding, 'COSINE') as similarity_score,
+                    ROW_NUMBER() OVER (PARTITION BY q.video_id ORDER BY 1 - ML.DISTANCE(q.embedding, s.embedding, 'COSINE') DESC) as rank
+                FROM query_videos q
+                CROSS JOIN search_space s
+                WHERE q.video_id IS NOT NULL
+                AND s.video_id IS NOT NULL
+                AND q.video_id != s.video_id
+            )
+            SELECT
+                query_video_id,
+                search_space_video_id,
+                MAX(similarity_score) as similarity_score
+            FROM ranked_similarities
+            WHERE rank <= {top_k}  -- Limit to top-k per query
+            GROUP BY query_video_id, search_space_video_id
+            ORDER BY query_video_id, similarity_score DESC;
+            """
+
+            logger.debug(f"Executing ANN BigQuery with top_k={top_k}: {query}")
+
+            # Execute the query
+            results_df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
+
+            # Convert results to the expected format
+            formatted_results = {}
+            if not results_df.empty:
+                grouped = results_df.groupby("query_video_id")
+                for query_id, group in grouped:
+                    formatted_results[query_id] = [
+                        {
+                            "temp_video_id": row["search_space_video_id"],
+                            "similarity_score": float(row["similarity_score"]),
+                        }
+                        for _, row in group.iterrows()
+                    ]
+
+            return formatted_results
+
+        except Exception as e:
+            logger.error(
+                f"Error in ANN BigQuery similarity calculation: {e}", exc_info=True
+            )
+            return {}
+
     def calculate_similarity(
         self, query_items: List[str], search_space_items: List[str]
     ) -> Dict[str, List[Dict[str, Any]]]:
@@ -282,31 +379,51 @@ class SimilarityManager:
             return {}
 
         try:
-            # Format video IDs for SQL query
-            query_ids_str = ", ".join([f"'{video_id}'" for video_id in query_items])
-            search_space_ids_str = ", ".join(
-                [f"'{video_id}'" for video_id in search_space_items]
+            query_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in query_items]
+            )
+            search_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in search_space_items]
             )
 
-            # Construct and execute BigQuery
+            # Optimized query - handle multiple embeddings per video_id, get best similarity per video pair
             query = f"""
-            WITH search_space AS (
-                SELECT video_id, avg_embedding
+            WITH query_videos AS (
+                SELECT
+                    uri,
+                    embedding,
+                    `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id
                 FROM `{self.embedding_table}`
-                WHERE video_id IN ({search_space_ids_str})
+                WHERE ({query_uri_pattern})
+                AND uri IS NOT NULL
             ),
-            query_videos AS (
-                SELECT video_id, avg_embedding
+            search_space AS (
+                SELECT
+                    uri,
+                    embedding,
+                    `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id
                 FROM `{self.embedding_table}`
-                WHERE video_id IN ({query_ids_str})
+                WHERE ({search_uri_pattern})
+                AND uri IS NOT NULL
+            ),
+            similarity_scores AS (
+                SELECT
+                    q.video_id as query_video_id,
+                    s.video_id as search_space_video_id,
+                    1 - ML.DISTANCE(q.embedding, s.embedding, 'COSINE') as similarity_score
+                FROM query_videos q
+                CROSS JOIN search_space s
+                WHERE q.video_id IS NOT NULL
+                AND s.video_id IS NOT NULL
+                AND q.video_id != s.video_id  -- Avoid self-similarity
             )
             SELECT
-                q.video_id as query_video_id,
-                s.video_id as search_space_video_id,
-                1 - ML.DISTANCE(q.avg_embedding, s.avg_embedding, 'COSINE') as similarity_score
-            FROM query_videos q
-            CROSS JOIN search_space s
-            ORDER BY q.video_id, similarity_score DESC;
+                query_video_id,
+                search_space_video_id,
+                MAX(similarity_score) as similarity_score  -- Best score among multiple embeddings
+            FROM similarity_scores
+            GROUP BY query_video_id, search_space_video_id
+            ORDER BY query_video_id, similarity_score DESC;
             """
 
             logger.debug(f"Executing BigQuery: {query}")

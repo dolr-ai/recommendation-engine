@@ -67,14 +67,16 @@ DEFAULT_CONFIG = {
     },
 }
 
-# Check if we're in DEV_MODE (use proxy connection instead)
+# Check if we're in DEV_MODE or should use proxy connection
 DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
-if DEV_MODE:
-    logger.info("Running in DEV_MODE - using proxy connection")
+USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY", "false").lower() in ("true", "1", "yes")
+
+if DEV_MODE or USE_REDIS_PROXY:
+    logger.info(f"Using proxy connection - DEV_MODE: {DEV_MODE}, USE_REDIS_PROXY: {USE_REDIS_PROXY}")
     DEFAULT_CONFIG["valkey"].update(
         {
             "host": os.environ.get(
-                "PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
+                "RECSYS_PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
             ),
             "port": int(
                 os.environ.get(

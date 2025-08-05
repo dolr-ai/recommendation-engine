@@ -89,7 +89,7 @@ class ValkeyService:
         self.use_proxy = self.authkey is not None
 
         # If using proxy from env, use PROXY_REDIS_HOST if available
-        if self.use_proxy and os.environ.get("USE_REDIS_PROXY", "").lower() == "true":
+        if self.use_proxy and os.environ.get("RECSYS_USE_REDIS_PROXY", "").lower() == "true":
             if os.environ.get("RECSYS_PROXY_REDIS_HOST"):
                 self.host = os.environ.get("RECSYS_PROXY_REDIS_HOST")
                 self.port = int(os.environ.get("RECSYS_PROXY_REDIS_PORT", 6379))
