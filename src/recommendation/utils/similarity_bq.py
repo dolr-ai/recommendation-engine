@@ -273,31 +273,31 @@ class SimilarityManager:
     ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Calculate similarity using Approximate Nearest Neighbors for faster results.
-        
+
         Args:
             query_items: List of video IDs to query
-            search_space_items: List of video IDs to search against  
+            search_space_items: List of video IDs to search against
             top_k: Number of top similar items to return per query
-            
+
         Returns:
             dict: Dictionary mapping each query item to its top-k similar items with scores
         """
         if not query_items or not search_space_items:
             logger.warning("Empty query items or search space items")
             return {}
-            
+
         try:
-            # Format video IDs for SQL query
-            query_ids_str = ", ".join([f"'{video_id}'" for video_id in query_items])
-            search_space_ids_str = ", ".join([f"'{video_id}'" for video_id in search_space_items])
-            
-            query_uri_pattern = " OR ".join([f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in query_items])
-            search_uri_pattern = " OR ".join([f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in search_space_items])
+            query_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in query_items]
+            )
+            search_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in search_space_items]
+            )
 
             # ANN query using VECTOR_SEARCH (if available) or limited cross join
             query = f"""
             WITH query_videos AS (
-                SELECT 
+                SELECT
                     `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id,
                     embedding
                 FROM `{self.embedding_table}`
@@ -305,7 +305,7 @@ class SimilarityManager:
                 AND uri IS NOT NULL
             ),
             search_space AS (
-                SELECT 
+                SELECT
                     `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id,
                     embedding
                 FROM `{self.embedding_table}`
@@ -320,7 +320,7 @@ class SimilarityManager:
                     ROW_NUMBER() OVER (PARTITION BY q.video_id ORDER BY 1 - ML.DISTANCE(q.embedding, s.embedding, 'COSINE') DESC) as rank
                 FROM query_videos q
                 CROSS JOIN search_space s
-                WHERE q.video_id IS NOT NULL 
+                WHERE q.video_id IS NOT NULL
                 AND s.video_id IS NOT NULL
                 AND q.video_id != s.video_id
             )
@@ -333,12 +333,12 @@ class SimilarityManager:
             GROUP BY query_video_id, search_space_video_id
             ORDER BY query_video_id, similarity_score DESC;
             """
-            
+
             logger.debug(f"Executing ANN BigQuery with top_k={top_k}: {query}")
-            
+
             # Execute the query
             results_df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
-            
+
             # Convert results to the expected format
             formatted_results = {}
             if not results_df.empty:
@@ -351,11 +351,13 @@ class SimilarityManager:
                         }
                         for _, row in group.iterrows()
                     ]
-            
+
             return formatted_results
-            
+
         except Exception as e:
-            logger.error(f"Error in ANN BigQuery similarity calculation: {e}", exc_info=True)
+            logger.error(
+                f"Error in ANN BigQuery similarity calculation: {e}", exc_info=True
+            )
             return {}
 
     def calculate_similarity(
@@ -377,23 +379,18 @@ class SimilarityManager:
             return {}
 
         try:
-            # Format video IDs for SQL query
-            query_ids_str = ", ".join([f"'{video_id}'" for video_id in query_items])
-            search_space_ids_str = ", ".join(
-                [f"'{video_id}'" for video_id in search_space_items]
+            query_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in query_items]
             )
-
-            # Create URI patterns for matching (ENDS_WITH is faster than LIKE patterns)
-            all_video_ids = set(query_items + search_space_items)
-            
-            query_uri_pattern = " OR ".join([f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in query_items])
-            search_uri_pattern = " OR ".join([f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in search_space_items])
+            search_uri_pattern = " OR ".join(
+                [f"ENDS_WITH(uri, '/{vid}.mp4')" for vid in search_space_items]
+            )
 
             # Optimized query - handle multiple embeddings per video_id, get best similarity per video pair
             query = f"""
             WITH query_videos AS (
-                SELECT 
-                    uri, 
+                SELECT
+                    uri,
                     embedding,
                     `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id
                 FROM `{self.embedding_table}`
@@ -401,8 +398,8 @@ class SimilarityManager:
                 AND uri IS NOT NULL
             ),
             search_space AS (
-                SELECT 
-                    uri, 
+                SELECT
+                    uri,
                     embedding,
                     `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri`(uri) as video_id
                 FROM `{self.embedding_table}`
@@ -416,7 +413,7 @@ class SimilarityManager:
                     1 - ML.DISTANCE(q.embedding, s.embedding, 'COSINE') as similarity_score
                 FROM query_videos q
                 CROSS JOIN search_space s
-                WHERE q.video_id IS NOT NULL 
+                WHERE q.video_id IS NOT NULL
                 AND s.video_id IS NOT NULL
                 AND q.video_id != s.video_id  -- Avoid self-similarity
             )
