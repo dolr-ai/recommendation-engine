@@ -725,6 +725,9 @@ class RecommendationEngine:
         logger.info(f"  - Backend transformation step: {backend_time:.2f} seconds")
         logger.info(f"  - Total process time: {total_time:.2f} seconds")
 
+        logger.info(
+            f" user_id: {user_id} :: Total recommendations: {len(recommendations['posts'])}"
+        )
         # Add processing time
         recommendations["processing_time_ms"] = total_time * 1000
         recommendations["debug"] = {
