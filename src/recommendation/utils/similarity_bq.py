@@ -173,7 +173,7 @@ class SimilarityManager:
         if use_ann:
             logger.info(f"🚀 Using ANN with search space size: {len(all_search_space)}")
             similarity_results = self.calculate_similarity_ann(
-                query_items=query_videos, search_space_items=all_search_space, top_k=20
+                query_items=query_videos, search_space_items=all_search_space, top_k=50
             )
         else:
             similarity_results = self.calculate_similarity(
