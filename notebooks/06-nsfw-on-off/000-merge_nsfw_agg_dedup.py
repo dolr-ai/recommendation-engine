@@ -151,7 +151,7 @@ print(
 query = """
 WITH
 -- Get unique videos
-video_unique AS (
+video_unique_v2 AS (
   SELECT *
   FROM `jay-dhanwant-experiments.stage_tables.stage_video_unique`
 ),
@@ -167,7 +167,7 @@ video_nsfw_filtered AS (
 user_clusters_dedup AS (
   SELECT uc.*
   FROM `jay-dhanwant-experiments.stage_test_tables.test_user_clusters` uc
-  INNER JOIN video_unique vu ON uc.video_id = vu.video_id
+  INNER JOIN video_unique_v2 vu ON uc.video_id = vu.video_id
 )
 
 -- Final result with NSFW labels

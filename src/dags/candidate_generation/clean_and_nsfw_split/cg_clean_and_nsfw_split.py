@@ -46,7 +46,7 @@ PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
 REGION = "us-central1"
 
 # Table configuration
-SOURCE_VIDEO_UNIQUE_TABLE = f"{PROJECT_ID}.yral_ds.video_unique"
+SOURCE_VIDEO_UNIQUE_TABLE = f"{PROJECT_ID}.yral_ds.video_unique_v2"
 SOURCE_VIDEO_NSFW_TABLE = f"{PROJECT_ID}.yral_ds.video_nsfw_agg"
 SOURCE_USER_CLUSTERS_TABLE = f"{PROJECT_ID}.yral_ds.recsys_user_cluster_interaction"
 DESTINATION_TABLE = f"{PROJECT_ID}.yral_ds.recsys_clean_nsfw_split_interactions_for_cg"
@@ -294,7 +294,7 @@ def generate_clean_nsfw_split_query():
       `{DESTINATION_TABLE}` AS
     WITH
       -- Get unique videos
-      video_unique AS (
+      video_unique_v2 AS (
         SELECT *
         FROM `{SOURCE_VIDEO_UNIQUE_TABLE}`
       ),
@@ -310,7 +310,7 @@ def generate_clean_nsfw_split_query():
       user_clusters_dedup AS (
         SELECT uc.*
         FROM `{SOURCE_USER_CLUSTERS_TABLE}` uc
-        INNER JOIN video_unique vu ON uc.video_id = vu.video_id
+        INNER JOIN video_unique_v2 vu ON uc.video_id = vu.video_id
       )
 
     -- Final result with NSFW labels - includes all columns from recsys_user_cluster_interaction
