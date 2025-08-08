@@ -1,0 +1,74 @@
+name: Move DAGs to GCS
+
+on:
+  push:
+    branches: [main, master, stage-to-prod]
+  workflow_dispatch: # Enable manual trigger
+
+jobs:
+  move-dags:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.RECSYS_GCP_CREDENTIALS }}
+
+      - name: Move DAG directories to Cloud Composer
+        run: |
+          # List of DAG directories to process
+          # Add new DAG folders here when needed (comma-separated, no trailing comma)
+          dag_directories=(
+            "src/dags/user_clustering"
+            "src/dags/candidate_generation"
+            "src/dags/cache_refresh"
+            # "src/dags/yet_another_dag_folder"
+          )
+
+          # Process all DAG directories
+          for dag_dir in "${dag_directories[@]}"; do
+            echo "Processing directory: $dag_dir"
+
+            # Extract the directory name (last part of the path)
+            dir_name=$(basename "$dag_dir")
+            echo "Directory name: $dir_name"
+
+            # Create a temporary directory for this DAG folder
+            mkdir -p "/tmp/$dir_name"
+
+            # Copy the entire directory structure to temp, excluding init scripts
+            # First, copy everything
+            cp -r "$dag_dir"/* "/tmp/$dir_name/"
+
+            # Then remove any init bash scripts that might break Airflow
+            find "/tmp/$dir_name" -type f -name "*.sh" -delete
+            find "/tmp/$dir_name" -type d -name "init" -exec rm -rf {} + 2>/dev/null || true
+
+            # Upload the entire directory to Cloud Composer
+            echo "Copying $dir_name directory to Cloud Composer"
+            gcloud composer environments storage dags import \
+              --environment data-pipeline-orchestrator \
+              --location us-central1 \
+              --source "/tmp/$dir_name" \
+              --destination "recsys-dags/$dir_name"
+          done
+
+      - name: Move Init script to GCS
+        run: |
+          # Update this path if the initialization script location changes
+          init_script_path="src/dags/user_clustering/create_dataproc_cluster/init/dataproc_initialization_action.sh"
+
+          echo "Copying initialization script from $init_script_path to GCS"
+          gcloud storage cp "$init_script_path" \
+            gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh

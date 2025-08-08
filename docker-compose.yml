@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  recommendation-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    ports:
+      - "8000:8000"
+    environment:
+      - API_PORT=8000
+      # GCP_CREDENTIALS should be set via .env file or command line
+      - GCP_CREDENTIALS=${GCP_CREDENTIALS}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

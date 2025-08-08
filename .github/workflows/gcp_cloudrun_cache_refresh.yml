@@ -1,0 +1,151 @@
+name: Build Cache Refresh Docker Images
+
+on:
+  push:
+    branches: [main, master, stage-to-prod]
+    paths:
+      - "dockerfiles/**"
+      - "src/**"
+      - "requirements.txt"
+      - "setup.py"
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Services to build (comma-separated)"
+        required: false
+        type: string
+        default: "all"
+
+env:
+  REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
+  REPOSITORY: ${{ secrets.RECSYS_REGISTRY_REPOSITORY }}
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    strategy:
+      matrix:
+        include:
+          - dockerfile: populate_candidates.dockerfile
+            service_name: recommendation-candidates
+            image: recommendation-candidates
+          - dockerfile: populate_candidates_meta.dockerfile
+            service_name: recommendation-candidates-meta
+            image: recommendation-candidates-meta
+          - dockerfile: populate_fallback_cache.dockerfile
+            service_name: recommendation-fallback
+            image: recommendation-fallback
+          - dockerfile: populate_history.dockerfile
+            service_name: recommendation-history
+            image: recommendation-history
+          - dockerfile: populate_reported_items.dockerfile
+            service_name: recommendation-reported-items
+            image: recommendation-reported-items
+          - dockerfile: populate_location_candidates.dockerfile
+            service_name: recommendation-location-candidates
+            image: recommendation-location-candidates
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if service should be built
+        id: check_service
+        run: |
+          SELECTED_SERVICES="${{ github.event.inputs.services }}"
+          SERVICE="${{ matrix.service_name }}"
+
+          # If workflow_dispatch with specific services
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "$SELECTED_SERVICES" != "all" && "$SELECTED_SERVICES" != "" ]]; then
+            # Check if this service is in the list
+            if [[ $SELECTED_SERVICES == *"$SERVICE"* ]]; then
+              echo "BUILD=true" >> $GITHUB_OUTPUT
+            else
+              echo "BUILD=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            # For push events, always build
+            echo "BUILD=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Google Auth
+        if: steps.check_service.outputs.BUILD == 'true'
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.RECSYS_GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        if: steps.check_service.outputs.BUILD == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        if: steps.check_service.outputs.BUILD == 'true'
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev
+
+      - name: Build and push Docker image
+        if: steps.check_service.outputs.BUILD == 'true'
+        run: |
+          # Get project ID from gcloud
+          RECSYS_PROJECT_ID=$(gcloud config get-value project)
+          REGISTRY="$REGION-docker.pkg.dev/$RECSYS_PROJECT_ID/$REPOSITORY"
+          IMAGE_NAME="$REGISTRY/${{ matrix.image }}"
+
+          echo "Project ID: $RECSYS_PROJECT_ID"
+          echo "Registry: $REGISTRY"
+          echo "Image Name: $IMAGE_NAME"
+          echo "Dockerfile: dockerfiles/${{ matrix.dockerfile }}"
+
+          # Build the Docker image
+          docker build -t $IMAGE_NAME:${{ github.sha }} -f dockerfiles/${{ matrix.dockerfile }} .
+          docker build -t $IMAGE_NAME:latest -f dockerfiles/${{ matrix.dockerfile }} .
+
+          # Push to Artifact Registry
+          docker push $IMAGE_NAME:${{ github.sha }}
+          docker push $IMAGE_NAME:latest
+
+          echo "Successfully pushed image: $IMAGE_NAME:${{ github.sha }}"
+          echo "Successfully pushed image: $IMAGE_NAME:latest"
+
+  # Separate job for PR validation (build only, no push)
+  validate-pr:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    strategy:
+      matrix:
+        dockerfile:
+          [
+            "populate_candidates.dockerfile",
+            "populate_candidates_meta.dockerfile",
+            "populate_fallback_cache.dockerfile",
+            "populate_history.dockerfile",
+            "populate_reported_items.dockerfile",
+            "populate_location_candidates.dockerfile",
+          ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev
+
+      - name: Build Docker image (validation only)
+        run: |
+          RECSYS_PROJECT_ID=$(gcloud config get-value project)
+          REGISTRY="$REGION-docker.pkg.dev/$RECSYS_PROJECT_ID/$REPOSITORY"
+          IMAGE_NAME="$REGISTRY/$(basename ${{ matrix.dockerfile }} .dockerfile)"
+
+          echo "🔍 Validating Docker build for PR..."
+          docker build -t $IMAGE_NAME:pr-${{ github.event.number }} -f dockerfiles/${{ matrix.dockerfile }} .
+          echo "✅ Docker build successful for $(basename ${{ matrix.dockerfile }} .dockerfile)!"

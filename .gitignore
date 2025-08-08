@@ -1,3 +1,20 @@
+# Node.js
+node_modules/
+package-lock.json
+package.json
+
+*.env
+temp_curl.sh
+# custom
+*.pkl
+.vscode/
+.DS_Store
+.env
+.ENV
+# data/
+data-*/
+archive
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

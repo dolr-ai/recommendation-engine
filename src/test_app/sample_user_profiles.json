@@ -1,0 +1,77 @@
+[
+    {
+        "user_id": "redacted_user_id_1",
+        "watch_history": [
+            {
+                "video_id": "redacted_video_id_1",
+                "last_watched_timestamp": "2025-05-28 06:33:40.393635+00:00",
+                "mean_percentage_watched": "0.6474621686746986"
+            },
+            {
+                "video_id": "redacted_video_id_2",
+                "last_watched_timestamp": "2025-05-28 06:33:34.764438+00:00",
+                "mean_percentage_watched": "0.2754446349647991"
+            },
+            {
+                "video_id": "redacted_video_id_3",
+                "last_watched_timestamp": "2025-05-28 06:33:04.723995+00:00",
+                "mean_percentage_watched": "0.6531245213252787"
+            },
+            {
+                "video_id": "redacted_video_id_4",
+                "last_watched_timestamp": "2025-05-28 06:33:00.090859+00:00",
+                "mean_percentage_watched": "0.935750003600634"
+            },
+            {
+                "video_id": "redacted_video_id_5",
+                "last_watched_timestamp": "2025-05-28 06:32:49.541971+00:00",
+                "mean_percentage_watched": "0.47653651836158517"
+            }
+        ]
+    },
+    {
+        "user_id": "redacted_user_id_2",
+        "watch_history": [
+            {
+                "video_id": "redacted_video_id_6",
+                "last_watched_timestamp": "2025-05-28 06:32:28.387955+00:00",
+                "mean_percentage_watched": "0.2552614488993866"
+            },
+            {
+                "video_id": "redacted_video_id_7",
+                "last_watched_timestamp": "2025-05-28 06:32:23.741639+00:00",
+                "mean_percentage_watched": "0.25910731919878055"
+            },
+            {
+                "video_id": "redacted_video_id_8",
+                "last_watched_timestamp": "2025-05-28 06:32:11.910290+00:00",
+                "mean_percentage_watched": "0.33018984827586206"
+            }
+        ]
+    },
+    {
+        "user_id": "redacted_user_id_3",
+        "watch_history": [
+            {
+                "video_id": "redacted_video_id_9",
+                "last_watched_timestamp": "2025-05-28 06:31:30.670134+00:00",
+                "mean_percentage_watched": "0.9436754166666668"
+            },
+            {
+                "video_id": "redacted_video_id_10",
+                "last_watched_timestamp": "2025-05-28 06:31:17.199520+00:00",
+                "mean_percentage_watched": "0.46038986301369866"
+            },
+            {
+                "video_id": "redacted_video_id_11",
+                "last_watched_timestamp": "2025-05-28 06:31:13.663608+00:00",
+                "mean_percentage_watched": "0.3959740490123798"
+            },
+            {
+                "video_id": "redacted_video_id_12",
+                "last_watched_timestamp": "2025-05-24 18:19:00.245658+00:00",
+                "mean_percentage_watched": "0.6359078125"
+            }
+        ]
+    }
+]

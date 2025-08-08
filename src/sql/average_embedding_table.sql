@@ -1,0 +1,101 @@
+-- # initial creation of the table
+CREATE OR REPLACE TABLE
+  `hot-or-not-feed-intelligence.yral_ds.video_embedding_average` (video_id STRING, avg_embedding ARRAY<FLOAT64>);
+
+
+INSERT INTO
+  `hot-or-not-feed-intelligence.yral_ds.video_embedding_average` (video_id, avg_embedding)
+WITH
+  flattened_embeddings AS (
+    SELECT
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) AS video_id,
+      pos,
+      embedding_value
+    FROM
+      `hot-or-not-feed-intelligence.yral_ds.video_index`,
+      UNNEST (embedding) AS embedding_value
+    WITH
+    OFFSET
+      pos
+    WHERE
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) IS NOT NULL
+  ),
+  averaged_by_position AS (
+    SELECT
+      video_id,
+      pos,
+      AVG(embedding_value) AS avg_value
+    FROM
+      flattened_embeddings
+    GROUP BY
+      video_id,
+      pos
+  )
+SELECT
+  video_id,
+  ARRAY_AGG(
+    avg_value
+    ORDER BY
+      pos
+  ) AS avg_embedding
+FROM
+  averaged_by_position
+GROUP BY
+  video_id;
+
+
+-- # consecutive updates to the table should use this query
+INSERT INTO
+  `hot-or-not-feed-intelligence.yral_ds.video_embedding_average` (video_id, avg_embedding)
+WITH
+  missing_videos AS (
+    SELECT DISTINCT
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) AS video_id
+    FROM
+      `hot-or-not-feed-intelligence.yral_ds.video_index`
+    WHERE
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) IS NOT NULL
+      AND `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (uri) NOT IN (
+        SELECT
+          video_id
+        FROM
+          `hot-or-not-feed-intelligence.yral_ds.video_embedding_average`
+        WHERE
+          video_id IS NOT NULL
+      )
+  ),
+  flattened_embeddings AS (
+    SELECT
+      `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (s.uri) AS video_id,
+      pos,
+      embedding_value
+    FROM
+      `hot-or-not-feed-intelligence.yral_ds.video_index` s
+      INNER JOIN missing_videos m ON `hot-or-not-feed-intelligence.yral_ds.extract_video_id_from_gcs_uri` (s.uri) = m.video_id,
+      UNNEST (embedding) AS embedding_value
+    WITH
+    OFFSET
+      pos
+  ),
+  averaged_by_position AS (
+    SELECT
+      video_id,
+      pos,
+      AVG(embedding_value) AS avg_value
+    FROM
+      flattened_embeddings
+    GROUP BY
+      video_id,
+      pos
+  )
+SELECT
+  video_id,
+  ARRAY_AGG(
+    avg_value
+    ORDER BY
+      pos
+  ) AS avg_embedding
+FROM
+  averaged_by_position
+GROUP BY
+  video_id;
