@@ -262,21 +262,46 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
     tags=["CacheRecommendations"],
     response_model_exclude_none=True,
 )
-async def get_cache_recommendations(request: RecommendationRequest):
+async def get_cache_recommendations(
+    request: RecommendationRequest, http_request: Request
+):
     """
     Get recommendations from cache.
     """
     logger.info(f"Received cache recommendation request for user {request.user_id}")
 
     try:
-        # If IP address is provided but region is not, resolve region from IP
-        if request.ip_address and not request.region:
-            region = await get_region_from_ip(request.ip_address)
+        # Get X-Forwarded-For header for logging
+        x_forwarded_for = http_request.headers.get("X-Forwarded-For")
+
+        # If IP address is not provided, try to get it from X-Forwarded-For header
+        ip_address = request.ip_address
+        if not ip_address:
+            if x_forwarded_for:
+                # Take the first IP in case of multiple forwarded IPs
+                ip_address = x_forwarded_for.split(",")[0].strip()
+                logger.info(
+                    f"Using IP from X-Forwarded-For header: {ip_address}, X-Forwarded-For: {x_forwarded_for}"
+                )
+            else:
+                logger.info(
+                    "No IP address provided in request and no X-Forwarded-For header found"
+                )
+        else:
+            logger.info(
+                f"Using IP from request: {ip_address}, X-Forwarded-For: {x_forwarded_for or 'Not present'}"
+            )
+
+        # If IP address is available but region is not, resolve region from IP
+        if ip_address and not request.region:
+            region = await get_region_from_ip(ip_address)
             if region:
                 request.region = region
-                logger.info(f"Resolved region '{region}' from IP {request.ip_address}")
+                logger.info(f"Resolved region '{region}' from IP address: {ip_address}")
             else:
-                logger.warning(f"Could not resolve region from IP {request.ip_address}")
+                logger.warning(
+                    f"Could not resolve region from IP address: {ip_address}"
+                )
 
         recommendations = fallback_recommendation_service.get_cached_recommendations(
             user_id=request.user_id,
@@ -298,7 +323,7 @@ async def get_cache_recommendations(request: RecommendationRequest):
     tags=["Recommendations"],
     response_model_exclude_none=True,
 )
-async def get_recommendations(request: RecommendationRequest):
+async def get_recommendations(request: RecommendationRequest, http_request: Request):
     """
     Get personalized video recommendations for a user.
     Optimized version with better error handling and timing.
@@ -309,14 +334,37 @@ async def get_recommendations(request: RecommendationRequest):
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     try:
-        # If IP address is provided but region is not, resolve region from IP
-        if request.ip_address and not request.region:
-            region = await get_region_from_ip(request.ip_address)
+        # Get X-Forwarded-For header for logging
+        x_forwarded_for = http_request.headers.get("X-Forwarded-For")
+
+        # If IP address is not provided, try to get it from X-Forwarded-For header
+        ip_address = request.ip_address
+        if not ip_address:
+            if x_forwarded_for:
+                # Take the first IP in case of multiple forwarded IPs
+                ip_address = x_forwarded_for.split(",")[0].strip()
+                logger.info(
+                    f"Using IP from X-Forwarded-For header: {ip_address}, X-Forwarded-For: {x_forwarded_for}"
+                )
+            else:
+                logger.info(
+                    "No IP address provided in request and no X-Forwarded-For header found"
+                )
+        else:
+            logger.info(
+                f"Using IP from request: {ip_address}, X-Forwarded-For: {x_forwarded_for or 'Not present'}"
+            )
+
+        # If IP address is available but region is not, resolve region from IP
+        if ip_address and not request.region:
+            region = await get_region_from_ip(ip_address)
             if region:
                 request.region = region
-                logger.info(f"Resolved region '{region}' from IP {request.ip_address}")
+                logger.info(f"Resolved region '{region}' from IP address: {ip_address}")
             else:
-                logger.warning(f"Could not resolve region from IP {request.ip_address}")
+                logger.warning(
+                    f"Could not resolve region from IP address: {ip_address}"
+                )
 
         # Process in thread pool to avoid blocking the event loop
         # This allows FastAPI to handle other requests while this one processes
