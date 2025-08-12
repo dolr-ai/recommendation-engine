@@ -517,7 +517,45 @@ class RecommendationEngine:
         bq_similarity_time = 0
         candidate_fetching_time = 0
         if metadata_found:
-            # Step 1: Run reranking logic
+            # Step 0.5: Get safety fallbacks using the cached recommendations service
+            logger.info("Preparing safety fallbacks to inject into candidate structure before reranking")
+            
+            # Import fallback service
+            from service.fallback_recommendation_service import FallbackRecommendationService
+            fallback_service = FallbackRecommendationService.get_instance()
+            
+            # Get cached recommendations which include both location and global fallbacks
+            safety_fallback_response = fallback_service.get_cached_recommendations(
+                user_id=user_id,
+                nsfw_label=nsfw_label,
+                num_results=fallback_top_k,
+                region=region,
+            )
+            
+            # Extract fallback recommendations from the response
+            safety_fallback_posts = safety_fallback_response.get("posts", [])
+            safety_fallback_ids = [post.get("video_id") for post in safety_fallback_posts if post.get("video_id")]
+            
+            logger.info(f"Retrieved {len(safety_fallback_ids)} safety fallback candidates from cache service")
+            
+            # Add safety fallbacks to enriched profile for candidate fetching
+            # Split them into location and global for better tracking
+            mid_point = len(safety_fallback_ids) // 2
+            safety_location = safety_fallback_ids[:mid_point]  # First half as location
+            safety_global = safety_fallback_ids[mid_point:]    # Second half as global
+            
+            enriched_profile["safety_fallbacks"] = {
+                "fallback_safety_location": safety_location,
+                "fallback_safety_global": safety_global
+            }
+            
+            logger.info(
+                f"Added {len(safety_location)} location + {len(safety_global)} global safety fallbacks to candidate structure"
+            )
+            
+            logger.info(f"Using candidate types: {candidate_types}")
+            
+            # Step 1: Run reranking logic with injected safety fallbacks
             rerank_start = datetime.datetime.now()
             df_reranked, bq_similarity_time, candidate_fetching_time = (
                 self.reranking_manager.reranking_logic(
@@ -550,6 +588,10 @@ class RecommendationEngine:
             )
             mixer_time = (datetime.datetime.now() - mixer_start).total_seconds()
             logger.info(f"Mixer algorithm completed in {mixer_time:.2f} seconds")
+
+            logger.info(
+                f"Safety fallbacks were processed through reranking pipeline and integrated into mixer output"
+            )
         else:
             # Initialize timing variables for fallback case
             rerank_time = 0

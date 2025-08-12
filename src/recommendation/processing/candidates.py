@@ -176,6 +176,7 @@ class CandidateManager:
         nsfw_label,
         max_fallback_candidates=1000,
         max_workers=4,
+        safety_fallbacks=None,
     ):
         """
         Fetch candidates for all query videos in parallel.
@@ -188,6 +189,7 @@ class CandidateManager:
             max_fallback_candidates: Maximum number of fallback candidates to sample (if more are available)
             max_workers: Maximum number of worker threads for parallel fetching
             nsfw_label: Whether to use NSFW or clean candidates (False for clean, True for NSFW)
+            safety_fallbacks: Optional dictionary containing safety fallback candidates
 
         Returns:
             OrderedDict of candidates organized by query video and type
@@ -205,6 +207,8 @@ class CandidateManager:
         need_wt = "watch_time_quantile" in candidate_type_name_to_num
         need_fallback_miou = "fallback_modified_iou" in candidate_type_name_to_num
         need_fallback_wt = "fallback_watch_time_quantile" in candidate_type_name_to_num
+        need_fallback_safety_location = "fallback_safety_location" in candidate_type_name_to_num
+        need_fallback_safety_global = "fallback_safety_global" in candidate_type_name_to_num
 
         # Prepare tasks for parallel execution
         tasks = {}
@@ -318,6 +322,8 @@ class CandidateManager:
             "count_wt": 0,
             "count_fallback_miou": 0,
             "count_fallback_wt": 0,
+            "count_fallback_safety_location": 0,
+            "count_fallback_safety_global": 0,
         }
         # Pre-initialize the structure for all query videos to avoid repeated checks
         for video_id in query_videos:
@@ -347,6 +353,16 @@ class CandidateManager:
         query_videos_to_all_candidates["fallback_wt"] = fallback_candidates[
             "fallback_watch_time_quantile"
         ]
+
+        # Add safety fallbacks if provided
+        if safety_fallbacks:
+            if need_fallback_safety_location:
+                query_videos_to_all_candidates["fallback_safety_location"] = safety_fallbacks.get("fallback_safety_location", [])
+                stats["count_fallback_safety_location"] = len(safety_fallbacks.get("fallback_safety_location", []))
+            
+            if need_fallback_safety_global:
+                query_videos_to_all_candidates["fallback_safety_global"] = safety_fallbacks.get("fallback_safety_global", [])
+                stats["count_fallback_safety_global"] = len(safety_fallbacks.get("fallback_safety_global", []))
 
         # Update stats
         stats["count_fallback_miou"] = len(fallback_candidates["fallback_modified_iou"])

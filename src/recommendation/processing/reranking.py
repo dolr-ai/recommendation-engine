@@ -70,13 +70,17 @@ class RerankingManager:
             candidates_for_fallback = []
             for key in fallback_keys:
                 candidates_for_fallback.extend(all_candidates.get(key, []))
+                
+            logger.info(f"Fallback type {cand_type}: collected {len(candidates_for_fallback)} candidates from keys {fallback_keys}")
 
             # Apply deduplication if needed
             if enable_deduplication:
                 query_videos_set = set(query_videos)
+                original_count = len(candidates_for_fallback)
                 candidates_for_fallback = [
                     c for c in candidates_for_fallback if c not in query_videos_set
                 ]
+                logger.info(f"Fallback type {cand_type}: after deduplication {original_count} -> {len(candidates_for_fallback)} candidates")
 
             # Use the same fallback candidates for all query videos
             for q_video_id in query_videos:
@@ -152,6 +156,8 @@ class RerankingManager:
                 )
                 results_dict[q_video_id] = []
 
+        total_results = sum(len(results) for results in results_dict.values())
+        logger.info(f"Type {cand_type}: {total_results} total similarity results across all query videos")
         return type_num, results_dict
 
     def process_query_candidates_batch(
@@ -276,6 +282,9 @@ class RerankingManager:
             ]
             return pd.DataFrame(columns=columns), 0.0, 0.0
 
+        # Extract safety fallbacks from user profile if provided
+        safety_fallbacks = user_profile.get("safety_fallbacks", None)
+        
         # 2. Fetch candidates for all query videos
         t_candidates_start = time.time()
         self.candidate_manager._set_key_prefix(nsfw_label)
@@ -287,6 +296,7 @@ class RerankingManager:
             nsfw_label=nsfw_label,  # Pass nsfw_label to determine content type
             max_fallback_candidates=max_fallback_candidates,
             max_workers=max_workers,  # Pass max_workers to enable parallel fetching
+            safety_fallbacks=safety_fallbacks,  # Pass safety fallbacks to be integrated
         )
         t_candidates_end = time.time()
         candidate_fetching_time = t_candidates_end - t_candidates_start

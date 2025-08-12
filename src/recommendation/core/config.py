@@ -18,6 +18,8 @@ DEFAULT_CANDIDATE_TYPES = {
     2: {"name": "modified_iou", "weight": 0.8},
     3: {"name": "fallback_watch_time_quantile", "weight": 0.6},
     4: {"name": "fallback_modified_iou", "weight": 0.5},
+    5: {"name": "fallback_safety_location", "weight": 0.4},
+    6: {"name": "fallback_safety_global", "weight": 0.3},
 }
 
 DEFAULT_VALKEY_CONFIG = {

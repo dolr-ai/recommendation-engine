@@ -164,6 +164,9 @@ class MixerManager:
         logger.info(
             f"Processed {total_processed} candidates, generated {len(recommendations)} recommendations"
         )
+        logger.info(
+            f"Mixer fallback stats: {len(fallback_scores)} fallback candidates collected, {len(fallback_recommendations)} fallback recommendations generated"
+        )
 
         return {
             "recommendations": recommendations,

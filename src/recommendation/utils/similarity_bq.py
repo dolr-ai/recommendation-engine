@@ -68,6 +68,8 @@ class SimilarityManager:
                 fallback_key_mapping = {
                     "fallback_modified_iou": "fallback_miou",
                     "fallback_watch_time_quantile": "fallback_wt",
+                    "fallback_safety_location": "fallback_safety_location",
+                    "fallback_safety_global": "fallback_safety_global",
                 }
 
                 actual_key = fallback_key_mapping.get(cand_type)
@@ -173,7 +175,7 @@ class SimilarityManager:
         if use_ann:
             logger.info(f"🚀 Using ANN with search space size: {len(all_search_space)}")
             similarity_results = self.calculate_similarity_ann(
-                query_items=query_videos, search_space_items=all_search_space, top_k=50
+                query_items=query_videos, search_space_items=all_search_space, top_k=200
             )
         else:
             similarity_results = self.calculate_similarity(
