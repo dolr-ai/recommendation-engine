@@ -43,17 +43,17 @@ class RecommendationConfig:
     """Configuration class for recommendation engine."""
 
     # Recommendation parameters
-    TOP_K = 75
-    FALLBACK_TOP_K = 75
+    TOP_K = 225  # Increased 3x from 75 to handle heavy filtering
+    FALLBACK_TOP_K = 225  # Increased 3x from 75 to handle heavy filtering
     THRESHOLD = 0.1
     ENABLE_DEDUPLICATION = True
     ENABLE_REPORTED_ITEMS_FILTERING = True
     MAX_WORKERS = 4
-    MAX_FALLBACK_CANDIDATES = 75
+    MAX_FALLBACK_CANDIDATES = 225  # Increased 3x from 75 to handle heavy filtering
     MIN_SIMILARITY_THRESHOLD = 0.4
     RECENCY_WEIGHT = 0.8
     WATCH_PERCENTAGE_WEIGHT = 0.2
-    MAX_CANDIDATES_PER_QUERY = 5
+    MAX_CANDIDATES_PER_QUERY = 15  # Increased 3x from 5 to handle heavy filtering
     EXCLUDE_WATCHED_ITEMS = []
     EXCLUDE_REPORTED_ITEMS = []
 
