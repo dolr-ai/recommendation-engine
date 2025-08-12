@@ -28,6 +28,7 @@ from service.fallback_recommendation_service import FallbackRecommendationServic
 
 logger = get_logger(__name__)
 
+# max items to consider while recommending content
 MAX_UNIQUE_HISTORY_ITEMS = 100
 
 # Create FastAPI app

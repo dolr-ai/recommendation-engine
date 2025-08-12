@@ -69,10 +69,16 @@ DEFAULT_CONFIG = {
 
 # Check if we're in DEV_MODE or should use proxy connection
 DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
-USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY", "false").lower() in ("true", "1", "yes")
+USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 if DEV_MODE or USE_REDIS_PROXY:
-    logger.info(f"Using proxy connection - DEV_MODE: {DEV_MODE}, USE_REDIS_PROXY: {USE_REDIS_PROXY}")
+    logger.info(
+        f"Using proxy connection - DEV_MODE: {DEV_MODE}, USE_REDIS_PROXY: {USE_REDIS_PROXY}"
+    )
     DEFAULT_CONFIG["valkey"].update(
         {
             "host": os.environ.get(
@@ -218,21 +224,23 @@ class UserRealtimeHistory:
                 min_score = "-inf"
                 max_score = "+inf"
 
-            # Get watch history entries using zrangebyscore
-            # We scan through the sorted set to find matches
+            # Get all watch history entries (no pagination limit for comprehensive filtering)
+            # Since members are JSON strings, we need to scan through them to find video_ids
             watch_entries = self.valkey_service.zrangebyscore(
                 redis_key,
                 min_score,
                 max_score,
                 withscores=False,  # We don't need scores, just the JSON data
-                start=0,  # Start from beginning
-                num=1000,  # Limit to prevent memory issues, adjust as needed
             )
 
-            logger.debug(f"Found {len(watch_entries)} watch entries for user {user_id}")
+            logger.info(
+                f"Retrieved {len(watch_entries)} watch entries for user {user_id}"
+            )
 
             # Parse each entry and check for our target video IDs
             videos_found = set()
+            video_ids_set = set(video_ids)  # Convert to set for O(1) lookup
+
             for entry in watch_entries:
                 try:
                     # Parse the JSON entry
@@ -240,12 +248,12 @@ class UserRealtimeHistory:
                     watched_video_id = watch_data.get("video_id")
 
                     # Check if this is one of our target videos
-                    if watched_video_id in video_ids:
+                    if watched_video_id in video_ids_set:
                         results[watched_video_id] = True
                         videos_found.add(watched_video_id)
 
                         # Early termination if we found all videos
-                        if len(videos_found) == len(video_ids):
+                        if len(videos_found) == len(video_ids_set):
                             break
 
                 except json.JSONDecodeError as e:
@@ -257,8 +265,8 @@ class UserRealtimeHistory:
                     logger.warning(f"Error processing watch entry: {e}")
                     continue
 
-            logger.debug(
-                f"Found {len(videos_found)} matching videos out of {len(video_ids)} requested"
+            logger.info(
+                f"Filtered {len(videos_found)} watched videos out of {len(video_ids)} candidate videos for user {user_id} (found videos: {list(videos_found)})"
             )
 
         except Exception as e:
@@ -359,9 +367,11 @@ class UserRealtimeHistory:
                     "percent_watched": "mean_percentage_watched",
                 },
             )
-            df_records = df_records.drop_duplicates(
-                subset=["video_id"], keep="first"
-            ).head(max_unique_history_items)
+            df_records = df_records.drop_duplicates(subset=["video_id"], keep="first")
+
+            # Apply limit only if max_unique_history_items is not -1 (unlimited)
+            if max_unique_history_items != -1:
+                df_records = df_records.head(max_unique_history_items)
             df_records["last_watched_timestamp"] = pd.to_datetime(
                 df_records["last_watched_timestamp"], unit="s"
             ).dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -418,7 +428,9 @@ if __name__ == "__main__":
 
     # Example user (using one from the test data)
     # test_user = "epg3q-ibcya-jf3cc-4dfbd-77u5m-p4ed7-6oj5a-vvgng-xcjfo-zgbor-dae"
-    test_user = "qvtbm-uxoge-q54c7-jwbgd-mseza-zvni6-aoncc-72hby-nuqnz-dvkdi-aae"
+    user_id = test_user = (
+        "qvtbm-uxoge-q54c7-jwbgd-mseza-zvni6-aoncc-72hby-nuqnz-dvkdi-aae"
+    )
 
     # Example videos to check
     test_videos = [
@@ -491,11 +503,11 @@ if __name__ == "__main__":
     # Example usage of getting realtime history items for recommendation service
     checker = UserRealtimeHistory()
     df = checker.get_history_items_for_recommendation_service(
-        user_id="epg3q-ibcya-jf3cc-4dfbd-77u5m-p4ed7-6oj5a-vvgng-xcjfo-zgbor-dae",
+        user_id=user_id,
         start=0,
         end=int(datetime.now().timestamp()),
         nsfw_label=False,
         buffer=10_000,
-        max_unique_history_items=500,
+        max_unique_history_items=10,
     )
     print(df)

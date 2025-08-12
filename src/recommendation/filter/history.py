@@ -226,7 +226,7 @@ class HistoryManager:
         if exclude_watched_items:
             watched_videos.update(exclude_watched_items)
 
-        logger.debug(f"Total watched items to exclude: {len(watched_videos)}")
+        logger.info(f"Total watched items to exclude: {len(watched_videos)}")
 
         # OPTIMIZATION: Use list comprehensions with set membership for O(1) lookups
         filtered_main = [
@@ -242,12 +242,17 @@ class HistoryManager:
         filtered_main_count = len(filtered_main)
         filtered_fallback_count = len(filtered_fallback)
 
-        logger.debug(
-            f"Filtering results for user {user_id}: "
-            f"Main: {original_main_count} -> {filtered_main_count} "
-            f"({original_main_count - filtered_main_count} removed), "
-            f"Fallback: {original_fallback_count} -> {filtered_fallback_count} "
-            f"({original_fallback_count - filtered_fallback_count} removed)"
+        total_removed = (original_main_count - filtered_main_count) + (
+            original_fallback_count - filtered_fallback_count
+        )
+
+        logger.info(
+            f"📊 History filtering results for user {user_id}: "
+            f"Main recommendations: {original_main_count} → {filtered_main_count} "
+            f"({original_main_count - filtered_main_count} filtered), "
+            f"Fallback recommendations: {original_fallback_count} -> {filtered_fallback_count} "
+            f"({original_fallback_count - filtered_fallback_count} filtered). "
+            f"Total filtered: {total_removed} watched videos"
         )
 
         # OPTIMIZATION: Update in place instead of copying entire dict

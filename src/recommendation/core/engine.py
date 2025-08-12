@@ -699,7 +699,7 @@ class RecommendationEngine:
             old_total_results = len(recommendations["posts"])
             recommendations["posts"] = recommendations["posts"][:num_results]
             logger.info(
-                f"Trimmed results to from {old_total_results} -> {num_results} items as requested"
+                f"Trimmed results to from {old_total_results} -> {min(old_total_results,num_results)} items as requested"
             )
 
         total_time = (datetime.datetime.now() - start_time).total_seconds()
@@ -726,7 +726,7 @@ class RecommendationEngine:
         logger.info(f"  - Total process time: {total_time:.2f} seconds")
 
         logger.info(
-            f" user_id: {user_id} :: Total recommendations: {len(recommendations['posts'])}"
+            f"Total recommendations: {len(recommendations['posts'])} - user_id: {user_id}"
         )
         # Add processing time
         recommendations["processing_time_ms"] = total_time * 1000
