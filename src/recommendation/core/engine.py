@@ -518,12 +518,17 @@ class RecommendationEngine:
         candidate_fetching_time = 0
         if metadata_found:
             # Step 0.5: Get safety fallbacks using the cached recommendations service
-            logger.info("Preparing safety fallbacks to inject into candidate structure before reranking")
-            
+            logger.info(
+                "Preparing safety fallbacks to inject into candidate structure before reranking"
+            )
+
             # Import fallback service
-            from service.fallback_recommendation_service import FallbackRecommendationService
+            from service.fallback_recommendation_service import (
+                FallbackRecommendationService,
+            )
+
             fallback_service = FallbackRecommendationService.get_instance()
-            
+
             # Get cached recommendations which include both location and global fallbacks
             safety_fallback_response = fallback_service.get_cached_recommendations(
                 user_id=user_id,
@@ -531,30 +536,37 @@ class RecommendationEngine:
                 num_results=fallback_top_k,
                 region=region,
             )
-            
+
             # Extract fallback recommendations from the response
             safety_fallback_posts = safety_fallback_response.get("posts", [])
-            safety_fallback_ids = [post.get("video_id") for post in safety_fallback_posts if post.get("video_id")]
-            
-            logger.info(f"Retrieved {len(safety_fallback_ids)} safety fallback candidates from cache service")
-            
+            logger.info(safety_fallback_response)
+            safety_fallback_ids = [
+                post.get("video_id")
+                for post in safety_fallback_posts
+                if post.get("video_id")
+            ]
+
+            logger.info(
+                f"Retrieved {len(safety_fallback_ids)} safety fallback candidates from cache service"
+            )
+
             # Add safety fallbacks to enriched profile for candidate fetching
             # Split them into location and global for better tracking
             mid_point = len(safety_fallback_ids) // 2
             safety_location = safety_fallback_ids[:mid_point]  # First half as location
-            safety_global = safety_fallback_ids[mid_point:]    # Second half as global
-            
+            safety_global = safety_fallback_ids[mid_point:]  # Second half as global
+
             enriched_profile["safety_fallbacks"] = {
                 "fallback_safety_location": safety_location,
-                "fallback_safety_global": safety_global
+                "fallback_safety_global": safety_global,
             }
-            
+
             logger.info(
                 f"Added {len(safety_location)} location + {len(safety_global)} global safety fallbacks to candidate structure"
             )
-            
+
             logger.info(f"Using candidate types: {candidate_types}")
-            
+
             # Step 1: Run reranking logic with injected safety fallbacks
             rerank_start = datetime.datetime.now()
             df_reranked, bq_similarity_time, candidate_fetching_time = (
@@ -603,14 +615,12 @@ class RecommendationEngine:
                     del mixer_output[key]
 
         # for testing realtime exclusion of watched items/ dedup/ reported items
-        # mixer_output["recommendations"] += [
-        #     "v1",
-        #     "v2",
-        #     "v3",
-        #     # "e99bdfef611645b88e538e702804d0ff",
-        #     # "fcced1154e5340d79f004fa1530f6e8c",  # reported by some user x
-        #     # "02dbb97ba5834016a0552ff5d91e02d5",  # reported by some user x
-        # ]
+        mixer_output["recommendations"] += [
+            # "v1",
+            # "v2",
+            # "v3",
+            "08f21eacddf1409495dd0dfb368cf067",
+        ]
 
         # remove items from the generic exclusion list
         mixer_output["recommendations"] = self._filter_excluded_items(

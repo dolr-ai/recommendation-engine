@@ -52,28 +52,28 @@ class FallbackRecommendationEngine(RecommendationEngine):
             "fallback_recommendations": fallback_recommendations,
         }
         """
-        # NOTE: as this is for cold start, we don't need to filter items
+        # Filter watched items
+        filtered_start_time = datetime.datetime.now()
+        fallback_recommendations = self._filter_watched_items(
+            user_id=user_id,
+            recommendations=fallback_recommendations,
+            nsfw_label=nsfw_label,
+            exclude_watched_items=exclude_watched_items,
+        )
+        filtered_watched_items_time = (
+            datetime.datetime.now() - filtered_start_time
+        ).total_seconds()
 
-        # filtered_start_time = datetime.datetime.now()
-        # fallback_recommendations = self._filter_watched_items(
-        #     user_id=user_id,
-        #     recommendations=fallback_recommendations,
-        #     nsfw_label=nsfw_label,
-        #     exclude_watched_items=exclude_watched_items,
-        # )
-        # filtered_watched_items_time = (
-        #     datetime.datetime.now() - filtered_start_time
-        # ).total_seconds()
-
-        # filtered_reported_items_start_time = datetime.datetime.now()
-        # fallback_recommendations = self._filter_reported_videos(
-        #     user_id=user_id,
-        #     recommendations=fallback_recommendations,
-        #     exclude_reported_items=exclude_reported_items,
-        # )
-        # filtered_reported_items_time = (
-        #     datetime.datetime.now() - filtered_reported_items_start_time
-        # ).total_seconds()
+        # Filter reported items
+        filtered_reported_items_start_time = datetime.datetime.now()
+        fallback_recommendations = self._filter_reported_videos(
+            user_id=user_id,
+            recommendations=fallback_recommendations,
+            exclude_reported_items=exclude_reported_items,
+        )
+        filtered_reported_items_time = (
+            datetime.datetime.now() - filtered_reported_items_start_time
+        ).total_seconds()
 
         # Filter out excluded items if any (this is empty so not needed)
         # if "recommendations" in fallback_recommendations:
@@ -122,8 +122,8 @@ class FallbackRecommendationEngine(RecommendationEngine):
         processed_fallback_recommendations["debug"] = {
             # time taken to get these recommendations
             "fallback_recommendations_time": fallback_recommendations_time,
-            # "filtered_watched_items_time": filtered_watched_items_time,
-            # "filtered_reported_items_time": filtered_reported_items_time,
+            "filtered_watched_items_time": filtered_watched_items_time,
+            "filtered_reported_items_time": filtered_reported_items_time,
             "backend_time": backend_time,
             "total_time": (end_time - start_time).total_seconds(),
         }
