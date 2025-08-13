@@ -412,6 +412,7 @@ class RecommendationEngine:
         exclude_reported_items=RecommendationConfig.EXCLUDE_REPORTED_ITEMS,
         exclude_items=[],  # generic exclusion list
         num_results=50,  # number of results to return
+        post_id_as_string=False,  # return post_id as string for v2 API
     ):
         """
         Get recommendations for a user.
@@ -437,6 +438,7 @@ class RecommendationEngine:
             exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
             exclude_items: Optional list of video IDs to exclude (generic exclusion list)
             num_results: Number of recommendations to return. If None, returns all recommendations.
+            post_id_as_string: If True, return post_id as string instead of int (for v2 API)
 
         Returns:
             Dictionary with recommendations and fallback recommendations
@@ -741,7 +743,7 @@ class RecommendationEngine:
         # logger.info(f"FINAL: filtered_recommendations: {filtered_recommendations}")
         backend_start = datetime.datetime.now()
         recommendations = transform_recommendations_with_metadata(
-            filtered_recommendations, self.config.gcp_utils
+            filtered_recommendations, self.config.gcp_utils, post_id_as_string
         )
         backend_time = (datetime.datetime.now() - backend_start).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")

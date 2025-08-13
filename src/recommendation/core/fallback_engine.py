@@ -31,6 +31,7 @@ class FallbackRecommendationEngine(RecommendationEngine):
         exclude_reported_items: Optional[List[str]] = None,
         exclude_items: Optional[List[str]] = None,
         region: Optional[str] = None,
+        post_id_as_string: bool = False,
     ):
         """
         Get cached recommendations for a user.
@@ -112,7 +113,7 @@ class FallbackRecommendationEngine(RecommendationEngine):
 
         backend_start_time = datetime.datetime.now()
         processed_fallback_recommendations = transform_recommendations_with_metadata(
-            fallback_recommendations, self.config.gcp_utils
+            fallback_recommendations, self.config.gcp_utils, post_id_as_string
         )
         backend_time = (datetime.datetime.now() - backend_start_time).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")

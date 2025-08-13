@@ -34,13 +34,14 @@ def transform_mixer_output(mixer_output):
     return combined_recs
 
 
-def get_video_metadata(video_ids, gcp_utils):
+def get_video_metadata(video_ids, gcp_utils, post_id_as_string=False):
     """
     Get metadata for video IDs from BigQuery with caching.
 
     Args:
         video_ids: List of video IDs to fetch metadata for
         gcp_utils: GCPUtils instance for BigQuery operations
+        post_id_as_string: If True, return post_id as string instead of int
 
     Returns:
         List of dictionaries with video metadata (canister_id, post_id, video_id)
@@ -108,9 +109,12 @@ def get_video_metadata(video_ids, gcp_utils):
             # Execute the query
             results_df = gcp_utils.bigquery.execute_query(query, to_dataframe=True)
 
-            # Set nsfw_probability to 0 and convert post_id to int
+            # Set nsfw_probability to 0 and convert post_id based on parameter
             results_df["nsfw_probability"] = results_df["nsfw_probability"].fillna(0.0)
-            results_df["post_id"] = results_df["post_id"].astype(int)
+            if post_id_as_string:
+                results_df["post_id"] = results_df["post_id"].astype(str)
+            else:
+                results_df["post_id"] = results_df["post_id"].astype(int)
 
             # Identify records with NA values in critical columns
             na_mask = (
@@ -170,18 +174,25 @@ def get_video_metadata(video_ids, gcp_utils):
 
     for video_id in unique_video_ids:
         if video_id in all_metadata:
-            result_metadata.append(all_metadata[video_id])
+            item = all_metadata[video_id].copy()
+            # Convert post_id type if needed for cached items
+            if post_id_as_string and not isinstance(item["post_id"], str):
+                item["post_id"] = str(item["post_id"])
+            elif not post_id_as_string and not isinstance(item["post_id"], int):
+                item["post_id"] = int(item["post_id"])
+            result_metadata.append(item)
 
     return result_metadata
 
 
-def transform_recommendations_with_metadata(mixer_output, gcp_utils):
+def transform_recommendations_with_metadata(mixer_output, gcp_utils, post_id_as_string=False):
     """
     Transform mixer output while preserving the original format with recommendations and fallback_recommendations.
 
     Args:
         mixer_output: Dictionary with recommendations and fallback_recommendations from mixer algorithm
         gcp_utils: GCPUtils instance for BigQuery operations
+        post_id_as_string: If True, return post_id as string instead of int (for v2 API)
 
     Returns:
         Dictionary with combined recommendations as metadata objects
@@ -194,7 +205,7 @@ def transform_recommendations_with_metadata(mixer_output, gcp_utils):
     all_video_ids = main_recs + fallback_recs
 
     # Fetch metadata for all video IDs
-    video_metadata = get_video_metadata(all_video_ids, gcp_utils)
+    video_metadata = get_video_metadata(all_video_ids, gcp_utils, post_id_as_string)
 
     # Create a mapping of video_id to metadata for quick lookup
     metadata_map = {item["video_id"]: item for item in video_metadata}

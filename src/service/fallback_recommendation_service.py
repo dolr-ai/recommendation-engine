@@ -52,6 +52,7 @@ class FallbackRecommendationService:
         exclude_items: Optional[List[str]] = None,
         num_results: int = None,
         region: Optional[str] = None,
+        post_id_as_string: bool = False,
     ) -> Dict[str, Any]:
         """
         Get recommendations for a user.
@@ -63,6 +64,8 @@ class FallbackRecommendationService:
             exclude_reported_items: Optional list of video IDs to exclude (real-time reported items)
             exclude_items: Optional list of video IDs to exclude (generic exclusion list)
             num_results: Number of recommendations to return
+            region: Region for location-based recommendations
+            post_id_as_string: If True, return post_id as string instead of int (for v2 API)
 
         Returns:
             Dictionary with recommendations and metadata
@@ -78,6 +81,7 @@ class FallbackRecommendationService:
             exclude_reported_items=exclude_reported_items,
             exclude_items=exclude_items,
             region=region,
+            post_id_as_string=post_id_as_string,
         )
 
         return recommendations

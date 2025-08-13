@@ -189,7 +189,9 @@ async def debug_info():
     }
 
 
-def process_recommendation_sync(request: RecommendationRequest) -> dict:
+def process_recommendation_sync(
+    request: RecommendationRequest, post_id_as_string: bool = False
+) -> dict:
     """
     Synchronous recommendation processing to avoid async/await overhead.
     This is the main optimization - your RecommendationService.get_recommendations
@@ -231,6 +233,7 @@ def process_recommendation_sync(request: RecommendationRequest) -> dict:
             exclude_items=request.exclude_items,
             num_results=request.num_results,
             region=request.region,
+            post_id_as_string=post_id_as_string,
         )
 
         processing_time = (time.time() - start_time) * 1000
@@ -431,6 +434,138 @@ async def get_batch_recommendations(
             processed_results.append(result)
 
     return processed_results
+
+
+# V2 API Endpoints (with post_id as string)
+@app.post(
+    "/v2/recommendations",
+    tags=["V2 Recommendations"],
+    response_model_exclude_none=True,
+)
+async def get_recommendations_v2(request: RecommendationRequest, http_request: Request):
+    """
+    Get personalized video recommendations for a user (V2 API with post_id as string).
+    """
+    logger.info(f"Received v2 recommendation request for user {request.user_id}")
+
+    if recommendation_service is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    try:
+        # Get X-Forwarded-For header for logging
+        x_forwarded_for = http_request.headers.get("X-Forwarded-For")
+
+        # If IP address is not provided, try to get it from X-Forwarded-For header
+        ip_address = request.ip_address
+        if not ip_address:
+            if x_forwarded_for:
+                # Take the first IP in case of multiple forwarded IPs
+                ip_address = x_forwarded_for.split(",")[0].strip()
+                logger.info(
+                    f"Using IP from X-Forwarded-For header: {ip_address}, X-Forwarded-For: {x_forwarded_for}"
+                )
+            else:
+                logger.info(
+                    "No IP address provided in request and no X-Forwarded-For header found"
+                )
+        else:
+            logger.info(
+                f"Using IP from request: {ip_address}, X-Forwarded-For: {x_forwarded_for or 'Not present'}"
+            )
+
+        # If IP address is available but region is not, resolve region from IP
+        if ip_address and not request.region:
+            region = await get_region_from_ip(ip_address)
+            if region:
+                request.region = region
+                logger.info(f"Resolved region '{region}' from IP address: {ip_address}")
+            else:
+                logger.warning(
+                    f"Could not resolve region from IP address: {ip_address}"
+                )
+
+        # Process in thread pool to avoid blocking the event loop
+        # This allows FastAPI to handle other requests while this one processes
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, lambda: process_recommendation_sync(request, post_id_as_string=True)
+        )
+
+        if response.get("error"):
+            raise HTTPException(status_code=500, detail=response["error"])
+
+        return JSONResponse(content=response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Unexpected error processing v2 recommendation: {e}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/v2/recommendations/cache",
+    tags=["V2 CacheRecommendations"],
+    response_model_exclude_none=True,
+)
+async def get_cache_recommendations_v2(
+    request: RecommendationRequest, http_request: Request
+):
+    """
+    Get recommendations from cache (V2 API with post_id as string).
+    """
+    logger.info(f"Received v2 cache recommendation request for user {request.user_id}")
+
+    try:
+        # Get X-Forwarded-For header for logging
+        x_forwarded_for = http_request.headers.get("X-Forwarded-For")
+
+        # If IP address is not provided, try to get it from X-Forwarded-For header
+        ip_address = request.ip_address
+        if not ip_address:
+            if x_forwarded_for:
+                # Take the first IP in case of multiple forwarded IPs
+                ip_address = x_forwarded_for.split(",")[0].strip()
+                logger.info(
+                    f"Using IP from X-Forwarded-For header: {ip_address}, X-Forwarded-For: {x_forwarded_for}"
+                )
+            else:
+                logger.info(
+                    "No IP address provided in request and no X-Forwarded-For header found"
+                )
+        else:
+            logger.info(
+                f"Using IP from request: {ip_address}, X-Forwarded-For: {x_forwarded_for or 'Not present'}"
+            )
+
+        # If IP address is available but region is not, resolve region from IP
+        if ip_address and not request.region:
+            region = await get_region_from_ip(ip_address)
+            if region:
+                request.region = region
+                logger.info(f"Resolved region '{region}' from IP address: {ip_address}")
+            else:
+                logger.warning(
+                    f"Could not resolve region from IP address: {ip_address}"
+                )
+
+        # Get recommendations with post_id as string for v2 API
+        recommendations = fallback_recommendation_service.get_cached_recommendations(
+            user_id=request.user_id,
+            nsfw_label=request.nsfw_label,
+            num_results=request.num_results,
+            region=request.region,
+            post_id_as_string=True,
+        )
+
+        return JSONResponse(content=recommendations)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting v2 cache recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def start():
