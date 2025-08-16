@@ -31,9 +31,7 @@ spark = SparkSession.builder.appName("User Clustering").getOrCreate()
 MIN_K_USER = 3
 MAX_K_USER = 10
 
-# Similar to video clustering, for testing
-# todo: remove this later
-# K_VALUES = [4, 5, 6, 8, 10, 12]
+# Using only 3 K values for faster execution
 K_VALUES = [4, 6, 8]
 
 
@@ -174,12 +172,17 @@ def cluster_users(
         )
         optimal_k_elbow = kneedle.elbow
         print(f"Optimal k from elbow method: {optimal_k_elbow}")
+
+        # Check if elbow is None (no clear elbow point found)
+        if optimal_k_elbow is None:
+            print(f"No clear elbow point found, will use default k: {default_k}")
+            optimal_k_elbow = None  # Keep it as None for later logic
     except Exception as e:
         print(f"Elbow method failed, using default k: {default_k}. Error: {e}")
-        optimal_k_elbow = default_k
+        optimal_k_elbow = None
 
-    # Choose final optimal k
-    if optimal_k_elbow:
+    # Choose final optimal k - handle None case properly
+    if optimal_k_elbow is not None:
         optimal_k = max(optimal_k_silhouette, optimal_k_elbow, default_k)
     else:
         optimal_k = max(optimal_k_silhouette, default_k)
@@ -228,7 +231,9 @@ def cluster_users(
     summary = {
         "total_users": int(df_user_embeddings.count()),
         "optimal_clusters_silhouette": int(optimal_k_silhouette),
-        "optimal_clusters_elbow": int(optimal_k_elbow) if optimal_k_elbow else None,
+        "optimal_clusters_elbow": (
+            int(optimal_k_elbow) if optimal_k_elbow is not None else None
+        ),
         "optimal_clusters_used": int(optimal_k),
         "silhouette_scores": silhouette_dict,
         "inertia_values": inertia_dict,
