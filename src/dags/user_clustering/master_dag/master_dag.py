@@ -490,16 +490,18 @@ with DAG(
     # Branch for normal completion or failure handling
     wait_for_write_data >> branch_task
 
-    # Normal completion path
-    branch_task >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
+    # Normal completion path - TEMPORARILY SKIP CLUSTER DELETION
+    # branch_task >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
+    branch_task >> end_success  # Skip cluster deletion for now
 
-    # Failure handling path
-    (
-        branch_task
-        >> trigger_delete_cluster_on_failure
-        >> wait_for_delete_cluster_on_failure
-        >> end_failure
-    )
+    # Failure handling path - TEMPORARILY SKIP CLUSTER DELETION
+    # (
+    #     branch_task
+    #     >> trigger_delete_cluster_on_failure
+    #     >> wait_for_delete_cluster_on_failure
+    #     >> end_failure
+    # )
+    branch_task >> end_failure  # Skip cluster deletion for now
 
     # Set up proper failure handling
     # Create a task that will run on any failure using trigger rule
@@ -521,10 +523,11 @@ with DAG(
     ]:
         task >> failure_handler
 
-    # Connect failure handler to trigger cluster deletion
-    (
-        failure_handler
-        >> trigger_delete_cluster_on_failure
-        >> wait_for_delete_cluster_on_failure
-        >> end_failure
-    )
+    # Connect failure handler to trigger cluster deletion - TEMPORARILY SKIP
+    # (
+    #     failure_handler
+    #     >> trigger_delete_cluster_on_failure
+    #     >> wait_for_delete_cluster_on_failure
+    #     >> end_failure
+    # )
+    failure_handler >> end_failure  # Skip cluster deletion for now
