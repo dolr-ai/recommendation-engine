@@ -332,6 +332,9 @@ with DAG(
                     # Memory management
                     "spark.memory.fraction": "0.8",
                     "spark.memory.storageFraction": "0.3",
+                    # Fix deprecated configuration warnings (Spark 3.5+)
+                    "spark.executor.failuresValidityInterval": "1h",
+                    "spark.executor.maxNumFailures": "10",
                 },
             },
             "labels": {"job_type": DAG_ID},
