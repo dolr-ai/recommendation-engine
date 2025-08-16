@@ -33,7 +33,8 @@ MAX_K_USER = 10
 
 # Similar to video clustering, for testing
 # todo: remove this later
-K_VALUES = [4, 5, 6, 8, 10, 12]
+# K_VALUES = [4, 5, 6, 8, 10, 12]
+K_VALUES = [4, 6, 8]
 
 
 DEFAULT_OPTIMAL_K_CLUSTERS = 6
