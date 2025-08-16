@@ -244,7 +244,7 @@ CLUSTER_CONFIG = {
     },
     "worker_config": {
         "num_instances": 4,
-        "machine_type_uri": "c4-standard-4",
+        "machine_type_uri": "c4-highmem-4",
         "disk_config": {
             "boot_disk_type": "hyperdisk-balanced",
             "boot_disk_size_gb": 100,
@@ -252,7 +252,7 @@ CLUSTER_CONFIG = {
     },
     "secondary_worker_config": {
         "num_instances": 2,
-        "machine_type_uri": "c4-standard-4",
+        "machine_type_uri": "c4-highmem-4",
         "disk_config": {
             "boot_disk_type": "hyperdisk-balanced",
             "boot_disk_size_gb": 100,
