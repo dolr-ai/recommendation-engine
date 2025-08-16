@@ -312,29 +312,37 @@ with DAG(
             "pyspark_job": {
                 "main_python_file_uri": "file:///home/dataproc/recommendation-engine/src/transform/user_clustering/get_user_clusters.py",
                 "properties": {
-                    # Optimized memory settings based on cluster metrics
-                    "spark.driver.memory": "6g",
-                    "spark.executor.memory": "6g",
-                    # Optimized core allocation
-                    "spark.executor.cores": "4",
-                    "spark.executor.instances": "4",
+                    # Enable dynamic allocation for automatic resource management
+                    "spark.dynamicAllocation.enabled": "true",
+                    "spark.dynamicAllocation.initialExecutors": "2",
+                    "spark.dynamicAllocation.minExecutors": "2",
+                    "spark.dynamicAllocation.maxExecutors": "20",
+                    "spark.dynamicAllocation.executorIdleTimeout": "60s",
+                    "spark.dynamicAllocation.cachedExecutorIdleTimeout": "300s",
+                    # Let Spark automatically determine memory based on container resources
+                    "spark.executor.memoryOverhead": "2g",
+                    "spark.driver.memory": "8g",
+                    "spark.driver.memoryOverhead": "2g",
                     # Enable adaptive execution for better resource utilization
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",
                     "spark.sql.adaptive.skewJoin.enabled": "true",
-                    # Increase shuffle partitions for better parallelism
-                    "spark.sql.shuffle.partitions": "60",
-                    # Increase driver result size
-                    "spark.driver.maxResultSize": "3g",
+                    "spark.sql.adaptive.localShuffleReader.enabled": "true",
+                    # Auto-tuning for shuffle partitions
+                    "spark.sql.adaptive.coalescePartitions.initialPartitionNum": "200",
+                    "spark.sql.adaptive.advisoryPartitionSizeInBytes": "128MB",
+                    # Increase driver result size for K-means computations
+                    "spark.driver.maxResultSize": "4g",
                     # Use Kryo serializer for better performance
                     "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
-                    "spark.kryoserializer.buffer.max": "128m",
-                    # Memory management
+                    "spark.kryoserializer.buffer.max": "256m",
+                    # Memory management - let Spark manage automatically
                     "spark.memory.fraction": "0.8",
                     "spark.memory.storageFraction": "0.3",
-                    # Fix deprecated configuration warnings (Spark 3.5+)
-                    "spark.executor.failuresValidityInterval": "1h",
-                    "spark.executor.maxNumFailures": "10",
+                    # Network and shuffle optimizations
+                    "spark.network.timeout": "300s",
+                    "spark.shuffle.compress": "true",
+                    "spark.shuffle.spill.compress": "true",
                 },
             },
             "labels": {"job_type": DAG_ID},
