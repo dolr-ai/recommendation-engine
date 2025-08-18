@@ -32,7 +32,7 @@ MIN_K_USER = 3
 MAX_K_USER = 10
 
 # Using only 3 K values for faster execution
-K_VALUES = [4, 6, 8]
+K_VALUES = [6]
 
 
 DEFAULT_OPTIMAL_K_CLUSTERS = 6

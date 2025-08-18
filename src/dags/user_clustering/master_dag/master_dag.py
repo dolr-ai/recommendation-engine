@@ -11,29 +11,26 @@ in a specific sequence:
 6. Merge Part Embeddings (only after both Average Video Interactions AND Temporal Interaction Embedding)
 7. User Clusters (after Merge Part Embeddings)
 8. Write Data to BigQuery (after User Clusters)
-9. Delete Dataproc Cluster (immediately if all tasks succeed, or after 30-minute delay if any failures)
+
+Note: Cluster deletion has been removed from the flow and must be handled manually.
 
 This master DAG triggers each individual DAG in sequence, respecting the dependencies,
 regardless of the individual DAGs' schedules.
 """
 
 import os
-import json
 import requests
 from datetime import datetime, timedelta
 import time
 from airflow import DAG
 from airflow.operators.dummy import DummyOperator
-from airflow.operators.python import PythonOperator, BranchPythonOperator
+from airflow.operators.python import PythonOperator
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sensors.python import PythonSensor
 from airflow.utils.trigger_rule import TriggerRule
-from airflow.exceptions import AirflowException
-from airflow.models import XCom, DagRun, TaskInstance, Variable
+from airflow.models import DagRun
 from airflow.utils.session import provide_session
-from airflow.utils.state import State, DagRunState
-import pendulum
-from sqlalchemy import and_
+from airflow.utils.state import DagRunState
 
 # Default arguments for the DAG
 default_args = {
@@ -352,15 +349,6 @@ def wait_for_delay(**context):
     return True
 
 
-# Function to determine if cluster deletion should be triggered
-def check_failure_branch(**context):
-    """Check if any upstream tasks failed and branch accordingly"""
-    for task_instance in context["dag_run"].get_task_instances():
-        if task_instance.state == State.FAILED:
-            return "trigger_delete_dataproc_cluster_on_failure"
-    return "trigger_delete_dataproc_cluster_normal"
-
-
 # Define the DAG
 with DAG(
     dag_id=DAG_ID,
@@ -422,29 +410,6 @@ with DAG(
     trigger_write_data = trigger_dag_task(WRITE_DATA_DAG_ID)
     wait_for_write_data = wait_for_dag_task(WRITE_DATA_DAG_ID)
 
-    # Branch to determine if we need to handle failure
-    branch_task = BranchPythonOperator(
-        task_id="check_for_failures",
-        python_callable=check_failure_branch,
-        provide_context=True,
-    )
-
-    # Delete Dataproc Cluster - Normal path
-    trigger_delete_cluster = trigger_dag_task(
-        DELETE_CLUSTER_DAG_ID, task_id_suffix="normal"
-    )
-    wait_for_delete_cluster = wait_for_dag_task(
-        DELETE_CLUSTER_DAG_ID, task_id_suffix="normal"
-    )
-
-    # Delete Dataproc Cluster - Failure path
-    trigger_delete_cluster_on_failure = trigger_dag_task(
-        DELETE_CLUSTER_DAG_ID, task_id_suffix="on_failure", reset_dag_run=True
-    )
-    wait_for_delete_cluster_on_failure = wait_for_dag_task(
-        DELETE_CLUSTER_DAG_ID, task_id_suffix="on_failure"
-    )
-
     # Final end tasks
     end_success = DummyOperator(
         task_id="end_success",
@@ -487,21 +452,8 @@ with DAG(
     wait_for_merge_embeddings >> trigger_user_clusters >> wait_for_user_clusters
     wait_for_user_clusters >> trigger_write_data >> wait_for_write_data
 
-    # Branch for normal completion or failure handling
-    wait_for_write_data >> branch_task
-
-    # Normal completion path - TEMPORARILY SKIP CLUSTER DELETION
-    # branch_task >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
-    branch_task >> end_success  # Skip cluster deletion for now
-
-    # Failure handling path - TEMPORARILY SKIP CLUSTER DELETION
-    # (
-    #     branch_task
-    #     >> trigger_delete_cluster_on_failure
-    #     >> wait_for_delete_cluster_on_failure
-    #     >> end_failure
-    # )
-    branch_task >> end_failure  # Skip cluster deletion for now
+    # Complete without cluster deletion
+    wait_for_write_data >> end_success
 
     # Set up proper failure handling
     # Create a task that will run on any failure using trigger rule
@@ -523,11 +475,5 @@ with DAG(
     ]:
         task >> failure_handler
 
-    # Connect failure handler to trigger cluster deletion - TEMPORARILY SKIP
-    # (
-    #     failure_handler
-    #     >> trigger_delete_cluster_on_failure
-    #     >> wait_for_delete_cluster_on_failure
-    #     >> end_failure
-    # )
-    failure_handler >> end_failure  # Skip cluster deletion for now
+    # Connect failure handler to end_failure (no cluster deletion)
+    failure_handler >> end_failure
