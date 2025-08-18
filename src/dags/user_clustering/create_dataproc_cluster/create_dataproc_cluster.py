@@ -36,7 +36,7 @@ CLUSTER_NAME_TEMPLATE = "recsys-prod-cluster-{ds_nodash}"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # todo: change this later after dev testing
 CLUSTER_IDLE_DELETE_TTL = 2 * 60 * 60  # 2 hours
-CLUSTER_AUTO_DELETE_TTL = 2 * 60 * 60  # 2 hours
+CLUSTER_AUTO_DELETE_TTL = 5 * 60 * 60  # 2 hours
 AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 
 # Get environment variables
@@ -58,7 +58,6 @@ INIT_ACTION_SCRIPT = "gs://yral-dataproc-notebooks/dataproc-initialization/datap
 
 # Dataproc staging and temp buckets
 DATAPROC_CONFIG_BUCKET = "yral-ds-dataproc-bucket"
-
 
 
 class GoogleChatAlert:
@@ -138,7 +137,6 @@ class GoogleChatAlert:
         # Get status config
         config = self.status_config.get(status, self.status_config["failed"])
         message = config["message"].format(task_id=task_id)
-
 
         # Create card
         card = {

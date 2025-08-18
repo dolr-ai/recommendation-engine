@@ -13,6 +13,7 @@ get_video_clusters.py, but for user embeddings instead of video embeddings.
 import os
 import json
 import subprocess
+import time
 from datetime import datetime
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -63,8 +64,11 @@ vector_to_array_udf = F.udf(vector_to_array, ArrayType(FloatType()))
 
 def save_json(data, path):
     """Helper function to save data to a JSON file"""
+    print(f"Saving JSON to: {path}")
+    start_time = time.time()
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
+    print(f"JSON saved in {time.time() - start_time:.2f} seconds")
 
 
 def create_directories(paths):
@@ -81,6 +85,7 @@ def prepare_user_embeddings():
     - Convert to vector format for clustering
     """
     print("STEP 1: Preparing user embeddings")
+    start_time = time.time()
 
     # Load merged user embeddings data from HDFS
     user_embeddings_path = "/tmp/emb_analysis/merged_user_embeddings.parquet"
@@ -99,6 +104,7 @@ def prepare_user_embeddings():
     )
 
     print("Prepared user embeddings count:", df_user_embeddings.count())
+    print(f"STEP 1 completed in {time.time() - start_time:.2f} seconds")
     return df_user_embeddings
 
 
@@ -116,6 +122,7 @@ def cluster_users(
     - Return the user-cluster mapping
     """
     print("STEP 2: Clustering user embeddings")
+    clustering_start_time = time.time()
 
     # Standardize features
     standardScaler = StandardScaler(
@@ -142,11 +149,19 @@ def cluster_users(
     # Evaluate different k values
     for k in k_values:
         print(f"Evaluating k={k}")
+        k_start_time = time.time()
+        
         kmeans = KMeans(k=k, featuresCol="scaled_embedding")
+        print(f"  Training KMeans model...")
         model = kmeans.fit(df_scaled)
+        print(f"  KMeans trained in {time.time() - k_start_time:.2f} seconds")
+        
+        transform_start = time.time()
         predictions = model.transform(df_scaled)
+        print(f"  Predictions generated in {time.time() - transform_start:.2f} seconds")
 
         # Calculate silhouette score (higher is better)
+        eval_start = time.time()
         evaluator = ClusteringEvaluator(
             predictionCol="prediction",
             featuresCol="scaled_embedding",
@@ -154,12 +169,14 @@ def cluster_users(
         )
         silhouette = evaluator.evaluate(predictions)
         silhouette_scores.append(silhouette)
+        print(f"  Silhouette evaluation in {time.time() - eval_start:.2f} seconds")
 
         # Extract inertia (WSSSE - within-set sum of squared errors)
         inertia = model.summary.trainingCost
         inertia_values.append(inertia)
 
-        print(f"  k={k}, Silhouette={silhouette:.4f}, WSSSE={inertia:.2f}")
+        total_k_time = time.time() - k_start_time
+        print(f"  k={k}, Silhouette={silhouette:.4f}, WSSSE={inertia:.2f} (Total: {total_k_time:.2f}s)")
 
     # Find optimal k using silhouette score (higher is better)
     if len(silhouette_scores) == 0 or all(np.isnan(silhouette_scores)):
@@ -212,9 +229,16 @@ def cluster_users(
     print(f"Using optimal k: {optimal_k}")
 
     # Train final model with optimal k
+    final_model_start = time.time()
+    print("Training final KMeans model...")
     final_kmeans = KMeans(k=optimal_k, featuresCol="scaled_embedding")
     final_model = final_kmeans.fit(df_scaled)
+    print(f"Final model trained in {time.time() - final_model_start:.2f} seconds")
+    
+    final_transform_start = time.time()
+    print("Generating final predictions...")
     final_predictions = final_model.transform(df_scaled)
+    print(f"Final predictions generated in {time.time() - final_transform_start:.2f} seconds")
 
     # Select only the columns we need
     df_user_clusters = final_predictions.select(
@@ -266,12 +290,30 @@ def cluster_users(
     # Save summary
     save_json(summary, f"{trans_dir}/user_cluster_analysis_summary.json")
 
-    # Create and save cluster map as JSON
-    df_map = df_user_clusters.collect()
-    cluster_map = {row["user_id"]: int(row["cluster"]) for row in df_map}
+    # Create and save cluster map as JSON - use pandas by default
+    print("Creating cluster mapping using pandas...")
+    map_creation_start = time.time()
+    
+    total_users = df_user_clusters.count()
+    print(f"Creating cluster map for {total_users} users...")
+    
+    try:
+        # Use pandas by default - fuck Spark collect()
+        pandas_df = df_user_clusters.select("user_id", "cluster").toPandas()
+        cluster_map = dict(zip(pandas_df['user_id'], pandas_df['cluster'].astype(int)))
+        print(f"Cluster mapping created via pandas in {time.time() - map_creation_start:.2f} seconds")
+    except Exception as e:
+        print(f"Pandas conversion failed ({e}), falling back to collect...")
+        # Only fallback to collect if pandas completely fails
+        df_map = df_user_clusters.select("user_id", "cluster").collect()
+        cluster_map = {row["user_id"]: int(row["cluster"]) for row in df_map}
+        print(f"Cluster mapping created via collect fallback in {time.time() - map_creation_start:.2f} seconds")
+    
     save_json(cluster_map, f"{trans_dir}/user_cluster_label_map.json")
 
+    total_clustering_time = time.time() - clustering_start_time
     print(f"User clustering complete. Found {optimal_k} clusters.")
+    print(f"Total clustering time: {total_clustering_time:.2f} seconds")
     print(f"Results saved to {trans_dir}")
 
     # Print dimensions of each embedding type
@@ -337,17 +379,30 @@ def main():
 
     # Write results to HDFS
     output_path = "/tmp/transformed/user_clusters/user_clusters.parquet"
+    write_start_time = time.time()
+    print(f"Writing results to HDFS: {output_path}")
+    
+    # Keep original partitioning for downstream compatibility
     df_user_clusters.write.mode("overwrite").parquet(output_path)
+    print(f"HDFS write completed in {time.time() - write_start_time:.2f} seconds")
 
     # Copy results back to local filesystem
     local_output_path = f"{trans_dir}/user_clusters.parquet"
+    copy_start_time = time.time()
+    print(f"Copying results to local filesystem: {local_output_path}")
+    
     # Create local directory if it doesn't exist
     subprocess.call(["mkdir", "-p", local_output_path])
 
     # Copy all partition files from HDFS to local
-    subprocess.call(
+    copy_result = subprocess.call(
         ["hdfs", "dfs", "-get", "-f", f"{output_path}/*", local_output_path]
     )
+    
+    if copy_result == 0:
+        print(f"Local copy completed in {time.time() - copy_start_time:.2f} seconds")
+    else:
+        print(f"Local copy failed with return code: {copy_result}")
 
     # Verify local file was created
     if os.path.exists(local_output_path):
