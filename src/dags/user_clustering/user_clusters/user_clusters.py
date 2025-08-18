@@ -35,7 +35,7 @@ SERVICE_ACCOUNT = os.environ.get("RECSYS_SERVICE_ACCOUNT")
 GOOGLE_CHAT_WEBHOOK = os.environ.get("RECSYS_GOOGLE_CHAT_WEBHOOK")
 
 # Project configuration
-PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID")
+PROJECT_ID = os.environ.get("RECSYS_PROJECT_ID", "hot-or-not-feed-intelligence")
 REGION = "us-central1"
 
 # Cluster name variable - same as in other DAGs
@@ -316,13 +316,13 @@ with DAG(
                     "spark.dynamicAllocation.enabled": "true",
                     "spark.dynamicAllocation.initialExecutors": "2",
                     "spark.dynamicAllocation.minExecutors": "2",
-                    "spark.dynamicAllocation.maxExecutors": "20",
+                    "spark.dynamicAllocation.maxExecutors": "8",  # Reduced from 20 to prevent resource contention
                     "spark.dynamicAllocation.executorIdleTimeout": "60s",
                     "spark.dynamicAllocation.cachedExecutorIdleTimeout": "300s",
-                    # Let Spark automatically determine memory based on container resources
-                    "spark.executor.memoryOverhead": "2g",
-                    "spark.driver.memory": "8g",
-                    "spark.driver.memoryOverhead": "2g",
+                    # Optimized memory settings for clustering workload
+                    "spark.executor.memoryOverhead": "1g",
+                    "spark.driver.memory": "4g",  # Reduced from 8g
+                    "spark.driver.memoryOverhead": "1g",
                     # Enable adaptive execution for better resource utilization
                     "spark.sql.adaptive.enabled": "true",
                     "spark.sql.adaptive.coalescePartitions.enabled": "true",
@@ -331,16 +331,16 @@ with DAG(
                     # Auto-tuning for shuffle partitions
                     "spark.sql.adaptive.coalescePartitions.initialPartitionNum": "200",
                     "spark.sql.adaptive.advisoryPartitionSizeInBytes": "128MB",
-                    # Increase driver result size for K-means computations
-                    "spark.driver.maxResultSize": "4g",
+                    # Optimized driver result size for K-means computations
+                    "spark.driver.maxResultSize": "2g",  # Reduced from 4g
                     # Use Kryo serializer for better performance
                     "spark.serializer": "org.apache.spark.serializer.KryoSerializer",
                     "spark.kryoserializer.buffer.max": "256m",
                     # Memory management - let Spark manage automatically
                     "spark.memory.fraction": "0.8",
                     "spark.memory.storageFraction": "0.3",
-                    # Network and shuffle optimizations
-                    "spark.network.timeout": "300s",
+                    # Network and shuffle optimizations - increased timeout for GCS rate limiting
+                    "spark.network.timeout": "600s",  # Increased from 300s for GCS issues
                     "spark.shuffle.compress": "true",
                     "spark.shuffle.spill.compress": "true",
                 },

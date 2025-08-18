@@ -32,6 +32,7 @@ MIN_K_USER = 3
 MAX_K_USER = 10
 
 # Using only 3 K values for faster execution
+# Note: Elbow method requires at least 2 k values, using single value will disable elbow method
 K_VALUES = [6]
 
 
@@ -161,28 +162,49 @@ def cluster_users(
         print(f"  k={k}, Silhouette={silhouette:.4f}, WSSSE={inertia:.2f}")
 
     # Find optimal k using silhouette score (higher is better)
-    optimal_k_silhouette = k_values[np.argmax(silhouette_scores)]
+    if len(silhouette_scores) == 0 or all(np.isnan(silhouette_scores)):
+        print("No valid silhouette scores, using default k")
+        optimal_k_silhouette = default_k
+    else:
+        # Filter out NaN values and find the best k
+        valid_scores = [(k, score) for k, score in zip(k_values, silhouette_scores) if not np.isnan(score)]
+        if valid_scores:
+            optimal_k_silhouette = max(valid_scores, key=lambda x: x[1])[0]
+        else:
+            optimal_k_silhouette = default_k
     print(f"Optimal k from silhouette score: {optimal_k_silhouette}")
 
     # Find optimal k using elbow method
+    optimal_k_elbow = None
     try:
-        # Use kneed package to find the "elbow point"
-        kneedle = KneeLocator(
-            k_values, inertia_values, curve="convex", direction="decreasing"
-        )
-        optimal_k_elbow = kneedle.elbow
-        print(f"Optimal k from elbow method: {optimal_k_elbow}")
+        # Validate input arrays for elbow method
+        if len(k_values) < 2 or len(inertia_values) < 2:
+            print(f"Not enough data points for elbow method (need at least 2, got {len(k_values)})")
+        elif len(set(inertia_values)) < 2:
+            print("All inertia values are the same, cannot determine elbow")
+        elif any(np.isnan(inertia_values)) or any(np.isinf(inertia_values)):
+            print("Invalid inertia values detected (NaN or inf), cannot determine elbow")
+        else:
+            # Use kneed package to find the "elbow point"
+            kneedle = KneeLocator(
+                k_values, inertia_values, curve="convex", direction="decreasing"
+            )
+            optimal_k_elbow = kneedle.elbow
+            print(f"Optimal k from elbow method: {optimal_k_elbow}")
 
         # Check if elbow is None (no clear elbow point found)
         if optimal_k_elbow is None:
-            print(f"No clear elbow point found, will use default k: {default_k}")
-            optimal_k_elbow = None  # Keep it as None for later logic
+            print(f"No clear elbow point found, will use silhouette score method")
     except Exception as e:
-        print(f"Elbow method failed, using default k: {default_k}. Error: {e}")
+        print(f"Elbow method failed: {e}")
         optimal_k_elbow = None
 
     # Choose final optimal k - handle None case properly
-    if optimal_k_elbow is not None:
+    if len(k_values) == 1:
+        # If only one k value was tested, use that value
+        optimal_k = k_values[0]
+        print(f"Only one k value tested ({k_values[0]}), using that value")
+    elif optimal_k_elbow is not None:
         optimal_k = max(optimal_k_silhouette, optimal_k_elbow, default_k)
     else:
         optimal_k = max(optimal_k_silhouette, default_k)
