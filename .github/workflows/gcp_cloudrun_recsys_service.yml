@@ -2,9 +2,9 @@ name: Build and deploy recommendation service to Cloud Run
 
 on:
   push:
-    branches: [main, master, stage-to-prod]
+    branches: [main, master]
   pull_request:
-    branches: [main, master, stage-to-prod]
+    branches: [main, master]
   workflow_dispatch:
     inputs:
       logLevel:

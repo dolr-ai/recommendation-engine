@@ -9,6 +9,7 @@ It's designed to create a general-purpose cluster that can be used by other DAGs
 import os
 import json
 import requests
+import subprocess
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.google.cloud.operators.dataproc import (
@@ -54,10 +55,39 @@ REGION = "us-central1"
 GITHUB_REPO = "https://github.com/dolr-ai/recommendation-engine.git"
 
 # Initialization action script path
-INIT_ACTION_SCRIPT = "gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh"
+INIT_ACTION_SCRIPT = "gs://yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh"
 
 # Dataproc staging and temp buckets
 DATAPROC_CONFIG_BUCKET = "yral-ds-dataproc-bucket"
+
+
+def get_git_info():
+    """Get current Git branch and commit information."""
+    try:
+        # Get current branch
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+
+        # Get current commit hash (short)
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+
+        # Get commit message
+        commit_msg = subprocess.check_output(
+            ["git", "log", "-1", "--pretty=format:%s"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+
+        return {"branch": branch, "commit": commit, "commit_message": commit_msg}
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return {"branch": "unknown", "commit": "unknown", "commit_message": "unknown"}
 
 
 class GoogleChatAlert:
@@ -99,6 +129,11 @@ class GoogleChatAlert:
                 "title": "Failed",
                 "message": "Task '{task_id}' failed",
             },
+            "cluster_created": {
+                "icon": "🚀",
+                "title": "Cluster Created",
+                "message": "Dataproc cluster creation started",
+            },
         }
 
     def send(self, context, status):
@@ -138,6 +173,9 @@ class GoogleChatAlert:
         config = self.status_config.get(status, self.status_config["failed"])
         message = config["message"].format(task_id=task_id)
 
+        # Get Git information
+        git_info = get_git_info()
+
         # Create card
         card = {
             "cards": [
@@ -162,6 +200,24 @@ class GoogleChatAlert:
                                         "content": datetime.now().strftime(
                                             "%Y-%m-%d %H:%M:%S"
                                         ),
+                                    }
+                                },
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Branch",
+                                        "content": git_info["branch"],
+                                    }
+                                },
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Commit",
+                                        "content": git_info["commit"],
+                                    }
+                                },
+                                {
+                                    "keyValue": {
+                                        "topLabel": "Commit Message",
+                                        "content": git_info["commit_message"],
                                     }
                                 },
                             ]

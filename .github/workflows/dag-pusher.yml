@@ -2,7 +2,7 @@ name: Move DAGs to GCS
 
 on:
   push:
-    branches: [main, master, stage-to-prod]
+    branches: [main, master]
   workflow_dispatch: # Enable manual trigger
 
 jobs:
@@ -71,4 +71,4 @@ jobs:
 
           echo "Copying initialization script from $init_script_path to GCS"
           gcloud storage cp "$init_script_path" \
-            gs://yral-dataproc-notebooks/yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh
+            gs://yral-dataproc-notebooks/dataproc-initialization/dataproc_initialization_action.sh
