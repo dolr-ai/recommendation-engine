@@ -11,8 +11,7 @@ in a specific sequence:
 6. Merge Part Embeddings (only after both Average Video Interactions AND Temporal Interaction Embedding)
 7. User Clusters (after Merge Part Embeddings)
 8. Write Data to BigQuery (after User Clusters)
-
-Note: Cluster deletion has been removed from the flow and must be handled manually.
+9. Delete Dataproc Cluster (always executed to ensure resource cleanup)
 
 This master DAG triggers each individual DAG in sequence, respecting the dependencies,
 regardless of the individual DAGs' schedules.
@@ -410,6 +409,22 @@ with DAG(
     trigger_write_data = trigger_dag_task(WRITE_DATA_DAG_ID)
     wait_for_write_data = wait_for_dag_task(WRITE_DATA_DAG_ID)
 
+    # Delete Dataproc Cluster - on success
+    trigger_delete_cluster = trigger_dag_task(
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="normal", reset_dag_run=True
+    )
+    wait_for_delete_cluster = wait_for_dag_task(
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="normal"
+    )
+
+    # Delete Dataproc Cluster - on failure
+    trigger_delete_cluster_on_failure = trigger_dag_task(
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="on_failure", reset_dag_run=True
+    )
+    wait_for_delete_cluster_on_failure = wait_for_dag_task(
+        DELETE_CLUSTER_DAG_ID, task_id_suffix="on_failure"
+    )
+
     # Final end tasks
     end_success = DummyOperator(
         task_id="end_success",
@@ -452,8 +467,8 @@ with DAG(
     wait_for_merge_embeddings >> trigger_user_clusters >> wait_for_user_clusters
     wait_for_user_clusters >> trigger_write_data >> wait_for_write_data
 
-    # Complete without cluster deletion
-    wait_for_write_data >> end_success
+    # Complete with cluster deletion on success
+    wait_for_write_data >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
 
     # Set up proper failure handling
     # Create a task that will run on any failure using trigger rule
@@ -475,5 +490,5 @@ with DAG(
     ]:
         task >> failure_handler
 
-    # Connect failure handler to end_failure (no cluster deletion)
-    failure_handler >> end_failure
+    # Connect failure handler to trigger cluster deletion on failure
+    failure_handler >> trigger_delete_cluster_on_failure >> wait_for_delete_cluster_on_failure >> end_failure

@@ -36,7 +36,7 @@ CLUSTER_NAME_TEMPLATE = "recsys-prod-cluster-{ds_nodash}"
 CLUSTER_NAME_VARIABLE = "active_dataproc_cluster_name"
 # todo: change this later after dev testing
 CLUSTER_IDLE_DELETE_TTL = 2 * 60 * 60  # 2 hours
-CLUSTER_AUTO_DELETE_TTL = 5 * 60 * 60  # 2 hours
+CLUSTER_AUTO_DELETE_TTL = 3 * 60 * 60  # 3 hours
 AUTOSCALING_POLICY_ID = "recsys-dataproc-autoscaling-policy"
 
 # Get environment variables
