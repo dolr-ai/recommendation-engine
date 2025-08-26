@@ -79,11 +79,11 @@ if DEV_MODE or USE_REDIS_PROXY:
     logger.info(
         f"Using proxy connection - DEV_MODE: {DEV_MODE}, USE_REDIS_PROXY: {USE_REDIS_PROXY}"
     )
+    proxy_host = os.environ.get("RECSYS_PROXY_REDIS_HOST") or os.environ.get("PROXY_REDIS_HOST")
+    logger.info(f"Proxy host from env: {proxy_host}")
     DEFAULT_CONFIG["valkey"].update(
         {
-            "host": os.environ.get(
-                "RECSYS_PROXY_REDIS_HOST", DEFAULT_CONFIG["valkey"]["host"]
-            ),
+            "host": proxy_host or DEFAULT_CONFIG["valkey"]["host"],
             "port": int(
                 os.environ.get(
                     "RECSYS_PROXY_REDIS_PORT", DEFAULT_CONFIG["valkey"]["port"]

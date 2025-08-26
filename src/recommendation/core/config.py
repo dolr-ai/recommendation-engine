@@ -37,6 +37,32 @@ DEFAULT_VALKEY_CONFIG = {
     }
 }
 
+# Check if we're in DEV_MODE or should use proxy connection
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
+if DEV_MODE or USE_REDIS_PROXY:
+    logger.info("Running in DEV_MODE - using proxy connection")
+    proxy_host = os.environ.get("RECSYS_PROXY_REDIS_HOST") or os.environ.get("PROXY_REDIS_HOST")
+    DEFAULT_VALKEY_CONFIG["valkey"].update(
+        {
+            "host": proxy_host or DEFAULT_VALKEY_CONFIG["valkey"]["host"],
+            "port": int(
+                os.environ.get(
+                    "RECSYS_PROXY_REDIS_PORT", DEFAULT_VALKEY_CONFIG["valkey"]["port"]
+                )
+            ),
+            "authkey": os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY"),
+            "ssl_enabled": False,  # Disable SSL for proxy connection
+        }
+    )
+
+logger.info(f"Valkey config: {DEFAULT_VALKEY_CONFIG}")
+
 
 DEFAULT_VECTOR_DIM = 1408
 

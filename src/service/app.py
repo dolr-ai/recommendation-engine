@@ -16,6 +16,9 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 import uvicorn
 import httpx
+import sentry_sdk
+from sentry_sdk.integrations.starlette import StarletteIntegration
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from utils.common_utils import get_logger
 from service.models import (
@@ -25,6 +28,24 @@ from service.models import (
 from history.get_realtime_history_items import UserRealtimeHistory
 from service.recommendation_service import RecommendationService
 from service.fallback_recommendation_service import FallbackRecommendationService
+
+# Initialize Sentry for error monitoring and performance tracking
+sentry_sdk.init(
+    integrations=[
+        StarletteIntegration(
+            transaction_style="endpoint",
+            failed_request_status_codes={403, *range(500, 599)},
+            http_methods_to_capture=("GET", "POST"),
+        ),
+        FastApiIntegration(
+            transaction_style="endpoint",
+            failed_request_status_codes={403, *range(500, 599)},
+            http_methods_to_capture=("GET", "POST"),
+        ),
+    ],
+    traces_sample_rate=1.0,  # Capture 100% of transactions for performance monitoring
+    enable_tracing=True,
+)
 
 logger = get_logger(__name__)
 

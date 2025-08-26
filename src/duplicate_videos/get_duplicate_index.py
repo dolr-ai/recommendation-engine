@@ -30,6 +30,29 @@ DEFAULT_CONFIG = {
     },
 }
 
+# Check if we're in DEV_MODE or should use proxy connection
+DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
+USE_REDIS_PROXY = os.environ.get("RECSYS_USE_REDIS_PROXY", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+
+if DEV_MODE or USE_REDIS_PROXY:
+    logger.info("Running in DEV_MODE - using proxy connection")
+    proxy_host = os.environ.get("RECSYS_PROXY_REDIS_HOST") or os.environ.get("PROXY_REDIS_HOST")
+    DEFAULT_CONFIG["valkey"].update(
+        {
+            "host": proxy_host or "34.170.90.15",  # Fallback to known proxy host
+            "port": int(os.environ.get("RECSYS_PROXY_REDIS_PORT") or os.environ.get("PROXY_REDIS_PORT", 6379)),
+            "authkey": os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY"),
+            "ssl_enabled": False,  # Disable SSL for proxy connection
+            "cluster_enabled": False,  # Proxy is not clustered
+        }
+    )
+
+logger.info(DEFAULT_CONFIG)
+
 
 class DuplicateVideoChecker:
     """
