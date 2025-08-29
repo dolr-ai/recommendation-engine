@@ -29,7 +29,7 @@ from history.get_realtime_history_items import UserRealtimeHistory
 from service.recommendation_service import RecommendationService
 from service.fallback_recommendation_service import FallbackRecommendationService
 
-# Initialize Sentry for error monitoring and performance tracking
+# Initialize Sentry for error monitoring, performance tracking, and profiling
 sentry_sdk.init(
     integrations=[
         StarletteIntegration(
@@ -45,6 +45,7 @@ sentry_sdk.init(
     ],
     traces_sample_rate=1.0,  # Capture 100% of transactions for performance monitoring
     enable_tracing=True,
+    profiles_sample_rate=1.0,  # Capture 100% of profiles for performance profiling
 )
 
 logger = get_logger(__name__)
@@ -295,6 +296,9 @@ async def get_cache_recommendations(
     """
     logger.info(f"Received cache recommendation request for user {request.user_id}")
 
+    # Start profiling for cache recommendations
+    sentry_sdk.profiler.start_profiler()
+
     try:
         # Get X-Forwarded-For header for logging
         x_forwarded_for = http_request.headers.get("X-Forwarded-For")
@@ -341,6 +345,9 @@ async def get_cache_recommendations(
     except Exception as e:
         logger.error(f"Error getting cache recommendations: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Stop profiling for cache recommendations
+        sentry_sdk.profiler.stop_profiler()
 
 
 @app.post(
@@ -357,6 +364,9 @@ async def get_recommendations(request: RecommendationRequest, http_request: Requ
 
     if recommendation_service is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Start profiling for main recommendations
+    sentry_sdk.profiler.start_profiler()
 
     try:
         # Get X-Forwarded-For header for logging
@@ -408,6 +418,9 @@ async def get_recommendations(request: RecommendationRequest, http_request: Requ
     except Exception as e:
         logger.error(f"Unexpected error processing recommendation: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Stop profiling for main recommendations
+        sentry_sdk.profiler.stop_profiler()
 
 
 @app.post(
@@ -415,9 +428,7 @@ async def get_recommendations(request: RecommendationRequest, http_request: Requ
     tags=["Recommendations"],
     response_model_exclude_none=True,
 )
-async def get_batch_recommendations(
-    requests: list[RecommendationRequest], background_tasks: BackgroundTasks
-):
+async def get_batch_recommendations(requests: list[RecommendationRequest]):
     """
     Get recommendations for multiple users in batch.
     Optimized for concurrent processing.
@@ -427,34 +438,44 @@ async def get_batch_recommendations(
     if recommendation_service is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    # Process requests concurrently using thread pool
-    loop = asyncio.get_event_loop()
+    # Start profiling for batch recommendations
+    sentry_sdk.profiler.start_profiler()
 
-    # Create tasks for concurrent processing
-    tasks = []
-    for request in requests:
-        task = loop.run_in_executor(None, process_recommendation_sync, request)
-        tasks.append(task)
+    try:
+        # Process requests concurrently using thread pool
+        loop = asyncio.get_event_loop()
 
-    # Wait for all tasks to complete
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Create tasks for concurrent processing
+        tasks = []
+        for request in requests:
+            task = loop.run_in_executor(None, process_recommendation_sync, request)
+            tasks.append(task)
 
-    # Handle any exceptions
-    processed_results = []
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            logger.error(f"Batch request {i} failed: {result}")
-            processed_results.append(
-                {
-                    "posts": [],
-                    "processing_time_ms": 0,
-                    "error": str(result),
-                }
-            )
-        else:
-            processed_results.append(result)
+        # Wait for all tasks to complete
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    return processed_results
+        # Handle any exceptions
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Batch request {i} failed: {result}")
+                processed_results.append(
+                    {
+                        "posts": [],
+                        "processing_time_ms": 0,
+                        "error": str(result),
+                    }
+                )
+            else:
+                processed_results.append(result)
+
+        return processed_results
+    except Exception as e:
+        logger.error(f"Error processing batch recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Stop profiling for batch recommendations
+        sentry_sdk.profiler.stop_profiler()
 
 
 # V2 API Endpoints (with post_id as string)
@@ -471,6 +492,9 @@ async def get_recommendations_v2(request: RecommendationRequest, http_request: R
 
     if recommendation_service is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Start profiling for V2 recommendations
+    sentry_sdk.profiler.start_profiler()
 
     try:
         # Get X-Forwarded-For header for logging
@@ -524,6 +548,9 @@ async def get_recommendations_v2(request: RecommendationRequest, http_request: R
             f"Unexpected error processing v2 recommendation: {e}", exc_info=True
         )
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Stop profiling for V2 recommendations
+        sentry_sdk.profiler.stop_profiler()
 
 
 @app.post(
@@ -538,6 +565,9 @@ async def get_cache_recommendations_v2(
     Get recommendations from cache (V2 API with post_id as string).
     """
     logger.info(f"Received v2 cache recommendation request for user {request.user_id}")
+
+    # Start profiling for V2 cache recommendations
+    sentry_sdk.profiler.start_profiler()
 
     try:
         # Get X-Forwarded-For header for logging
@@ -587,6 +617,9 @@ async def get_cache_recommendations_v2(
     except Exception as e:
         logger.error(f"Error getting v2 cache recommendations: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Stop profiling for V2 cache recommendations
+        sentry_sdk.profiler.stop_profiler()
 
 
 def start():
@@ -595,12 +628,12 @@ def start():
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "service.app:app",
-        # host="localhost",
-        host="0.0.0.0",
+        host="localhost",
+        # host="0.0.0.0",
         port=port,
         reload=False,
         log_level="info",
-        workers=int(os.environ.get("WORKERS", 16)),
+        # workers=int(os.environ.get("WORKERS", 16)),
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,
