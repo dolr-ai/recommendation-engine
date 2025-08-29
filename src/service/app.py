@@ -628,12 +628,12 @@ def start():
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "service.app:app",
-        host="localhost",
-        # host="0.0.0.0",
+        # host="localhost",
+        host="0.0.0.0",
         port=port,
         reload=False,
         log_level="info",
-        # workers=int(os.environ.get("WORKERS", 16)),
+        workers=int(os.environ.get("WORKERS", 16)),
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,
