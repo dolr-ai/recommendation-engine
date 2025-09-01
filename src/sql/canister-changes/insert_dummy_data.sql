@@ -52,14 +52,6 @@ SELECT recsys.upsert_post_id_mapping(
 -- Read by primary key
 SELECT 'Test Read by PK:' as test_name, * FROM recsys.get_post_id_mapping('test-abc123def456ghi789jkl012mno3');
 
--- Read by old post ID
-SELECT 'Test Read by Old Post ID:' as test_name, * FROM recsys.get_mapping_by_old_post_id('test-old_post_789');
-
--- Read by new post ID  
-SELECT 'Test Read by New Post ID:' as test_name, * FROM recsys.get_mapping_by_new_post_id('test-new_post_012');
-
--- Read by publisher
-SELECT 'Test Read by Publisher:' as test_name, * FROM recsys.get_mappings_by_publisher('test-bkyz2-fmaaa-aaaah-qaaaq-cai', 10, 0);
 
 -- Test update function
 SELECT 'Test Update Function:' as test_name, recsys.update_post_id_mapping(
