@@ -554,6 +554,33 @@ class ValkeyService:
             logger.error(f"Failed to scan set {key} in {self.instance_id}: {e}")
             raise
 
+    def sdiff(self, *keys: str) -> Set[str]:
+        """Return the difference between the first set and the other sets"""
+        try:
+            client = self.get_client()
+            return client.sdiff(*keys)
+        except Exception as e:
+            logger.error(f"Failed to compute set difference for keys {keys} in {self.instance_id}: {e}")
+            raise
+
+    def sinter(self, *keys: str) -> Set[str]:
+        """Return the intersection of all sets"""
+        try:
+            client = self.get_client()
+            return client.sinter(*keys)
+        except Exception as e:
+            logger.error(f"Failed to compute set intersection for keys {keys} in {self.instance_id}: {e}")
+            raise
+
+    def sunion(self, *keys: str) -> Set[str]:
+        """Return the union of all sets"""
+        try:
+            client = self.get_client()
+            return client.sunion(*keys)
+        except Exception as e:
+            logger.error(f"Failed to compute set union for keys {keys} in {self.instance_id}: {e}")
+            raise
+
     # Redis Sorted Set Operations
     def zadd(self, key: str, mapping: Dict[str, float]) -> int:
         """Add one or more members to a sorted set, or update scores"""

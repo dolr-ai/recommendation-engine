@@ -360,7 +360,6 @@ class RecommendationEngine:
         try:
             # Initialize location candidate manager if not already done
             if not hasattr(self, "location_manager"):
-
                 self.location_manager = LocationCandidateManager(
                     valkey_config=self.config.valkey_config
                 )
@@ -617,12 +616,18 @@ class RecommendationEngine:
                     del mixer_output[key]
 
         # for testing realtime exclusion of watched items/ dedup/ reported items
-        mixer_output["recommendations"] += [
-            # "v1",
-            # "v2",
-            # "v3",
-            "08f21eacddf1409495dd0dfb368cf067",
-        ]
+        # append test videos first so that we can quickly test the filtering logic
+        """
+        # for debugging purposes
+        mixer_output["recommendations"] = [
+            "video_nsfw_001",
+            "video_nsfw_002",
+            "video_watched_nsfw_456",
+            "video_test_clean",
+        ] + mixer_output["recommendations"]
+
+        logger.info(f"Mixer output without filtering:\n\n {mixer_output}")
+        """
 
         # remove items from the generic exclusion list
         mixer_output["recommendations"] = self._filter_excluded_items(
@@ -686,6 +691,7 @@ class RecommendationEngine:
             # todo: this needs special attention based on redis migration
             # exclude_watched_items=exclude_watched_items,
         )
+        # logger.info(f"Filtered recommendations:\n\n {filtered_recommendations}")
         filter_time = (datetime.datetime.now() - filter_start).total_seconds()
         logger.info(f"Watched items filtering completed in {filter_time:.2f} seconds")
 
@@ -753,7 +759,7 @@ class RecommendationEngine:
             old_total_results = len(recommendations["posts"])
             recommendations["posts"] = recommendations["posts"][:num_results]
             logger.info(
-                f"Trimmed results to from {old_total_results} -> {min(old_total_results,num_results)} items as requested"
+                f"Trimmed results to from {old_total_results} -> {min(old_total_results, num_results)} items as requested"
             )
 
         total_time = (datetime.datetime.now() - start_time).total_seconds()

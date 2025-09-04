@@ -53,6 +53,20 @@ class FallbackRecommendationEngine(RecommendationEngine):
             "fallback_recommendations": fallback_recommendations,
         }
         """
+
+        # For testing realtime exclusion of watched items in cache endpoint
+        # Append test videos first so that we can quickly test the filtering logic
+        """
+        # for debugging purposes
+        fallback_recommendations["fallback_recommendations"] = [
+            "video_nsfw_001",
+            "video_nsfw_002",
+            "video_watched_nsfw_456",
+            "video_test_clean",
+        ] + fallback_recommendations["fallback_recommendations"]
+
+        logger.info(f"Fallback output before filtering:\n\n {fallback_recommendations}")
+        """
         # Filter watched items
         filtered_start_time = datetime.datetime.now()
         fallback_recommendations = self._filter_watched_items(
@@ -64,6 +78,10 @@ class FallbackRecommendationEngine(RecommendationEngine):
         filtered_watched_items_time = (
             datetime.datetime.now() - filtered_start_time
         ).total_seconds()
+
+        # logger.info(
+        #     f"Fallback output after watched filtering:\n\n {fallback_recommendations}"
+        # )
 
         # Filter reported items
         filtered_reported_items_start_time = datetime.datetime.now()
