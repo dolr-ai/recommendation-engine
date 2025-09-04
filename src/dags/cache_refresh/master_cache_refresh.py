@@ -274,7 +274,7 @@ with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="Master DAG to orchestrate all cache refresh operations in parallel using status variables",
-    schedule_interval="0 3 * * 1,5",  # "At 03:00 on Monday and Friday."
+    schedule_interval="0 3 * * *",  # "At 03:00 every day."
     catchup=False,
     tags=["cache_refresh", "master"],
     on_success_callback=alerts.on_success,

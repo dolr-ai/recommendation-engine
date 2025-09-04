@@ -54,9 +54,9 @@ NSFW_PROBABILITY_THRESHOLD_LOW = 0.4
 NSFW_PROBABILITY_THRESHOLD_HIGH = 0.7
 
 # Fallback filtering and sampling configuration
-DEFAULT_PERCENTILE_THRESHOLD_L7D = 0.5
+DEFAULT_PERCENTILE_THRESHOLD_L7D = 0.1
 DEFAULT_PERCENTILE_THRESHOLD_L90D = 0.1
-DEFAULT_SAMPLE_SIZE = 5000  # Number of videos to sample from top percentile
+DEFAULT_SAMPLE_SIZE = 10000  # Number of videos to sample from top percentile
 
 # Default configuration
 DEFAULT_CONFIG = {
@@ -357,7 +357,7 @@ class GlobalPopularL7DFallback(FallbackPopulator):
                 nsfw_probability,
                 PERCENT_RANK() OVER (ORDER BY global_popularity_score DESC) as percentile_rank
             FROM
-                `{self.config['source_table']}`
+                `{self.config["source_table"]}`
             WHERE
                 {nsfw_filter}
                 AND video_id IS NOT NULL
@@ -385,7 +385,7 @@ class GlobalPopularL7DFallback(FallbackPopulator):
             return []
 
         logger.info(
-            f"Retrieved {len(df)} {content_type} popular videos from {self.config['source_table']} (top {self.percentile_threshold*100}% by global_popularity_score)"
+            f"Retrieved {len(df)} {content_type} popular videos from {self.config['source_table']} (top {self.percentile_threshold * 100}% by global_popularity_score)"
         )
 
         # Extract video IDs in order of popularity (already sorted by global_popularity_score DESC)
@@ -398,7 +398,7 @@ class GlobalPopularL7DFallback(FallbackPopulator):
         sampled_video_ids = video_ids[: self.sample_size]
 
         logger.info(
-            f"Sampled {len(sampled_video_ids)} video IDs from {len(video_ids)} top {self.percentile_threshold*100}% videos"
+            f"Sampled {len(sampled_video_ids)} video IDs from {len(video_ids)} top {self.percentile_threshold * 100}% videos"
         )
 
         # Create the key-value pair
