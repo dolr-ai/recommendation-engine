@@ -154,6 +154,11 @@ class UserRealtimeHistory:
         )
         return f"{user_id}{suffix}"
 
+    def _format_set_key(self, user_id: str, include_nsfw: bool) -> str:
+        """Format key for user real-time history Redis set (new format)."""
+        suffix = "_set_watch_nsfw_v2" if include_nsfw else "_set_watch_clean_v2"
+        return f"{user_id}{suffix}"
+
     def _extract_video_id_from_json(self, json_str: str) -> Optional[str]:
         """
         Extract video_id from JSON string in Redis member.
@@ -325,6 +330,117 @@ class UserRealtimeHistory:
                 f"Error fetching recent watched videos for user {user_id}: {e}"
             )
         return video_ids
+
+    @time_execution
+    def filter_recommendations_using_sets(
+        self,
+        user_id: str,
+        video_ids: List[str],
+        nsfw_label: bool,
+    ) -> List[str]:
+        """
+        Filter out watched videos from recommendations using Redis sets for O(1) performance.
+        
+        Uses the new set-based history keys ({user_id}_set_watch_clean_v2 / {user_id}_set_watch_nsfw_v2)
+        with Redis SDIFF operation for efficient filtering.
+        
+        Args:
+            user_id: User ID to check
+            video_ids: List of video IDs to filter (candidate recommendations)
+            nsfw_label: Whether to use NSFW data (True) or clean data (False)
+            
+        Returns:
+            List of video IDs that the user has NOT watched (filtered recommendations)
+        """
+        if not video_ids:
+            logger.debug(f"No video IDs to filter for user {user_id}")
+            return []
+            
+        try:
+            # Get the user's history set key
+            history_set_key = self._format_set_key(user_id, nsfw_label)
+            
+            # Check if user's history set exists
+            if not self.valkey_service.exists(history_set_key):
+                logger.info(f"No set-based history found for user {user_id}, returning all recommendations")
+                return video_ids
+            
+            # Create temporary set with candidate recommendations
+            import time
+            temp_key = f"temp_recs:{user_id}:{int(time.time() * 1000)}"
+            
+            try:
+                # Add all candidate video IDs to temporary set
+                self.valkey_service.sadd(temp_key, *video_ids)
+                
+                # Set TTL for automatic cleanup (30 seconds as specified)
+                self.valkey_service.expire(temp_key, 30)
+                
+                # Use SDIFF to get videos NOT in user's history
+                # SDIFF temp_key history_key = videos in temp_key but NOT in history_key
+                unwatched_videos = self.valkey_service.sdiff(temp_key, history_set_key)
+                
+                # Convert bytes to strings and maintain order as much as possible
+                unwatched_video_list = [vid.decode('utf-8') if isinstance(vid, bytes) else vid for vid in unwatched_videos]
+                
+                # Preserve original order by filtering the original list
+                filtered_videos = [vid for vid in video_ids if vid in unwatched_video_list]
+                
+                logger.info(
+                    f"Set-based filtering for user {user_id}: {len(video_ids)} -> {len(filtered_videos)} "
+                    f"({len(video_ids) - len(filtered_videos)} filtered out)"
+                )
+                
+                return filtered_videos
+                
+            finally:
+                # Clean up temporary set immediately (TTL is backup)
+                try:
+                    self.valkey_service.delete(temp_key)
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup temp key {temp_key}: {cleanup_error}")
+                    
+        except Exception as e:
+            logger.error(f"Error in set-based filtering for user {user_id}: {e}")
+            logger.info(f"Falling back to original zset-based filtering for user {user_id}")
+            
+            # Fallback to existing zset-based method
+            return self._fallback_zset_filtering(user_id, video_ids, nsfw_label)
+    
+    def _fallback_zset_filtering(
+        self, 
+        user_id: str, 
+        video_ids: List[str], 
+        nsfw_label: bool
+    ) -> List[str]:
+        """
+        Fallback method using existing zset scanning when set-based filtering fails.
+        
+        Args:
+            user_id: User ID to check
+            video_ids: List of video IDs to filter
+            nsfw_label: Whether to use NSFW data (True) or clean data (False)
+            
+        Returns:
+            List of video IDs that the user has NOT watched
+        """
+        logger.info(f"Using fallback zset filtering for user {user_id}")
+        
+        # Use existing has_watched_videos method
+        watch_status = self.has_watched_videos(user_id, video_ids, nsfw_label)
+        
+        if isinstance(watch_status, dict):
+            # Filter out watched videos
+            unwatched_videos = [vid for vid, watched in watch_status.items() if not watched]
+            logger.info(
+                f"Fallback filtering for user {user_id}: {len(video_ids)} -> {len(unwatched_videos)} "
+                f"({len(video_ids) - len(unwatched_videos)} filtered out)"
+            )
+            return unwatched_videos
+        else:
+            # Should not happen with list input, but handle gracefully
+            logger.error(f"Unexpected fallback response for user {user_id}")
+            return video_ids
 
     def get_history_items_for_recommendation_service(
         self,

@@ -121,6 +121,114 @@ class HistoryManager:
             else:
                 return {video_id: False for video_id in video_ids}
 
+    def filter_recommendations_efficiently(
+        self,
+        user_id: str,
+        recommendations: List[str],
+        nsfw_label: bool = False,
+    ) -> List[str]:
+        """
+        Filter out watched videos using BOTH new SET-based approach AND existing zset method.
+
+        This method uses:
+        1. NEW fast set-based filtering for realtime history (Redis SET + SDIFF)
+        2. EXISTING zset scanning method for realtime history (as fallback/additional check)
+        3. EXISTING fast set-based filtering for traditional history (last 2 months stored)
+
+        Both methods are used together as per Task.md requirements - the new SET method
+        is an additional optimization layer, not a replacement.
+
+        Args:
+            user_id: The user ID
+            recommendations: List of video IDs to filter
+            nsfw_label: Whether to use NSFW data (True) or clean data (False)
+
+        Returns:
+            List of video IDs that the user has NOT watched
+        """
+        if not recommendations:
+            logger.debug(f"No recommendations to filter for user {user_id}")
+            return []
+
+        try:
+            # Step 1: Filter using NEW fast set-based realtime history
+            logger.debug(
+                f"Step 1: Using NEW SET-based realtime history filtering for user {user_id}"
+            )
+            realtime_set_filtered = (
+                self.realtime_history_checker.filter_recommendations_using_sets(
+                    user_id=user_id, video_ids=recommendations, nsfw_label=nsfw_label
+                )
+            )
+
+            # Step 2: ALSO filter using EXISTING zset scanning method for realtime history
+            # This ensures we use BOTH methods as per Task.md requirements
+            logger.debug(
+                f"Step 2: Using EXISTING zset scanning realtime history filtering for user {user_id}"
+            )
+            realtime_zset_status = self.realtime_history_checker.has_watched_videos(
+                user_id=user_id,
+                video_ids=realtime_set_filtered,  # Apply to set-filtered results
+                nsfw_label=nsfw_label,
+            )
+
+            # Combine both realtime filtering results
+            if isinstance(realtime_zset_status, dict):
+                realtime_combined_filtered = [
+                    vid for vid, watched in realtime_zset_status.items() if not watched
+                ]
+            else:
+                # Fallback to set-filtered results if zset method fails
+                realtime_combined_filtered = realtime_set_filtered
+
+            # Step 3: Filter using EXISTING fast set-based traditional history
+            logger.debug(
+                f"Step 3: Using traditional history filtering for user {user_id}"
+            )
+            traditional_watch_status = self.history_checker.has_watched(
+                user_id, realtime_combined_filtered
+            )
+
+            if isinstance(traditional_watch_status, dict):
+                final_filtered = [
+                    vid
+                    for vid, watched in traditional_watch_status.items()
+                    if not watched
+                ]
+            else:
+                logger.warning(
+                    f"Unexpected traditional history response for user {user_id}"
+                )
+                final_filtered = realtime_combined_filtered
+
+            logger.info(
+                f"Combined filtering (SET + zset + traditional) for user {user_id}: "
+                f"{len(recommendations)} -> {len(realtime_set_filtered)} (SET) -> "
+                f"{len(realtime_combined_filtered)} (SET+zset) -> {len(final_filtered)} (final) - "
+                f"{len(recommendations) - len(final_filtered)} total filtered"
+            )
+
+            return final_filtered
+
+        except Exception as e:
+            logger.error(f"Combined filtering failed for user {user_id}: {e}")
+            logger.info(f"Falling back to original slow filtering for user {user_id}")
+
+            # Fallback to the original slow has_watched approach
+            watch_status = self.has_watched(user_id, recommendations, nsfw_label)
+
+            if isinstance(watch_status, dict):
+                fallback_filtered = [
+                    vid for vid, watched in watch_status.items() if not watched
+                ]
+                logger.info(
+                    f"Fallback filtering for user {user_id}: {len(recommendations)} -> {len(fallback_filtered)}"
+                )
+                return fallback_filtered
+            else:
+                logger.error(f"Unexpected fallback response type for user {user_id}")
+                return recommendations
+
     async def update_watched_items_async(
         self, user_id: str, video_ids: List[str]
     ) -> None:
@@ -184,13 +292,25 @@ class HistoryManager:
         exclude_watched_items: Optional[List[str]] = None,
     ) -> dict:
         """
-        Filter out watched videos from recommendations.
-        OPTIMIZED VERSION: Reduced set operations and improved performance.
+        Filter out watched videos from recommendations using BOTH new SET method AND existing zset method.
+
+        As per Task.md requirements, this method ALWAYS uses both filtering approaches:
+        1. NEW Redis SET-based filtering (additional optimization layer)
+        2. EXISTING zset scanning method (kept unchanged as required)
+        3. Traditional history filtering
+
+        Args:
+            user_id: The user ID
+            recommendations: Dictionary containing recommendations and fallback recommendations
+            nsfw_label: Whether to use NSFW data (True) or clean data (False) - default False for clean
+            exclude_watched_items: Optional list of video IDs to exclude (real-time watched items)
         """
         if not exclude_watched_items:
             exclude_watched_items = []
 
-        logger.debug(f"Filtering watched items for user {user_id}")
+        logger.debug(
+            f"Filtering watched items for user {user_id} using BOTH SET and zset methods"
+        )
 
         # OPTIMIZATION: Early return if no recommendations
         main_recommendations = recommendations.get("recommendations", [])
@@ -200,67 +320,139 @@ class HistoryManager:
             logger.debug("No recommendations to filter")
             return recommendations
 
-        # OPTIMIZATION: Use list concatenation instead of set operations for small lists
-        all_video_ids = main_recommendations + fallback_recommendations
+        # Apply real-time exclusions first if provided
+        if exclude_watched_items:
+            exclude_set = set(exclude_watched_items)
+            main_recommendations = [
+                vid for vid in main_recommendations if vid not in exclude_set
+            ]
+            fallback_recommendations = [
+                vid for vid in fallback_recommendations if vid not in exclude_set
+            ]
 
-        # OPTIMIZATION: Only convert to set if we have duplicates to worry about
-        if len(all_video_ids) > len(set(all_video_ids)):
-            all_video_ids = list(set(all_video_ids))  # Remove duplicates only if needed
+        # ALWAYS use combined filtering approach (SET + zset + traditional)
+        try:
+            # Filter main recommendations using combined method
+            if main_recommendations:
+                filtered_main = self.filter_recommendations_efficiently(
+                    user_id=user_id,
+                    recommendations=main_recommendations,
+                    nsfw_label=nsfw_label,
+                )
+            else:
+                filtered_main = []
 
-        if not all_video_ids:
-            return recommendations
+            # Filter fallback recommendations using combined method
+            if fallback_recommendations:
+                filtered_fallback = self.filter_recommendations_efficiently(
+                    user_id=user_id,
+                    recommendations=fallback_recommendations,
+                    nsfw_label=nsfw_label,
+                )
+            else:
+                filtered_fallback = []
 
-        # Check watch history for all video IDs
-        watch_status = self.has_watched(user_id, all_video_ids, nsfw_label)
+            # Log filtering results
+            original_main_count = len(recommendations.get("recommendations", []))
+            original_fallback_count = len(
+                recommendations.get("fallback_recommendations", [])
+            )
+            filtered_main_count = len(filtered_main)
+            filtered_fallback_count = len(filtered_fallback)
 
-        # OPTIMIZATION: Use set for fast lookups instead of list comprehensions
-        watched_videos = set()
-
-        if isinstance(watch_status, dict):
-            # Add historically watched videos - optimized iteration
-            watched_videos.update(
-                video_id for video_id, is_watched in watch_status.items() if is_watched
+            total_removed = (original_main_count - filtered_main_count) + (
+                original_fallback_count - filtered_fallback_count
             )
 
-        # Add real-time exclude items
-        if exclude_watched_items:
-            watched_videos.update(exclude_watched_items)
+            logger.info(
+                f"📊 Combined (SET+zset+traditional) history filtering results for user {user_id}: "
+                f"Main recommendations: {original_main_count} → {filtered_main_count} "
+                f"({original_main_count - filtered_main_count} filtered), "
+                f"Fallback recommendations: {original_fallback_count} -> {filtered_fallback_count} "
+                f"({original_fallback_count - filtered_fallback_count} filtered). "
+                f"Total filtered: {total_removed} watched videos"
+            )
 
-        logger.info(f"Total watched items to exclude: {len(watched_videos)}")
+            # Return filtered results
+            filtered_recommendations = recommendations.copy()
+            filtered_recommendations["recommendations"] = filtered_main
+            filtered_recommendations["fallback_recommendations"] = filtered_fallback
 
-        # OPTIMIZATION: Use list comprehensions with set membership for O(1) lookups
-        filtered_main = [
-            vid for vid in main_recommendations if vid not in watched_videos
-        ]
-        filtered_fallback = [
-            vid for vid in fallback_recommendations if vid not in watched_videos
-        ]
+            return filtered_recommendations
 
-        # Log filtering results
-        original_main_count = len(main_recommendations)
-        original_fallback_count = len(fallback_recommendations)
-        filtered_main_count = len(filtered_main)
-        filtered_fallback_count = len(filtered_fallback)
+        except Exception as e:
+            logger.error(f"Combined filtering failed for user {user_id}: {e}")
+            logger.info(
+                f"Falling back to original has_watched method for user {user_id}"
+            )
 
-        total_removed = (original_main_count - filtered_main_count) + (
-            original_fallback_count - filtered_fallback_count
-        )
+            # Fallback to original method (combines both traditional and realtime via has_watched)
+            all_video_ids = main_recommendations + fallback_recommendations
 
-        logger.info(
-            f"📊 History filtering results for user {user_id}: "
-            f"Main recommendations: {original_main_count} → {filtered_main_count} "
-            f"({original_main_count - filtered_main_count} filtered), "
-            f"Fallback recommendations: {original_fallback_count} -> {filtered_fallback_count} "
-            f"({original_fallback_count - filtered_fallback_count} filtered). "
-            f"Total filtered: {total_removed} watched videos"
-        )
+            # OPTIMIZATION: Only convert to set if we have duplicates to worry about
+            if len(all_video_ids) > len(set(all_video_ids)):
+                all_video_ids = list(
+                    set(all_video_ids)
+                )  # Remove duplicates only if needed
 
-        # OPTIMIZATION: Update in place instead of copying entire dict
-        filtered_recommendations = recommendations.copy()
-        filtered_recommendations["recommendations"] = filtered_main
-        filtered_recommendations["fallback_recommendations"] = filtered_fallback
+            if not all_video_ids:
+                return recommendations
 
-        return filtered_recommendations
+            # Check watch history for all video IDs (this uses both traditional + realtime zset)
+            watch_status = self.has_watched(user_id, all_video_ids, nsfw_label)
+
+            # OPTIMIZATION: Use set for fast lookups instead of list comprehensions
+            watched_videos = set()
+
+            if isinstance(watch_status, dict):
+                # Add historically watched videos - optimized iteration
+                watched_videos.update(
+                    video_id
+                    for video_id, is_watched in watch_status.items()
+                    if is_watched
+                )
+
+            # Add real-time exclude items
+            if exclude_watched_items:
+                watched_videos.update(exclude_watched_items)
+
+            logger.info(f"Total watched items to exclude: {len(watched_videos)}")
+
+            # OPTIMIZATION: Use list comprehensions with set membership for O(1) lookups
+            filtered_main = [
+                vid for vid in main_recommendations if vid not in watched_videos
+            ]
+            filtered_fallback = [
+                vid for vid in fallback_recommendations if vid not in watched_videos
+            ]
+
+            # Log filtering results
+            original_main_count = len(recommendations.get("recommendations", []))
+            original_fallback_count = len(
+                recommendations.get("fallback_recommendations", [])
+            )
+            filtered_main_count = len(filtered_main)
+            filtered_fallback_count = len(filtered_fallback)
+
+            total_removed = (original_main_count - filtered_main_count) + (
+                original_fallback_count - filtered_fallback_count
+            )
+
+            logger.info(
+                f"📊 Fallback history filtering results for user {user_id}: "
+                f"Main recommendations: {original_main_count} → {filtered_main_count} "
+                f"({original_main_count - filtered_main_count} filtered), "
+                f"Fallback recommendations: {original_fallback_count} -> {filtered_fallback_count} "
+                f"({original_fallback_count - filtered_fallback_count} filtered). "
+                f"Total filtered: {total_removed} watched videos"
+            )
+
+            # OPTIMIZATION: Update in place instead of copying entire dict
+            filtered_recommendations = recommendations.copy()
+            filtered_recommendations["recommendations"] = filtered_main
+            filtered_recommendations["fallback_recommendations"] = filtered_fallback
+
+            return filtered_recommendations
 
     def filter_simple_recommendations(
         self, user_id: str, recommendations: List[str], nsfw_label: bool = False
