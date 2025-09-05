@@ -12,6 +12,40 @@ _cache_lock = threading.Lock()
 _cache_stats = {"hits": 0, "misses": 0, "queries": 0}
 
 
+def is_valid_uint64(value):
+    """
+    Check if a value can be parsed as a valid uint64 (0 to 2^64-1).
+    
+    TODO: Remove this function within few days - temporary ask from backend team.
+    
+    WHAT CHANGED: Added validation to filter out non-uint64 post_ids for v2 API.
+    Previously all post_ids were converted to strings regardless of format.
+    Now only parseable uint64 values (like 12, 64, 21) are converted to strings,
+    while invalid formats (like UUIDs: 67e55044-10b1-426f-9247-bb680e5fe0c8) 
+    cause entire records to be filtered out.
+    
+    TO REMOVE THIS CHANGE: 
+    1. Delete this is_valid_uint64() function
+    2. In get_video_metadata(), revert post_id conversion logic back to simple:
+       if post_id_as_string: results_df["post_id"] = results_df["post_id"].astype(str)
+    3. Remove the valid_post_id_mask filtering logic
+    4. Remove the warning log about filtering invalid post_ids
+    
+    Args:
+        value: The value to check (can be int, str, or any type)
+        
+    Returns:
+        bool: True if value is a valid uint64, False otherwise
+    """
+    try:
+        # Try to convert to int
+        int_val = int(value)
+        # Check if it's in uint64 range (0 to 2^64-1)
+        return 0 <= int_val <= 18446744073709551615
+    except (ValueError, TypeError, OverflowError):
+        return False
+
+
 def transform_mixer_output(mixer_output):
     """
     Transform the mixer algorithm output into the backend-compatible format.
@@ -111,8 +145,29 @@ def get_video_metadata(video_ids, gcp_utils, post_id_as_string=False):
 
             # Set nsfw_probability to 0 and convert post_id based on parameter
             results_df["nsfw_probability"] = results_df["nsfw_probability"].fillna(0.0)
+            
+            # TODO: Remove this conditional logic within few days - temporary ask from backend team
+            # WHAT CHANGED: Added uint64 validation for post_id when post_id_as_string=True (v2 API)
+            # Previously: All post_ids converted to string regardless of format
+            # Now: Only uint64-parseable post_ids (12, 64, 21) converted to string, 
+            #      invalid formats (UUIDs, negative, non-numeric) filtered out entirely
+            # TO REVERT: Replace entire if/else block with original simple logic:
+            #   if post_id_as_string: results_df["post_id"] = results_df["post_id"].astype(str)
+            #   else: results_df["post_id"] = results_df["post_id"].astype(int)
             if post_id_as_string:
-                results_df["post_id"] = results_df["post_id"].astype(str)
+                # For v2 API: only include records where post_id is a valid uint64
+                valid_post_id_mask = results_df["post_id"].apply(is_valid_uint64)
+                invalid_count = (~valid_post_id_mask).sum()
+                
+                if invalid_count > 0:
+                    logger.warning(f"Filtering out {invalid_count} records with invalid post_id for v2 API")
+                    
+                # Keep only records with valid uint64 post_ids
+                results_df = results_df[valid_post_id_mask]
+                results_df = results_df.reset_index(drop=True)
+                
+                # Convert valid post_ids to strings
+                results_df["post_id"] = results_df["post_id"].astype(int).astype(str)
             else:
                 results_df["post_id"] = results_df["post_id"].astype(int)
 
