@@ -45,7 +45,7 @@ sentry_sdk.init(
     ],
     traces_sample_rate=1.0,  # Capture 100% of transactions for performance monitoring
     enable_tracing=True,
-    profiles_sample_rate=1.0,  # Capture 100% of profiles for performance profiling
+    profiles_sample_rate=0,  # Capture 100% of profiles for performance profiling
 )
 
 logger = get_logger(__name__)
