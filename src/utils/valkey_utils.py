@@ -775,6 +775,83 @@ class ValkeyService:
             logger.error(f"Failed to scan sorted set {key} in {self.instance_id}: {e}")
             raise
 
+    # Redis List operations
+    def lpush(self, key: str, *values: str) -> int:
+        """
+        Push one or more values to the left (head) of a list
+
+        Args:
+            key: The list key
+            values: Values to push
+
+        Returns:
+            Length of the list after the push operation
+        """
+        try:
+            client = self.get_client()
+            return client.lpush(key, *values)
+        except Exception as e:
+            logger.error(f"Failed to lpush to list {key} in {self.instance_id}: {e}")
+            raise
+
+    def lrange(self, key: str, start: int, end: int) -> List[str]:
+        """
+        Get a range of elements from a list
+
+        Args:
+            key: The list key
+            start: Start index (0-based)
+            end: End index (inclusive, -1 means last element)
+
+        Returns:
+            List of elements in the specified range
+        """
+        try:
+            client = self.get_client()
+            result = client.lrange(key, start, end)
+            return [item.decode('utf-8') if isinstance(item, bytes) else item for item in result]
+        except Exception as e:
+            logger.error(f"Failed to lrange list {key} in {self.instance_id}: {e}")
+            raise
+
+    def llen(self, key: str) -> int:
+        """
+        Get the length of a list
+
+        Args:
+            key: The list key
+
+        Returns:
+            Length of the list
+        """
+        try:
+            client = self.get_client()
+            return client.llen(key)
+        except Exception as e:
+            logger.error(f"Failed to get length of list {key} in {self.instance_id}: {e}")
+            raise
+
+    def lindex(self, key: str, index: int) -> Optional[str]:
+        """
+        Get an element from a list by its index
+
+        Args:
+            key: The list key
+            index: Index (0-based, negative indices count from the end)
+
+        Returns:
+            Element at the specified index, or None if index is out of range
+        """
+        try:
+            client = self.get_client()
+            result = client.lindex(key, index)
+            if result is None:
+                return None
+            return result.decode('utf-8') if isinstance(result, bytes) else result
+        except Exception as e:
+            logger.error(f"Failed to get index {index} from list {key} in {self.instance_id}: {e}")
+            raise
+
     @time_execution
     def batch_sadd(
         self,
