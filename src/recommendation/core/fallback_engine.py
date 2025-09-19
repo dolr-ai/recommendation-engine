@@ -11,6 +11,7 @@ from typing import List, Optional
 from utils.common_utils import get_logger
 from recommendation.core.engine import RecommendationEngine
 from recommendation.data.backend import transform_recommendations_with_metadata
+from recommendation.core.config import RecommendationConfig
 
 logger = get_logger(__name__)
 
@@ -112,6 +113,25 @@ class FallbackRecommendationEngine(RecommendationEngine):
                 + fallback_recommendations["fallback_recommendations"]
             )
 
+        # Add zero-interaction fallbacks for exploration
+        zero_interaction_start_time = datetime.datetime.now()
+        zero_interaction_recommendations = self.fallback_manager.get_fallback_recommendations(
+            nsfw_label=nsfw_label,
+            fallback_top_k=RecommendationConfig.ZERO_INTERACTION_FALLBACK_COUNT,
+            fallback_type="zero_interaction_videos_l90d",
+        )
+        zero_interaction_time = (
+            datetime.datetime.now() - zero_interaction_start_time
+        ).total_seconds()
+
+        # Mix zero-interaction fallbacks at the end for exploration
+        if zero_interaction_recommendations.get("fallback_recommendations"):
+            fallback_recommendations["fallback_recommendations"] = (
+                fallback_recommendations["fallback_recommendations"]
+                + zero_interaction_recommendations["fallback_recommendations"]
+            )
+            logger.info(f"Added {len(zero_interaction_recommendations['fallback_recommendations'])} zero-interaction fallbacks for exploration")
+
         if "fallback_recommendations" in fallback_recommendations and exclude_items:
             fallback_recommendations["fallback_recommendations"] = (
                 self._filter_excluded_items(
@@ -143,6 +163,7 @@ class FallbackRecommendationEngine(RecommendationEngine):
             "fallback_recommendations_time": fallback_recommendations_time,
             "filtered_watched_items_time": filtered_watched_items_time,
             "filtered_reported_items_time": filtered_reported_items_time,
+            "zero_interaction_time": zero_interaction_time,
             "backend_time": backend_time,
             "total_time": (end_time - start_time).total_seconds(),
         }

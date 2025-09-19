@@ -496,15 +496,24 @@ class RecommendationEngine:
                 fallback_top_k=fallback_top_k,
                 fallback_type="global_popular_videos",
             )
-            # Location recommendations first, then fallback recommendations
+
+            # Get zero-interaction fallbacks for exploration
+            zero_interaction_fallback = self.fallback_manager.get_fallback_recommendations(
+                nsfw_label=nsfw_label,
+                fallback_top_k=RecommendationConfig.ZERO_INTERACTION_FALLBACK_COUNT,
+                fallback_type="zero_interaction_videos_l90d",
+            )
+
+            # Location recommendations first, then fallback recommendations, then zero-interaction for exploration
             location_recs = location_recommendations.get("fallback_recommendations", [])
             fallback_recs = global_popular_videos_fallback.get(
                 "fallback_recommendations", []
             )
+            zero_interaction_recs = zero_interaction_fallback.get("fallback_recommendations", [])
 
             mixer_output = {
                 "recommendations": [],
-                "fallback_recommendations": location_recs + fallback_recs,
+                "fallback_recommendations": location_recs + fallback_recs + zero_interaction_recs,
             }
             fallback_time = (datetime.datetime.now() - fallback_start).total_seconds()
             logger.info(f"Fallback logic completed in {fallback_time:.2f} seconds")
@@ -675,12 +684,22 @@ class RecommendationEngine:
                 fallback_top_k=fallback_top_k,
                 fallback_type="global_popular_videos",
             )
-            # Location recommendations first, then fallback recommendations
+
+            # Get zero-interaction fallbacks for exploration
+            zero_interaction_fallback = self._call_fallback_logic(
+                user_id=user_id,
+                nsfw_label=nsfw_label,
+                fallback_top_k=RecommendationConfig.ZERO_INTERACTION_FALLBACK_COUNT,
+                fallback_type="zero_interaction_videos_l90d",
+            )
+
+            # Location recommendations first, then fallback recommendations, then zero-interaction for exploration
             location_recs = location_recommendations.get("fallback_recommendations", [])
             fallback_recs = popular_videos_fallback.get("fallback_recommendations", [])
+            zero_interaction_recs = zero_interaction_fallback.get("fallback_recommendations", [])
 
             # add location recommendations to mixer output
-            mixer_output["fallback_recommendations"] = location_recs + fallback_recs
+            mixer_output["fallback_recommendations"] = location_recs + fallback_recs + zero_interaction_recs
 
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()

@@ -9,6 +9,7 @@ import random
 from typing import Dict, List
 from utils.common_utils import get_logger
 from fallback_cache.get_fallbacks import GlobalPopularL7DFallbackFetcher
+from fallback_cache.get_last_fallback import ZeroInteractionL90DFallbackFetcher
 
 logger = get_logger(__name__)
 
@@ -19,6 +20,7 @@ class FallbackManager:
     # Fallback type routing - maps fallback types to their fetcher classes
     FALLBACK_FETCHERS = {
         "global_popular_videos": GlobalPopularL7DFallbackFetcher,
+        "zero_interaction_videos_l90d": ZeroInteractionL90DFallbackFetcher,
         # Add new fallback types here as needed
         # "trending_videos": TrendingVideosFallbackFetcher,
         # "category_popular": CategoryPopularFallbackFetcher,

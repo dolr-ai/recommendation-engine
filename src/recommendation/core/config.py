@@ -73,6 +73,7 @@ class RecommendationConfig:
     # Recommendation parameters
     TOP_K = 225  # Increased 3x from 75 to handle heavy filtering
     FALLBACK_TOP_K = 225  # Increased 3x from 75 to handle heavy filtering
+    ZERO_INTERACTION_FALLBACK_COUNT = 50  # Zero-interaction fallback items for exploration
     THRESHOLD = 0.1
     ENABLE_DEDUPLICATION = True
     ENABLE_REPORTED_ITEMS_FILTERING = True

@@ -195,25 +195,21 @@ class ZeroInteractionL90DFallbackFetcher(LastFallbackFetcher):
 
     def get_fallbacks(self, fallback_type: str) -> List[str]:
         """
-        Get zero-interaction video L90D fallbacks from Redis List.
+        Get zero-interaction video L90D fallbacks from Redis List using efficient sampling.
 
         Args:
             fallback_type: The type of fallback to retrieve
 
         Returns:
-            List of video IDs randomly ordered, or empty list if not found
+            List of video IDs efficiently sampled using ZERO_INTERACTION_FALLBACK_COUNT
         """
-        key = self.format_key(fallback_type)
+        from recommendation.core.config import RecommendationConfig
 
-        # Get all items from Redis List
-        fallbacks = self.valkey_service.lrange(key, 0, -1)
-
-        if not fallbacks:
-            logger.info(f"No zero-interaction fallbacks found for key: {key}")
-            return []
-
-        logger.info(f"Retrieved {len(fallbacks)} zero-interaction fallback videos for {key}")
-        return fallbacks
+        # Use the configured count for efficient sampling
+        return self.get_random_sample(
+            n=RecommendationConfig.ZERO_INTERACTION_FALLBACK_COUNT,
+            fallback_type=fallback_type
+        )
 
     def get_top_fallbacks(self, n: int, fallback_type: str) -> List[str]:
         """
