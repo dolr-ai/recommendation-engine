@@ -3,6 +3,7 @@ node_modules/
 package-lock.json
 package.json
 
+creds.json
 *.env
 temp_curl.sh
 # custom

@@ -45,6 +45,9 @@ jobs:
           - dockerfile: populate_location_candidates.dockerfile
             service_name: recommendation-location-candidates
             image: recommendation-location-candidates
+          - dockerfile: populate_last_fallback.dockerfile
+            service_name: recommendation-last-fallback
+            image: recommendation-last-fallback
 
     steps:
       - name: Checkout code
@@ -122,6 +125,7 @@ jobs:
             "populate_history.dockerfile",
             "populate_reported_items.dockerfile",
             "populate_location_candidates.dockerfile",
+            "populate_last_fallback.dockerfile",
           ]
 
     steps:
