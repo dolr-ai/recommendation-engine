@@ -7,6 +7,7 @@ recommendation process.
 
 import datetime
 import asyncio
+import os
 from typing import List, Optional
 from utils.common_utils import get_logger
 from recommendation.core.engine import RecommendationEngine
@@ -33,6 +34,7 @@ class FallbackRecommendationEngine(RecommendationEngine):
         exclude_items: Optional[List[str]] = None,
         region: Optional[str] = None,
         post_id_as_string: bool = False,
+        dev_inject_video_ids: Optional[List[str]] = None,
     ):
         """
         Get cached recommendations for a user.
@@ -139,6 +141,15 @@ class FallbackRecommendationEngine(RecommendationEngine):
                 )
             )
 
+        # [DEV] Inject specific video IDs for testing purposes
+        if dev_inject_video_ids and len(dev_inject_video_ids) > 0:
+            logger.info(f"[DEV] Injecting {len(dev_inject_video_ids)} video IDs for fallback testing: {dev_inject_video_ids}")
+            # Add injected video IDs to the beginning of fallback recommendations for easy testing
+            current_fallback = fallback_recommendations.get("fallback_recommendations", [])
+            fallback_recommendations["fallback_recommendations"] = dev_inject_video_ids + current_fallback
+            # Log the modified fallback recommendations for debugging
+            logger.info(f"[DEV] Updated fallback recommendations with injected video IDs: {fallback_recommendations}")
+
         # Trim results to requested number if specified
         if num_results is not None and "posts" in fallback_recommendations:
             old_total_results = len(fallback_recommendations["posts"])
@@ -150,8 +161,21 @@ class FallbackRecommendationEngine(RecommendationEngine):
             )
 
         backend_start_time = datetime.datetime.now()
+
+        # Use Redis mappings if enabled for fallback recommendations as well
+        use_redis_mappings = os.environ.get("ENABLE_REDIS_POST_MAPPING", "false").lower() in ("true", "1", "yes")
+        # Always fetch NSFW probabilities for fallback recommendations (they're typically cached and fast)
+        fetch_nsfw_probabilities = True
+
+        if use_redis_mappings:
+            logger.info("Using Redis post mappings for fallback metadata fetching")
+
         processed_fallback_recommendations = transform_recommendations_with_metadata(
-            fallback_recommendations, self.config.gcp_utils, post_id_as_string
+            fallback_recommendations,
+            self.config.gcp_utils,
+            post_id_as_string,
+            use_redis_mappings=use_redis_mappings,
+            fetch_nsfw_probabilities=fetch_nsfw_probabilities
         )
         backend_time = (datetime.datetime.now() - backend_start_time).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")

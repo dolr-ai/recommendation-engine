@@ -7,6 +7,7 @@ recommendation process.
 
 import datetime
 import asyncio
+import os
 from typing import List, Optional
 from utils.common_utils import get_logger
 from recommendation.utils.similarity_bq import SimilarityManager
@@ -412,6 +413,7 @@ class RecommendationEngine:
         exclude_items=[],  # generic exclusion list
         num_results=50,  # number of results to return
         post_id_as_string=False,  # return post_id as string for v2 API
+        dev_inject_video_ids=None,  # [DEV] inject specific video IDs for testing
     ):
         """
         Get recommendations for a user.
@@ -438,6 +440,7 @@ class RecommendationEngine:
             exclude_items: Optional list of video IDs to exclude (generic exclusion list)
             num_results: Number of recommendations to return. If None, returns all recommendations.
             post_id_as_string: If True, return post_id as string instead of int (for v2 API)
+            dev_inject_video_ids: [DEV] Optional list of video IDs to inject for testing purposes
 
         Returns:
             Dictionary with recommendations and fallback recommendations
@@ -498,10 +501,12 @@ class RecommendationEngine:
             )
 
             # Get zero-interaction fallbacks for exploration
-            zero_interaction_fallback = self.fallback_manager.get_fallback_recommendations(
-                nsfw_label=nsfw_label,
-                fallback_top_k=RecommendationConfig.ZERO_INTERACTION_FALLBACK_COUNT,
-                fallback_type="zero_interaction_videos_l90d",
+            zero_interaction_fallback = (
+                self.fallback_manager.get_fallback_recommendations(
+                    nsfw_label=nsfw_label,
+                    fallback_top_k=RecommendationConfig.ZERO_INTERACTION_FALLBACK_COUNT,
+                    fallback_type="zero_interaction_videos_l90d",
+                )
             )
 
             # Location recommendations first, then fallback recommendations, then zero-interaction for exploration
@@ -509,11 +514,15 @@ class RecommendationEngine:
             fallback_recs = global_popular_videos_fallback.get(
                 "fallback_recommendations", []
             )
-            zero_interaction_recs = zero_interaction_fallback.get("fallback_recommendations", [])
+            zero_interaction_recs = zero_interaction_fallback.get(
+                "fallback_recommendations", []
+            )
 
             mixer_output = {
                 "recommendations": [],
-                "fallback_recommendations": location_recs + fallback_recs + zero_interaction_recs,
+                "fallback_recommendations": location_recs
+                + fallback_recs
+                + zero_interaction_recs,
             }
             fallback_time = (datetime.datetime.now() - fallback_start).total_seconds()
             logger.info(f"Fallback logic completed in {fallback_time:.2f} seconds")
@@ -649,6 +658,23 @@ class RecommendationEngine:
         # output of mixer algorithm after deleting scores and sources
         # {'recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4'], 'fallback_recommendations': ['test_video1', 'test_video2', 'test_video3', 'test_video4']}
 
+        # [DEV] Inject specific video IDs for testing purposes
+        if dev_inject_video_ids and len(dev_inject_video_ids) > 0:
+            logger.info(
+                f"[DEV] Injecting {len(dev_inject_video_ids)} video IDs for testing: {dev_inject_video_ids}"
+            )
+            # Add injected video IDs to the beginning of both recommendations and fallback_recommendations for easy testing
+            mixer_output["recommendations"] = dev_inject_video_ids + mixer_output.get(
+                "recommendations", []
+            )
+            mixer_output["fallback_recommendations"] = (
+                dev_inject_video_ids + mixer_output.get("fallback_recommendations", [])
+            )
+            # Log the modified mixer output for debugging
+            logger.info(
+                f"[DEV] Updated mixer output with injected video IDs: {mixer_output}"
+            )
+
         # irrespective of whether metadata is found or not, we need to:
         # 1. filter watched items
         # 2. update cache for watched items
@@ -696,10 +722,14 @@ class RecommendationEngine:
             # Location recommendations first, then fallback recommendations, then zero-interaction for exploration
             location_recs = location_recommendations.get("fallback_recommendations", [])
             fallback_recs = popular_videos_fallback.get("fallback_recommendations", [])
-            zero_interaction_recs = zero_interaction_fallback.get("fallback_recommendations", [])
+            zero_interaction_recs = zero_interaction_fallback.get(
+                "fallback_recommendations", []
+            )
 
             # add location recommendations to mixer output
-            mixer_output["fallback_recommendations"] = location_recs + fallback_recs + zero_interaction_recs
+            mixer_output["fallback_recommendations"] = (
+                location_recs + fallback_recs + zero_interaction_recs
+            )
 
         # Step 3: Filter watched items
         filter_start = datetime.datetime.now()
@@ -767,8 +797,24 @@ class RecommendationEngine:
         # Step 8: Transform filtered recommendations to backend format with metadata
         # logger.info(f"FINAL: filtered_recommendations: {filtered_recommendations}")
         backend_start = datetime.datetime.now()
+
+        # Use Redis mappings if enabled, with conditional NSFW fetching for performance
+        # use_redis_mappings = os.environ.get("ENABLE_REDIS_POST_MAPPING", "false").lower() in ("true", "1", "yes")
+        use_redis_mappings = True
+        # Skip NSFW fetching under high load for better performance
+        fetch_nsfw_probabilities = not high_load_detected
+
+        if use_redis_mappings:
+            logger.info(
+                f"Using Redis post mappings for metadata fetching (NSFW fetching: {fetch_nsfw_probabilities})"
+            )
+
         recommendations = transform_recommendations_with_metadata(
-            filtered_recommendations, self.config.gcp_utils, post_id_as_string
+            filtered_recommendations,
+            self.config.gcp_utils,
+            post_id_as_string,
+            use_redis_mappings=use_redis_mappings,
+            fetch_nsfw_probabilities=fetch_nsfw_probabilities,
         )
         backend_time = (datetime.datetime.now() - backend_start).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")

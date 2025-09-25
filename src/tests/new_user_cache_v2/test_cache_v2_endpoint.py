@@ -70,6 +70,10 @@ class CacheV2Tester:
         self.num_results = num_results
         self.request_response_log: List[Dict[str, Any]] = []
 
+        # Metrics tracking
+        self.total_already_watched_count = 0
+        self.total_recommended_count = 0
+
         # Setup GCP utils and Valkey service (like production does)
         self.gcp_utils = self._setup_gcp_utils()
         self.valkey_service = self._setup_valkey_service()
@@ -162,6 +166,25 @@ class CacheV2Tester:
             print(f"Warning: Could not get watched count: {e}")
             return 0
 
+    def _check_already_watched(self, video_ids: List[str]) -> int:
+        """Check how many of the provided video IDs are already in the watched set using efficient batch operation."""
+        if not video_ids:
+            return 0
+
+        try:
+            # Use pipeline for batch operation - much faster than individual calls
+            pipe = self.valkey_service.pipeline()
+            for video_id in video_ids:
+                pipe.sismember(self.watched_set_key, video_id)
+            results = pipe.execute()
+
+            # Count how many returned True (already watched)
+            already_watched = sum(1 for result in results if result)
+            return already_watched
+        except Exception as e:
+            print(f"Warning: Could not check already watched videos: {e}")
+            return 0
+
     def make_request(self, iteration: int) -> Dict[str, Any]:
         """Make a request to the /v2/recommendations/cache endpoint."""
         url = f"{self.base_url}/v2/recommendations/cache"
@@ -217,7 +240,10 @@ class CacheV2Tester:
                 "error": None,
             }
 
-            # If successful, extract video_ids and add to Valkey watched set
+            # If successful, extract video_ids and track already watched metrics
+            already_watched_this_request = 0
+            total_videos_this_request = 0
+
             if response.status_code == 200 and isinstance(
                 response_data["content"], dict
             ):
@@ -225,13 +251,36 @@ class CacheV2Tester:
                 new_video_ids = [
                     post.get("video_id") for post in posts if post.get("video_id")
                 ]
+
+                total_videos_this_request = len(new_video_ids)
+                self.total_recommended_count += total_videos_this_request
+
                 if new_video_ids:
+                    # Check how many videos were already watched before adding new ones
+                    already_watched_this_request = self._check_already_watched(new_video_ids)
+                    self.total_already_watched_count += already_watched_this_request
+
                     self._add_watched_videos(new_video_ids)
                     print(
                         f"Added {len(new_video_ids)} video_ids to Valkey watched set: {new_video_ids}"
                     )
+                    print(
+                        f"Already watched in this request: {already_watched_this_request}/{total_videos_this_request}"
+                    )
+                    print(
+                        f"Total already watched: {self.total_already_watched_count}/{self.total_recommended_count}"
+                    )
                 else:
                     print("No video_ids found in response")
+
+            # Add metrics to log entry
+            log_entry["metrics"] = {
+                "already_watched_this_request": already_watched_this_request,
+                "total_videos_this_request": total_videos_this_request,
+                "total_already_watched_count": self.total_already_watched_count,
+                "total_recommended_count": self.total_recommended_count,
+                "watched_videos_in_redis": self.get_watched_count()
+            }
 
             return log_entry
 
@@ -319,6 +368,9 @@ class CacheV2Tester:
                 "total_requests": len(self.request_response_log),
                 "test_timestamp": datetime.now().isoformat(),
                 "final_watched_videos_count": self.get_watched_count(),
+                "total_already_watched_count": self.total_already_watched_count,
+                "total_recommended_count": self.total_recommended_count,
+                "already_watched_percentage": round((self.total_already_watched_count / self.total_recommended_count * 100), 2) if self.total_recommended_count > 0 else 0,
             },
             "logs": self.request_response_log,
         }
@@ -338,6 +390,8 @@ class CacheV2Tester:
         )
         error_requests = sum(1 for log in self.request_response_log if log.get("error"))
 
+        already_watched_percentage = round((self.total_already_watched_count / self.total_recommended_count * 100), 2) if self.total_recommended_count > 0 else 0
+
         print("\n=== TEST SUMMARY ===")
         print(f"User ID: {self.user_id}")
         print(f"Base URL: {self.base_url}")
@@ -347,6 +401,9 @@ class CacheV2Tester:
         print(f"Successful requests: {successful_requests}")
         print(f"Error requests: {error_requests}")
         print(f"Final watched videos count in Valkey: {self.get_watched_count()}")
+        print(f"Total recommended videos: {self.total_recommended_count}")
+        print(f"Total already watched videos: {self.total_already_watched_count}")
+        print(f"Already watched percentage: {already_watched_percentage}%")
         print(f"Valkey set key: {self.watched_set_key}")
 
         if self.request_response_log and self.request_response_log[-1].get("error"):
