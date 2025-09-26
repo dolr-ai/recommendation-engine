@@ -359,7 +359,16 @@ async def get_recommendations(request: RecommendationRequest, http_request: Requ
     """
     Get personalized video recommendations for a user.
     Optimized version with better error handling and timing.
+
+    TODO: REVERT THIS CHANGE IN NEXT FEW ITERATIONS
+    TEMPORARY REDIRECT: All /recommendations requests now redirect to /recommendations/cache
+    WHAT CHANGED: Added immediate call to cache endpoint as first line, making all below code unreachable
+    TO REVERT: Remove the return statement below and let the original logic execute
     """
+    # IMMEDIATE REDIRECT: First line calls cache endpoint, bypassing all recommendation model logic
+    return await get_cache_recommendations(request, http_request)
+
+    # UNREACHABLE CODE BELOW - Original recommendation logic preserved for easy revert
     logger.info(f"Received recommendation request for user {request.user_id}")
 
     if recommendation_service is None:
