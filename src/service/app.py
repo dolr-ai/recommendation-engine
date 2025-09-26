@@ -24,6 +24,8 @@ from utils.common_utils import get_logger
 from service.models import (
     RecommendationRequest,
     RecommendationResponse,
+    create_safe_response,
+    validate_and_sanitize_response,
 )
 from history.get_realtime_history_items import UserRealtimeHistory
 from service.recommendation_service import RecommendationService
@@ -275,12 +277,12 @@ def process_recommendation_sync(
     except Exception as e:
         processing_time = (time.time() - start_time) * 1000
         logger.error(f"Error processing recommendation request: {e}", exc_info=True)
-        return {
-            "posts": [],
-            "processing_time_ms": processing_time,
-            "error": str(e),
-            "debug": None,
-        }
+        return create_safe_response(
+            posts=[],
+            processing_time_ms=processing_time,
+            error=str(e),
+            debug=None,
+        )
 
 
 @app.post(
@@ -339,12 +341,16 @@ async def get_cache_recommendations(
             region=request.region,
         )
 
-        return JSONResponse(content=recommendations)
+        # Validate and sanitize response to ensure error is empty string for success
+        safe_recommendations = validate_and_sanitize_response(recommendations)
+        return JSONResponse(content=safe_recommendations)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting cache recommendations: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return safe response instead of raising exception to prevent feed break
+        safe_error_response = create_safe_response(error=str(e))
+        return JSONResponse(content=safe_error_response, status_code=500)
     finally:
         # Stop profiling for cache recommendations
         sentry_sdk.profiler.stop_profiler()
@@ -418,9 +424,13 @@ async def get_recommendations(request: RecommendationRequest, http_request: Requ
         )
 
         if response.get("error"):
-            raise HTTPException(status_code=500, detail=response["error"])
+            # Return safe error response instead of raising exception
+            safe_error_response = validate_and_sanitize_response(response)
+            return JSONResponse(content=safe_error_response, status_code=500)
 
-        return JSONResponse(content=response)
+        # Validate and sanitize successful response
+        safe_response = validate_and_sanitize_response(response)
+        return JSONResponse(content=safe_response)
 
     except HTTPException:
         raise
@@ -469,14 +479,18 @@ async def get_batch_recommendations(requests: list[RecommendationRequest]):
             if isinstance(result, Exception):
                 logger.error(f"Batch request {i} failed: {result}")
                 processed_results.append(
-                    {
-                        "posts": [],
-                        "processing_time_ms": 0,
-                        "error": str(result),
-                    }
+                    create_safe_response(
+                        posts=[], processing_time_ms=0.0, error=str(result)
+                    )
                 )
             else:
-                processed_results.append(result)
+                # Validate and sanitize successful results too
+                safe_result = (
+                    validate_and_sanitize_response(result)
+                    if isinstance(result, dict)
+                    else result
+                )
+                processed_results.append(safe_result)
 
         return processed_results
     except Exception as e:
@@ -555,9 +569,13 @@ async def get_recommendations_v2(request: RecommendationRequest, http_request: R
         )
 
         if response.get("error"):
-            raise HTTPException(status_code=500, detail=response["error"])
+            # Return safe error response instead of raising exception
+            safe_error_response = validate_and_sanitize_response(response)
+            return JSONResponse(content=safe_error_response, status_code=500)
 
-        return JSONResponse(content=response)
+        # Validate and sanitize successful response
+        safe_response = validate_and_sanitize_response(response)
+        return JSONResponse(content=safe_response)
 
     except HTTPException:
         raise
@@ -629,12 +647,16 @@ async def get_cache_recommendations_v2(
             post_id_as_string=True,
         )
 
-        return JSONResponse(content=recommendations)
+        # Validate and sanitize response to ensure error is empty string for success
+        safe_recommendations = validate_and_sanitize_response(recommendations)
+        return JSONResponse(content=safe_recommendations)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting v2 cache recommendations: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Return safe response instead of raising exception to prevent feed break
+        safe_error_response = create_safe_response(error=str(e))
+        return JSONResponse(content=safe_error_response, status_code=500)
     finally:
         # Stop profiling for V2 cache recommendations
         sentry_sdk.profiler.stop_profiler()
