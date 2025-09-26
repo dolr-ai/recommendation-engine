@@ -364,7 +364,7 @@ with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="Refresh Zero-Interaction Last Fallback Cache",
-    schedule_interval=None,
+    schedule_interval="0 3 * * *",  # # TODO: Revert once experiment is done
     catchup=False,
     tags=["cache_refresh", "last_fallbacks", "zero_interaction"],
     on_success_callback=alerts.on_success,

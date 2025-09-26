@@ -353,7 +353,7 @@ with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="Master DAG to orchestrate all recommendation engine DAGs",
-    schedule_interval="0 0 * * 1,5",  # "At 00:00 on Monday and Friday."
+    # schedule_interval="0 0 * * 1,5",  # "At 00:00 on Monday and Friday." # TODO: Revert once experiment is done
     catchup=False,
     tags=["user_clustering"],
     on_success_callback=alerts.on_success,
@@ -468,7 +468,12 @@ with DAG(
     wait_for_user_clusters >> trigger_write_data >> wait_for_write_data
 
     # Complete with cluster deletion on success
-    wait_for_write_data >> trigger_delete_cluster >> wait_for_delete_cluster >> end_success
+    (
+        wait_for_write_data
+        >> trigger_delete_cluster
+        >> wait_for_delete_cluster
+        >> end_success
+    )
 
     # Set up proper failure handling
     # Create a task that will run on any failure using trigger rule
@@ -491,4 +496,9 @@ with DAG(
         task >> failure_handler
 
     # Connect failure handler to trigger cluster deletion on failure
-    failure_handler >> trigger_delete_cluster_on_failure >> wait_for_delete_cluster_on_failure >> end_failure
+    (
+        failure_handler
+        >> trigger_delete_cluster_on_failure
+        >> wait_for_delete_cluster_on_failure
+        >> end_failure
+    )

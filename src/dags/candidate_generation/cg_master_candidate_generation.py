@@ -303,7 +303,7 @@ with DAG(
     dag_id=DAG_ID,
     default_args=default_args,
     description="Master DAG to orchestrate all candidate generation operations in order using status variables",
-    schedule_interval="0 2 * * 1,5",  # "At 02:00 on Monday and Friday."
+    # schedule_interval="0 2 * * 1,5",  # "At 02:00 on Monday and Friday." # TODO: Revert once experiment is done
     catchup=False,
     tags=["candidate_generation", "master"],
     on_success_callback=alerts.on_success,

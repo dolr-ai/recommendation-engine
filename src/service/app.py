@@ -487,7 +487,16 @@ async def get_batch_recommendations(requests: list[RecommendationRequest]):
 async def get_recommendations_v2(request: RecommendationRequest, http_request: Request):
     """
     Get personalized video recommendations for a user (V2 API with post_id as string).
+
+    # TODO: Revert once experiment is done
+    TEMPORARY REDIRECT: All /v2/recommendations requests now redirect to /v2/recommendations/cache
+    WHAT CHANGED: Added immediate call to cache endpoint as first line, making all below code unreachable
+    TO REVERT: Remove the return statement below and let the original logic execute
     """
+    # IMMEDIATE REDIRECT: First line calls cache endpoint, bypassing all recommendation model logic
+    return await get_cache_recommendations_v2(request, http_request)
+
+    # UNREACHABLE CODE BELOW - Original recommendation logic preserved for easy revert
     logger.info(f"Received v2 recommendation request for user {request.user_id}")
 
     if recommendation_service is None:
@@ -633,8 +642,8 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        workers=int(os.environ.get("WORKERS", 16)),
-        # workers=1,
+        # workers=int(os.environ.get("WORKERS", 16)),
+        workers=1,
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,
