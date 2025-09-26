@@ -455,6 +455,9 @@ def get_video_metadata(
                 ]
             ].copy()
 
+            redis_mappings = {}
+            videos_with_redis_mappings = set()
+
             if use_redis_mappings and not metadata_df.empty:
                 logger.debug(
                     f">>> CALLING get_batch_post_mappings_from_redis for {len(metadata_df)} metadata records"
@@ -468,6 +471,10 @@ def get_video_metadata(
                 logger.info(
                     f">>> REDIS MAPPINGS RESULT: {len(redis_mappings) if redis_mappings else 0} mappings found"
                 )
+
+                # Track which videos have Redis mappings
+                if redis_mappings:
+                    videos_with_redis_mappings = set(redis_mappings.keys())
 
                 if redis_mappings:
                     logger.info(
@@ -545,7 +552,24 @@ def get_video_metadata(
                         metadata_dict = row.to_dict()
                         new_metadata[video_id] = metadata_dict
 
-            # new_metadata now contains all BigQuery + Redis updated metadata
+            # Step 2.5: For v2 API, set constant canister_id if no Redis mapping exists
+            if post_id_as_string and new_metadata:
+                v2_constant_canister_id = "ivkka-7qaaa-aaaas-qbg3q-cai"
+                updated_count = 0
+
+                for video_id, metadata in new_metadata.items():
+                    # Check if this video_id had a Redis mapping applied
+                    if video_id not in videos_with_redis_mappings:
+                        # No Redis mapping exists, use constant canister_id for v2 API
+                        old_canister_id = metadata.get('canister_id')
+                        metadata['canister_id'] = v2_constant_canister_id
+                        updated_count += 1
+                        logger.debug(f"Applied v2 constant canister_id for {video_id}: {old_canister_id} -> {v2_constant_canister_id}")
+
+                if updated_count > 0:
+                    logger.info(f"Applied v2 constant canister_id to {updated_count} videos without Redis mappings")
+
+            # new_metadata now contains all BigQuery + Redis updated metadata + v2 constant canister_id
 
         except Exception as e:
             logger.error(
