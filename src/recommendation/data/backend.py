@@ -36,7 +36,7 @@ def _get_redis_client(gcp_utils=None) -> Optional[ValkeyService]:
                 )
 
                 # Get Redis connection details from environment with fallbacks
-                host = os.environ.get("RECSYS_PROXY_REDIS_HOST", "localhost")
+                host = os.environ.get("RECSYS_PROXY_REDIS_HOST") or os.environ.get("PROXY_REDIS_HOST", "localhost")
                 port = int(os.environ.get("RECSYS_PROXY_REDIS_PORT", 6379))
                 authkey = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
 

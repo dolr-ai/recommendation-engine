@@ -85,7 +85,7 @@ jobs:
           DEV_MODE: '${{ secrets.DEV_MODE }}'
           GCP_PROJECT_ID: '${{ secrets.RECSYS_PROJECT_ID }}'
           PROXY_REDIS_HOST: '${{ secrets.RECSYS_PROXY_REDIS_HOST }}'
-          RECYSYS_PROXY_REDIS_HOST: '${{ secrets.RECSYS_PROXY_REDIS_HOST }}'
+          RECSYS_PROXY_REDIS_HOST: '${{ secrets.RECSYS_PROXY_REDIS_HOST }}'
           RECSYS_PROXY_REDIS_PORT: '${{ secrets.RECSYS_PROXY_REDIS_PORT }}'
           REGION: '${{ secrets.REGION }}'
           RECSYS_SERVICE_REDIS_AUTHKEY: '${{ secrets.RECSYS_SERVICE_REDIS_AUTHKEY }}'
