@@ -81,6 +81,11 @@ class RecommendationRequest(BaseModel):
         default=None, description="Region for location-based recommendations (derived from IP if not provided)"
     )
 
+    # Development/testing parameters
+    dev_inject_video_ids: Optional[List[str]] = Field(
+        default=None, description="[DEV] Inject specific video IDs into recommendations for testing (dev/testing only)"
+    )
+
 
 class RecommendationResponse(BaseModel):
     """Recommendation response model."""

@@ -385,6 +385,8 @@ class ZeroInteractionL90DFallback(LastFallbackPopulator):
           ) vi
           LEFT JOIN `hot-or-not-feed-intelligence.yral_ds.video_nsfw_agg` nsfw
             ON vi.video_id = nsfw.video_id
+          INNER JOIN `hot-or-not-feed-intelligence.yral_ds.video_unique_v2` vu2
+            ON vi.video_id = vu2.video_id
           WHERE nsfw.probability IS NOT NULL
             AND is_nsfw IS NOT NULL
             AND is_nsfw = {self.nsfw_label}

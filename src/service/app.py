@@ -258,6 +258,7 @@ def process_recommendation_sync(
             num_results=request.num_results,
             region=request.region,
             post_id_as_string=post_id_as_string,
+            dev_inject_video_ids=request.dev_inject_video_ids,
         )
 
         processing_time = (time.time() - start_time) * 1000
@@ -339,6 +340,7 @@ async def get_cache_recommendations(
             nsfw_label=request.nsfw_label,
             num_results=request.num_results,
             region=request.region,
+            dev_inject_video_ids=request.dev_inject_video_ids,
         )
 
         # Validate and sanitize response to ensure error is empty string for success
@@ -645,6 +647,7 @@ async def get_cache_recommendations_v2(
             num_results=request.num_results,
             region=request.region,
             post_id_as_string=True,
+            dev_inject_video_ids=request.dev_inject_video_ids,
         )
 
         # Validate and sanitize response to ensure error is empty string for success
