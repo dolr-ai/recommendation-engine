@@ -31,7 +31,7 @@ def _get_redis_client(gcp_utils=None) -> Optional[ValkeyService]:
         if _redis_client is None:
             try:
                 # HARDCODED: Always enable Redis post mapping
-                logger.error(
+                logger.info(
                     ">>> ATTEMPTING TO INITIALIZE REDIS CLIENT (hardcoded enabled)"
                 )
 
@@ -570,32 +570,42 @@ def get_video_metadata(
                     )
                     if "converted_post_id" in metadata_df.columns:
                         metadata_df = metadata_df.drop(columns=["converted_post_id"])
+                else:
+                    # No Redis mappings found - use BigQuery data as-is
+                    logger.info(
+                        f"No Redis mappings found, using original BigQuery data for all {len(metadata_df)} videos"
+                    )
 
-                    # Convert DataFrame back to dictionary format for downstream processing
-                    for _, row in metadata_df.iterrows():
-                        video_id = row["video_id"]
-                        metadata_dict = row.to_dict()
-                        new_metadata[video_id] = metadata_dict
+                # ALWAYS convert DataFrame to new_metadata (whether Redis mappings exist or not)
+                for _, row in metadata_df.iterrows():
+                    video_id = row["video_id"]
+                    metadata_dict = row.to_dict()
+                    new_metadata[video_id] = metadata_dict
 
-            # Step 2.5: For v2 API, set constant canister_id if no Redis mapping exists
+            # Step 2.5: For v2 API, set constant canister_id ONLY for non-uint64 post_ids
+            # Valid uint64 post_ids keep their original BigQuery canister_id (unless Redis mapped)
             if post_id_as_string and new_metadata:
                 v2_constant_canister_id = "ivkka-7qaaa-aaaas-qbg3q-cai"
                 updated_count = 0
 
                 for video_id, metadata in new_metadata.items():
-                    # Check if this video_id had a Redis mapping applied
+                    # Only apply constant canister if:
+                    # 1. Video was NOT mapped in Redis, AND
+                    # 2. Post ID is NOT a valid uint64 (e.g., UUID format)
                     if video_id not in videos_with_redis_mappings:
-                        # No Redis mapping exists, use constant canister_id for v2 API
-                        old_canister_id = metadata.get("canister_id")
-                        metadata["canister_id"] = v2_constant_canister_id
-                        updated_count += 1
-                        logger.debug(
-                            f"Applied v2 constant canister_id for {video_id}: {old_canister_id} -> {v2_constant_canister_id}"
-                        )
+                        post_id = metadata.get("post_id")
+                        if not is_valid_uint64(post_id):
+                            # Non-uint64 post_id (like UUID), use constant canister
+                            old_canister_id = metadata.get("canister_id")
+                            metadata["canister_id"] = v2_constant_canister_id
+                            updated_count += 1
+                            logger.debug(
+                                f"Applied v2 constant canister_id for non-uint64 post_id {video_id}: {old_canister_id} -> {v2_constant_canister_id}"
+                            )
 
                 if updated_count > 0:
                     logger.info(
-                        f"Applied v2 constant canister_id to {updated_count} videos without Redis mappings"
+                        f"Applied v2 constant canister_id to {updated_count} videos with non-uint64 post_ids"
                     )
 
             # new_metadata now contains all BigQuery + Redis updated metadata + v2 constant canister_id
