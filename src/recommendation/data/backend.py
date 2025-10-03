@@ -608,8 +608,9 @@ def get_video_metadata(
                     f"🚨 This means new_metadata will remain empty! This is the BUG causing 0 posts!"
                 )
 
-            # Step 2.5: For v2 API, set constant canister_id ONLY for non-uint64 post_ids
+            # Step 2.5: For v2 API, set constant canister_id ONLY for non-uint64 post_ids (UUIDs)
             # Valid uint64 post_ids keep their original BigQuery canister_id (unless Redis mapped)
+            # Items with empty canister_ids will be filtered out at the end of get_video_metadata()
             if post_id_as_string and new_metadata:
                 v2_constant_canister_id = "ivkka-7qaaa-aaaas-qbg3q-cai"
                 updated_count = 0
@@ -851,6 +852,20 @@ def get_video_metadata(
             elif not post_id_as_string and not isinstance(item["post_id"], int):
                 item["post_id"] = int(item["post_id"])
             result_metadata.append(item)
+
+    # Filter out any items with empty or None canister_ids
+    # Empty canister_ids should never be in the final response
+    original_count = len(result_metadata)
+    result_metadata = [
+        item for item in result_metadata
+        if item.get("canister_id") and item.get("canister_id") != ""
+    ]
+    filtered_count = original_count - len(result_metadata)
+
+    if filtered_count > 0:
+        logger.warning(
+            f"🚨 Filtered out {filtered_count} items with empty/None canister_ids from final response"
+        )
 
     # FINAL DEBUG: Log exactly what we're returning
     for item in result_metadata[:3]:  # Just log first 3

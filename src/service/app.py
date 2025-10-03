@@ -186,7 +186,7 @@ async def version_info():
             capture_output=True,
             text=True,
             timeout=2,
-            cwd=git_root
+            cwd=git_root,
         )
         if result.returncode == 0:
             git_commit = result.stdout.strip()[:8]  # Short hash
@@ -203,7 +203,7 @@ async def version_info():
         "backend_fix_timestamp": "2025-10-03T12:30:00",
         "has_redis_mapping_fixes": True,
         "has_uuid_handling": True,
-        "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}"
+        "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
     }
 
 
@@ -716,7 +716,7 @@ def start():
         reload=False,
         log_level="info",
         # workers=int(os.environ.get("WORKERS", 16)),
-        workers=1,
+        workers=8,
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,
