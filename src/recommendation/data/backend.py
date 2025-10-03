@@ -414,8 +414,10 @@ def get_video_metadata(
                 results_df["post_id"] = results_df["post_id"].astype(int)
 
             # Identify records with NA values in critical columns
+            # NOTE: canister_id can be NULL for non-uint64 post_ids - they'll get constant canister later
+            # Only filter if video_id, post_id, or publisher_user_id is NULL
             na_mask = (
-                results_df[["video_id", "post_id", "canister_id", "publisher_user_id"]]
+                results_df[["video_id", "post_id", "publisher_user_id"]]
                 .isna()
                 .any(axis=1)
             )
@@ -430,6 +432,9 @@ def get_video_metadata(
             # Drop records with NA values from the results
             results_df = results_df[~na_mask]
             results_df = results_df.reset_index(drop=True)
+
+            # Fill NULL canister_ids with empty string (will be replaced with constant canister for v2 API)
+            results_df["canister_id"] = results_df["canister_id"].fillna("")
 
             logger.info(
                 f"📊 Retrieved {len(results_df)} metadata records from BigQuery"
@@ -591,21 +596,24 @@ def get_video_metadata(
                 for video_id, metadata in new_metadata.items():
                     # Only apply constant canister if:
                     # 1. Video was NOT mapped in Redis, AND
-                    # 2. Post ID is NOT a valid uint64 (e.g., UUID format)
+                    # 2. Post ID is NOT a valid uint64 (e.g., UUID format) OR canister_id is empty/NULL
                     if video_id not in videos_with_redis_mappings:
                         post_id = metadata.get("post_id")
-                        if not is_valid_uint64(post_id):
-                            # Non-uint64 post_id (like UUID), use constant canister
-                            old_canister_id = metadata.get("canister_id")
+                        canister_id = metadata.get("canister_id", "")
+
+                        # Apply constant canister if post_id is non-uint64 OR canister_id is missing
+                        if not is_valid_uint64(post_id) or not canister_id:
+                            # Non-uint64 post_id (like UUID) or missing canister_id, use constant canister
+                            old_canister_id = canister_id if canister_id else "NULL"
                             metadata["canister_id"] = v2_constant_canister_id
                             updated_count += 1
                             logger.debug(
-                                f"Applied v2 constant canister_id for non-uint64 post_id {video_id}: {old_canister_id} -> {v2_constant_canister_id}"
+                                f"Applied v2 constant canister_id for {video_id} (post_id={post_id}, reason={'non-uint64' if not is_valid_uint64(post_id) else 'missing-canister'}): {old_canister_id} -> {v2_constant_canister_id}"
                             )
 
                 if updated_count > 0:
                     logger.info(
-                        f"Applied v2 constant canister_id to {updated_count} videos with non-uint64 post_ids"
+                        f"Applied v2 constant canister_id to {updated_count} videos (non-uint64 post_ids or missing canister_ids)"
                     )
 
             # new_metadata now contains all BigQuery + Redis updated metadata + v2 constant canister_id

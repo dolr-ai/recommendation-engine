@@ -2,9 +2,9 @@ name: Build and deploy recommendation service to Cloud Run
 
 on:
   push:
-    branches: [main, master]
+    branches: [stage]
   pull_request:
-    branches: [main, master]
+    branches: [stage]
   workflow_dispatch:
     inputs:
       logLevel:
@@ -23,9 +23,9 @@ on:
 
 env:
   REGION: ${{ secrets.GCP_REGION || 'us-central1' }}
-  SERVICE_NAME: recommendation-service
-  REPOSITORY: ${{ secrets.RECSYS_REGISTRY_REPOSITORY }}
-  IMAGE: recommendation-engine
+  SERVICE_NAME: recommendation-service-stage
+  REPOSITORY: recsys-repository-stage
+  IMAGE: recommendation-engine-stage
 
 jobs:
   build-and-deploy:
