@@ -176,12 +176,17 @@ async def version_info():
     # Try to get git commit hash
     git_commit = "unknown"
     try:
+        # Find git root by going up from current file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up to project root (src/service -> src -> root)
+        git_root = os.path.dirname(os.path.dirname(current_dir))
+
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
             timeout=2,
-            cwd=os.path.dirname(os.path.abspath(__file__))
+            cwd=git_root
         )
         if result.returncode == 0:
             git_commit = result.stdout.strip()[:8]  # Short hash
