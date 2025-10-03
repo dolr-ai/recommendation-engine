@@ -163,7 +163,8 @@ class FallbackRecommendationEngine(RecommendationEngine):
         backend_start_time = datetime.datetime.now()
 
         # Use Redis mappings if enabled for fallback recommendations as well
-        use_redis_mappings = os.environ.get("ENABLE_REDIS_POST_MAPPING", "false").lower() in ("true", "1", "yes")
+        # use_redis_mappings = os.environ.get("ENABLE_REDIS_POST_MAPPING", "false").lower() in ("true", "1", "yes")
+        use_redis_mappings = True  # Hardcoded to True to match engine.py behavior
         # Always fetch NSFW probabilities for fallback recommendations (they're typically cached and fast)
         fetch_nsfw_probabilities = True
 

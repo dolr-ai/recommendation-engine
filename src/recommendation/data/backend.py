@@ -386,36 +386,44 @@ def get_video_metadata(
             # Set nsfw_probability to 0 initially (will be fetched separately if needed)
             results_df["nsfw_probability"] = 0.0
 
-            # TODO: Remove this conditional logic within few days - temporary ask from backend team
-            # WHAT CHANGED: Added uint64 validation for post_id when post_id_as_string=True (v2 API)
-            # Previously: All post_ids converted to string regardless of format
-            # Now: Only uint64-parseable post_ids (12, 64, 21) converted to string,
-            #      invalid formats (UUIDs, negative, non-numeric) filtered out entirely
-            # TO REVERT: Replace entire if/else block with original simple logic:
-            #   if post_id_as_string: results_df["post_id"] = results_df["post_id"].astype(str)
-            #   else: results_df["post_id"] = results_df["post_id"].astype(int)
+            # Handle post_id conversion differently for v1 vs v2 API
+            # v1 API: Convert to int (non-uint64 post_ids will fail, so filter them out)
+            # v2 API: Keep as string (non-uint64 post_ids like UUIDs are fine, they'll get constant canister)
+
             if post_id_as_string:
-                # For v2 API: only include records where post_id is a valid uint64
+                # V2 API: Keep ALL post_ids as strings (including UUIDs)
+                # Non-uint64 post_ids will get constant canister later
+                results_df["post_id"] = results_df["post_id"].astype(str)
+
+                # Log how many non-uint64 post_ids we have
+                valid_post_id_mask = results_df["post_id"].apply(is_valid_uint64)
+                non_uint64_count = (~valid_post_id_mask).sum()
+                if non_uint64_count > 0:
+                    logger.info(
+                        f"Found {non_uint64_count} non-uint64 post_ids (UUIDs, etc.) - will apply constant canister"
+                    )
+            else:
+                # V1 API: Only keep uint64 post_ids (can't handle UUIDs in int format)
                 valid_post_id_mask = results_df["post_id"].apply(is_valid_uint64)
                 invalid_count = (~valid_post_id_mask).sum()
 
                 if invalid_count > 0:
                     logger.warning(
-                        f"Filtering out {invalid_count} records with invalid post_id for v2 API"
+                        f"Filtering out {invalid_count} records with non-uint64 post_ids for v1 API (v1 requires int post_ids)"
                     )
 
-                # Keep only records with valid uint64 post_ids
+                # Keep only valid uint64 post_ids for v1 API
                 results_df = results_df[valid_post_id_mask]
                 results_df = results_df.reset_index(drop=True)
 
-                # Convert valid post_ids to strings
-                results_df["post_id"] = results_df["post_id"].astype(int).astype(str)
-            else:
+                # Convert to int
                 results_df["post_id"] = results_df["post_id"].astype(int)
 
             # Identify records with NA values in critical columns
+            # NOTE: canister_id can be NULL for non-uint64 post_ids - they'll get constant canister later
+            # Only filter if video_id, post_id, or publisher_user_id is NULL
             na_mask = (
-                results_df[["video_id", "post_id", "canister_id", "publisher_user_id"]]
+                results_df[["video_id", "post_id", "publisher_user_id"]]
                 .isna()
                 .any(axis=1)
             )
@@ -430,6 +438,9 @@ def get_video_metadata(
             # Drop records with NA values from the results
             results_df = results_df[~na_mask]
             results_df = results_df.reset_index(drop=True)
+
+            # Fill NULL canister_ids with empty string (will be replaced with constant canister for v2 API)
+            results_df["canister_id"] = results_df["canister_id"].fillna("")
 
             logger.info(
                 f"📊 Retrieved {len(results_df)} metadata records from BigQuery"
@@ -450,6 +461,13 @@ def get_video_metadata(
                     "nsfw_probability",
                 ]
             ].copy()
+
+            logger.error(
+                f"🔍 DEBUG: metadata_df created from results_df. Shape: {metadata_df.shape}, Empty: {metadata_df.empty}"
+            )
+            logger.error(
+                f"🔍 DEBUG: use_redis_mappings={use_redis_mappings}, condition check: {use_redis_mappings and not metadata_df.empty}"
+            )
 
             redis_mappings = {}
             videos_with_redis_mappings = set()
@@ -581,9 +599,18 @@ def get_video_metadata(
                     video_id = row["video_id"]
                     metadata_dict = row.to_dict()
                     new_metadata[video_id] = metadata_dict
+            else:
+                # Redis mappings disabled OR metadata_df is empty
+                logger.error(
+                    f"🚨 SKIPPED Redis mapping block! use_redis_mappings={use_redis_mappings}, metadata_df.empty={metadata_df.empty}, metadata_df.shape={metadata_df.shape if hasattr(metadata_df, 'shape') else 'N/A'}"
+                )
+                logger.error(
+                    f"🚨 This means new_metadata will remain empty! This is the BUG causing 0 posts!"
+                )
 
-            # Step 2.5: For v2 API, set constant canister_id ONLY for non-uint64 post_ids
+            # Step 2.5: For v2 API, set constant canister_id ONLY for non-uint64 post_ids (UUIDs)
             # Valid uint64 post_ids keep their original BigQuery canister_id (unless Redis mapped)
+            # Items with empty canister_ids will be filtered out at the end of get_video_metadata()
             if post_id_as_string and new_metadata:
                 v2_constant_canister_id = "ivkka-7qaaa-aaaas-qbg3q-cai"
                 updated_count = 0
@@ -591,21 +618,26 @@ def get_video_metadata(
                 for video_id, metadata in new_metadata.items():
                     # Only apply constant canister if:
                     # 1. Video was NOT mapped in Redis, AND
-                    # 2. Post ID is NOT a valid uint64 (e.g., UUID format)
+                    # 2. Post ID is NOT a valid uint64 (UUID format) AND canister_id is empty/NULL
                     if video_id not in videos_with_redis_mappings:
                         post_id = metadata.get("post_id")
-                        if not is_valid_uint64(post_id):
-                            # Non-uint64 post_id (like UUID), use constant canister
-                            old_canister_id = metadata.get("canister_id")
+                        canister_id = metadata.get("canister_id", "")
+
+                        # Apply constant canister ONLY if BOTH conditions are true:
+                        # - post_id is non-uint64 (UUID)
+                        # - AND canister_id is missing/empty
+                        if not is_valid_uint64(post_id) and not canister_id:
+                            # Non-uint64 post_id (UUID) with missing canister_id
+                            old_canister_id = canister_id if canister_id else "NULL"
                             metadata["canister_id"] = v2_constant_canister_id
                             updated_count += 1
                             logger.debug(
-                                f"Applied v2 constant canister_id for non-uint64 post_id {video_id}: {old_canister_id} -> {v2_constant_canister_id}"
+                                f"Applied v2 constant canister_id for {video_id} (UUID post_id={post_id} with empty canister): {old_canister_id} -> {v2_constant_canister_id}"
                             )
 
                 if updated_count > 0:
                     logger.info(
-                        f"Applied v2 constant canister_id to {updated_count} videos with non-uint64 post_ids"
+                        f"Applied v2 constant canister_id to {updated_count} videos (UUID post_ids with missing canister_ids)"
                     )
 
             # new_metadata now contains all BigQuery + Redis updated metadata + v2 constant canister_id
@@ -820,6 +852,20 @@ def get_video_metadata(
             elif not post_id_as_string and not isinstance(item["post_id"], int):
                 item["post_id"] = int(item["post_id"])
             result_metadata.append(item)
+
+    # Filter out any items with empty or None canister_ids
+    # Empty canister_ids should never be in the final response
+    original_count = len(result_metadata)
+    result_metadata = [
+        item for item in result_metadata
+        if item.get("canister_id") and item.get("canister_id") != ""
+    ]
+    filtered_count = original_count - len(result_metadata)
+
+    if filtered_count > 0:
+        logger.warning(
+            f"🚨 Filtered out {filtered_count} items with empty/None canister_ids from final response"
+        )
 
     # FINAL DEBUG: Log exactly what we're returning
     for item in result_metadata[:3]:  # Just log first 3

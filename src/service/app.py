@@ -168,6 +168,45 @@ async def health_check():
     return {"status": "ok", "message": "Recommendation service is running"}
 
 
+@app.get("/version", tags=["Health"])
+async def version_info():
+    """Version endpoint to check deployment info."""
+    import subprocess
+
+    # Try to get git commit hash
+    git_commit = "unknown"
+    try:
+        # Find git root by going up from current file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up to project root (src/service -> src -> root)
+        git_root = os.path.dirname(os.path.dirname(current_dir))
+
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            cwd=git_root,
+        )
+        if result.returncode == 0:
+            git_commit = result.stdout.strip()[:8]  # Short hash
+    except Exception:
+        pass
+
+    # Get deployment timestamp from environment or file modification time
+    deploy_time = os.environ.get("DEPLOY_TIMESTAMP", "unknown")
+
+    return {
+        "version": "2025-10-03-backend-fixes",
+        "git_commit": git_commit,
+        "deploy_time": deploy_time,
+        "backend_fix_timestamp": "2025-10-03T12:30:00",
+        "has_redis_mapping_fixes": True,
+        "has_uuid_handling": True,
+        "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
+    }
+
+
 @app.get("/debug", tags=["Debug"])
 async def debug_info():
     """Debug endpoint to check service status."""
@@ -676,8 +715,8 @@ def start():
         port=port,
         reload=False,
         log_level="info",
-        workers=int(os.environ.get("WORKERS", 16)),
-        # workers=1,
+        # workers=int(os.environ.get("WORKERS", 16)),
+        workers=16,
         access_log=False,
         # limit_concurrency=200,
         # backlog=500,
