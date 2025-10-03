@@ -462,6 +462,13 @@ def get_video_metadata(
                 ]
             ].copy()
 
+            logger.error(
+                f"🔍 DEBUG: metadata_df created from results_df. Shape: {metadata_df.shape}, Empty: {metadata_df.empty}"
+            )
+            logger.error(
+                f"🔍 DEBUG: use_redis_mappings={use_redis_mappings}, condition check: {use_redis_mappings and not metadata_df.empty}"
+            )
+
             redis_mappings = {}
             videos_with_redis_mappings = set()
 
@@ -592,6 +599,14 @@ def get_video_metadata(
                     video_id = row["video_id"]
                     metadata_dict = row.to_dict()
                     new_metadata[video_id] = metadata_dict
+            else:
+                # Redis mappings disabled OR metadata_df is empty
+                logger.error(
+                    f"🚨 SKIPPED Redis mapping block! use_redis_mappings={use_redis_mappings}, metadata_df.empty={metadata_df.empty}, metadata_df.shape={metadata_df.shape if hasattr(metadata_df, 'shape') else 'N/A'}"
+                )
+                logger.error(
+                    f"🚨 This means new_metadata will remain empty! This is the BUG causing 0 posts!"
+                )
 
             # Step 2.5: For v2 API, set constant canister_id ONLY for non-uint64 post_ids
             # Valid uint64 post_ids keep their original BigQuery canister_id (unless Redis mapped)
