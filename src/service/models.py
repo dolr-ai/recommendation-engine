@@ -17,6 +17,8 @@ class VideoMetadata(BaseModel):
     post_id: Optional[int] = None
     publisher_user_id: Optional[str] = None
     nsfw_probability: float = 0.0
+    num_views_loggedin: Optional[int] = 0
+    num_views_all: Optional[int] = 0
 
     @model_validator(mode='before')
     @classmethod
@@ -171,7 +173,9 @@ def validate_and_sanitize_response(response_data: dict) -> dict:
                     "canister_id": post.get("canister_id"),
                     "post_id": post.get("post_id"),
                     "publisher_user_id": post.get("publisher_user_id"),
-                    "nsfw_probability": post.get("nsfw_probability", 0.0)
+                    "nsfw_probability": post.get("nsfw_probability", 0.0),
+                    "num_views_loggedin": post.get("num_views_loggedin", 0),
+                    "num_views_all": post.get("num_views_all", 0)
                 }
                 validated_posts.append(safe_post)
 

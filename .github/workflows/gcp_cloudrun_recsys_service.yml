@@ -99,6 +99,7 @@ jobs:
           MARKETING_ANALYTICS_SERVER_BASE_URL: '${{ secrets.MARKETING_ANALYTICS_SERVER_BASE_URL }}'
           SENTRY_DSN: '${{ secrets.SENTRY_DSN }}'
           CLOUD_RUN_DEPLOYMENT: 'true'
+          REDIS_IMPRESSIONS_AUTHKEY: '${{ secrets.REDIS_IMPRESSIONS_AUTHKEY }}'
           EOF
 
           gcloud run deploy $SERVICE_NAME \

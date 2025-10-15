@@ -53,6 +53,7 @@ class FallbackRecommendationService:
         num_results: int = None,
         region: Optional[str] = None,
         post_id_as_string: bool = False,
+        fetch_view_counts: bool = False,
         dev_inject_video_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
@@ -67,6 +68,7 @@ class FallbackRecommendationService:
             num_results: Number of recommendations to return
             region: Region for location-based recommendations
             post_id_as_string: If True, return post_id as string instead of int (for v2 API)
+            fetch_view_counts: If True, fetch view counts from redis-impressions (for v3 API)
             dev_inject_video_ids: Optional list of video IDs to inject for development testing
 
         Returns:
@@ -84,6 +86,7 @@ class FallbackRecommendationService:
             exclude_items=exclude_items,
             region=region,
             post_id_as_string=post_id_as_string,
+            fetch_view_counts=fetch_view_counts,
             dev_inject_video_ids=dev_inject_video_ids,
         )
 

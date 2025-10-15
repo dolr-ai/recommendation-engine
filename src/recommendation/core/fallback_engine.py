@@ -34,6 +34,7 @@ class FallbackRecommendationEngine(RecommendationEngine):
         exclude_items: Optional[List[str]] = None,
         region: Optional[str] = None,
         post_id_as_string: bool = False,
+        fetch_view_counts: bool = False,
         dev_inject_video_ids: Optional[List[str]] = None,
     ):
         """
@@ -176,7 +177,8 @@ class FallbackRecommendationEngine(RecommendationEngine):
             self.config.gcp_utils,
             post_id_as_string,
             use_redis_mappings=use_redis_mappings,
-            fetch_nsfw_probabilities=fetch_nsfw_probabilities
+            fetch_nsfw_probabilities=fetch_nsfw_probabilities,
+            fetch_view_counts=fetch_view_counts
         )
         backend_time = (datetime.datetime.now() - backend_start_time).total_seconds()
         logger.info(f"Backend transformation completed in {backend_time:.2f} seconds")
