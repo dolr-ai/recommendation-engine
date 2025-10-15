@@ -704,6 +704,100 @@ async def get_cache_recommendations_v2(
         sentry_sdk.profiler.stop_profiler()
 
 
+# V3 API Endpoints (with post_id as string + view counts)
+@app.post(
+    "/v3/recommendations",
+    tags=["V3 Recommendations"],
+    response_model_exclude_none=True,
+)
+async def get_recommendations_v3(request: RecommendationRequest, http_request: Request):
+    """
+    Get personalized video recommendations for a user (V3 API with post_id as string + view counts).
+
+    # TODO: Revert once experiment is done
+    TEMPORARY REDIRECT: All /v3/recommendations requests now redirect to /v3/recommendations/cache
+    WHAT CHANGED: Added immediate call to cache endpoint as first line, making all below code unreachable
+    TO REVERT: Remove the return statement below and let the original logic execute
+    """
+    # IMMEDIATE REDIRECT: First line calls cache endpoint, bypassing all recommendation model logic
+    return await get_cache_recommendations_v3(request, http_request)
+
+
+@app.post(
+    "/v3/recommendations/cache",
+    tags=["V3 CacheRecommendations"],
+    response_model_exclude_none=True,
+)
+async def get_cache_recommendations_v3(
+    request: RecommendationRequest, http_request: Request
+):
+    """
+    Get recommendations from cache (V3 API with post_id as string + view counts).
+    """
+    logger.info(f"Received v3 cache recommendation request for user {request.user_id}")
+
+    # Start profiling for V3 cache recommendations
+    sentry_sdk.profiler.start_profiler()
+
+    try:
+        # Get X-Forwarded-For header for logging
+        x_forwarded_for = http_request.headers.get("X-Forwarded-For")
+
+        # If IP address is not provided, try to get it from X-Forwarded-For header
+        ip_address = request.ip_address
+        if not ip_address:
+            if x_forwarded_for:
+                # Take the first IP in case of multiple forwarded IPs
+                ip_address = x_forwarded_for.split(",")[0].strip()
+                logger.info(
+                    f"Using IP from X-Forwarded-For header: {ip_address}, X-Forwarded-For: {x_forwarded_for}"
+                )
+            else:
+                logger.info(
+                    "No IP address provided in request and no X-Forwarded-For header found"
+                )
+        else:
+            logger.info(
+                f"Using IP from request: {ip_address}, X-Forwarded-For: {x_forwarded_for or 'Not present'}"
+            )
+
+        # If IP address is available but region is not, resolve region from IP
+        if ip_address and not request.region:
+            region = await get_region_from_ip(ip_address)
+            if region:
+                request.region = region
+                logger.info(f"Resolved region '{region}' from IP address: {ip_address}")
+            else:
+                logger.warning(
+                    f"Could not resolve region from IP address: {ip_address}"
+                )
+
+        # Get recommendations with post_id as string and view counts for v3 API
+        recommendations = fallback_recommendation_service.get_cached_recommendations(
+            user_id=request.user_id,
+            nsfw_label=request.nsfw_label,
+            num_results=request.num_results,
+            region=request.region,
+            post_id_as_string=True,
+            fetch_view_counts=True,
+            dev_inject_video_ids=request.dev_inject_video_ids,
+        )
+
+        # Validate and sanitize response to ensure error is empty string for success
+        safe_recommendations = validate_and_sanitize_response(recommendations)
+        return JSONResponse(content=safe_recommendations)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting v3 cache recommendations: {e}", exc_info=True)
+        # Return safe response instead of raising exception to prevent feed break
+        safe_error_response = create_safe_response(error=str(e))
+        return JSONResponse(content=safe_error_response, status_code=500)
+    finally:
+        # Stop profiling for V3 cache recommendations
+        sentry_sdk.profiler.stop_profiler()
+
+
 def start():
     """Start the FastAPI application with optimized settings."""
     # CRITICAL: These settings are optimized for your hardware

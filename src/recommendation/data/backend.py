@@ -17,6 +17,10 @@ _cache_stats = {"hits": 0, "misses": 0, "queries": 0}
 _redis_client = None
 _redis_lock = threading.Lock()
 
+# Global Redis client for impressions/view tracking (separate instance)
+_redis_impressions_client = None
+_redis_impressions_lock = threading.Lock()
+
 
 def _get_redis_client(gcp_utils=None) -> Optional[ValkeyService]:
     """
@@ -36,7 +40,9 @@ def _get_redis_client(gcp_utils=None) -> Optional[ValkeyService]:
                 )
 
                 # Get Redis connection details from environment with fallbacks
-                host = os.environ.get("RECSYS_PROXY_REDIS_HOST") or os.environ.get("PROXY_REDIS_HOST", "localhost")
+                host = os.environ.get("RECSYS_PROXY_REDIS_HOST") or os.environ.get(
+                    "PROXY_REDIS_HOST", "localhost"
+                )
                 port = int(os.environ.get("RECSYS_PROXY_REDIS_PORT", 6379))
                 authkey = os.environ.get("RECSYS_SERVICE_REDIS_AUTHKEY")
 
@@ -76,6 +82,62 @@ def _get_redis_client(gcp_utils=None) -> Optional[ValkeyService]:
                 _redis_client = None
 
         return _redis_client
+
+
+def _get_redis_impressions_client(gcp_utils=None) -> Optional[ValkeyService]:
+    """
+    Get or initialize the Redis client for impressions/view tracking (separate instance).
+
+    Returns:
+        ValkeyService instance or None if initialization fails
+    """
+    global _redis_impressions_client
+
+    with _redis_impressions_lock:
+        if _redis_impressions_client is None:
+            try:
+                logger.info(">>> ATTEMPTING TO INITIALIZE REDIS-IMPRESSIONS CLIENT")
+
+                # Hardcoded Redis connection details for impressions instance
+                # TODO: Replace with actual redis-impressions host
+                host = "impressions.yral.com"  # Redis-impressions host (hardcoded)
+                port = 6379  # Redis-impressions port (hardcoded)
+                authkey = os.environ.get("REDIS_IMPRESSIONS_AUTHKEY")
+
+                if not authkey:
+                    logger.error(
+                        ">>> REDIS_IMPRESSIONS_AUTHKEY not set, Redis impressions tracking will be disabled"
+                    )
+                    return None
+
+                # Initialize ValkeyService for impressions
+                core = gcp_utils.core if gcp_utils else None
+                _redis_impressions_client = ValkeyService(
+                    core=core,
+                    host=host,
+                    port=port,
+                    authkey=authkey,
+                    decode_responses=True,
+                    ssl_enabled=False,
+                    cluster_enabled=False,
+                    socket_timeout=15,
+                    socket_connect_timeout=15,
+                )
+
+                # Test connection
+                if _redis_impressions_client.verify_connection():
+                    logger.info(
+                        f"Redis-impressions client initialized successfully at {host}:{port}"
+                    )
+                else:
+                    logger.error("Redis-impressions connection verification failed")
+                    _redis_impressions_client = None
+
+            except Exception as e:
+                logger.error(f"Failed to initialize Redis-impressions client: {e}")
+                _redis_impressions_client = None
+
+        return _redis_impressions_client
 
 
 def get_post_mapping_from_redis(composite_key: str, gcp_utils=None) -> Optional[Dict]:
@@ -197,6 +259,65 @@ def get_batch_post_mappings_from_redis(
         return {}
 
 
+def get_video_view_counts_from_redis_impressions(
+    video_ids: List[str], gcp_utils=None
+) -> Dict[str, tuple]:
+    """
+    Fetch view counts for video IDs from Redis impressions instance.
+
+    Args:
+        video_ids: List of video IDs to fetch view counts for
+        gcp_utils: GCPUtils instance for Redis connection
+
+    Returns:
+        Dictionary mapping video_id to (num_views_loggedin, num_views_all)
+    """
+    if not video_ids:
+        return {}
+
+    redis_client = _get_redis_impressions_client(gcp_utils)
+    if not redis_client:
+        logger.warning(
+            "Redis-impressions client not available, returning empty view counts"
+        )
+        return {}
+
+    try:
+        # Use pipeline for batch operations
+        pipe = redis_client.pipeline()
+
+        # Build pipeline with HGETALL for each video
+        video_hash_keys = []
+        for video_id in video_ids:
+            video_hash_key = f"rewards:video:{video_id}"
+            video_hash_keys.append(video_hash_key)
+            pipe.hgetall(video_hash_key)
+
+        # Execute pipeline - all commands in single round-trip
+        results = pipe.execute()
+
+        # Parse results
+        view_counts = {}
+        for i, video_id in enumerate(video_ids):
+            if i < len(results) and results[i]:
+                data = results[i]
+                num_views_loggedin = int(data.get("total_count_loggedin", 0))
+                num_views_all = int(data.get("total_count_all", 0))
+                view_counts[video_id] = (num_views_loggedin, num_views_all)
+                logger.debug(
+                    f"View counts for {video_id}: loggedin={num_views_loggedin}, all={num_views_all}"
+                )
+
+        logger.info(
+            f"Retrieved view counts for {len(view_counts)}/{len(video_ids)} video IDs from redis-impressions"
+        )
+        return view_counts
+
+    except Exception as e:
+        logger.error(f"Error fetching view counts from redis-impressions: {e}")
+        return {}
+
+
 def get_nsfw_probabilities_from_bigquery(
     video_ids: List[str], gcp_utils
 ) -> Dict[str, float]:
@@ -308,6 +429,7 @@ def get_video_metadata(
     post_id_as_string=False,
     use_redis_mappings=True,
     fetch_nsfw_probabilities=True,
+    fetch_view_counts=False,
 ):
     """
     Get metadata for video IDs from Redis (if available) and BigQuery with caching.
@@ -318,9 +440,10 @@ def get_video_metadata(
         post_id_as_string: If True, return post_id as string instead of int
         use_redis_mappings: If True, check Redis for post mappings first (default: True)
         fetch_nsfw_probabilities: If True, fetch NSFW probabilities from BigQuery (default: True)
+        fetch_view_counts: If True, fetch view counts from redis-impressions (default: False)
 
     Returns:
-        List of dictionaries with video metadata (canister_id, post_id, video_id, publisher_user_id, nsfw_probability)
+        List of dictionaries with video metadata (canister_id, post_id, video_id, publisher_user_id, nsfw_probability, num_views_loggedin, num_views_all)
     """
     if not video_ids:
         logger.warning("Empty video IDs list")
@@ -803,6 +926,39 @@ def get_video_metadata(
                         f"Updated NSFW probabilities for {updated_count} videos"
                     )
 
+        # Step 3.5: Fetch view counts from redis-impressions if requested
+        if fetch_view_counts and new_metadata:
+            all_video_ids_for_views = list(new_metadata.keys())
+            view_counts = get_video_view_counts_from_redis_impressions(
+                all_video_ids_for_views, gcp_utils
+            )
+
+            # Update metadata with view counts
+            if view_counts:
+                updated_count = 0
+                for video_id, (
+                    num_views_loggedin,
+                    num_views_all,
+                ) in view_counts.items():
+                    if video_id in new_metadata:
+                        new_metadata[video_id][
+                            "num_views_loggedin"
+                        ] = num_views_loggedin
+                        new_metadata[video_id]["num_views_all"] = num_views_all
+                        updated_count += 1
+
+                if updated_count > 0:
+                    logger.info(
+                        f"Updated view counts for {updated_count} videos from redis-impressions"
+                    )
+
+            # Set default values for videos without view counts
+            for video_id, metadata in new_metadata.items():
+                if "num_views_loggedin" not in metadata:
+                    metadata["num_views_loggedin"] = 0
+                if "num_views_all" not in metadata:
+                    metadata["num_views_all"] = 0
+
         # Step 4: Cache the new metadata (both Redis and BigQuery sourced) - single batch operation
         if new_metadata:
             with _cache_lock:
@@ -857,7 +1013,8 @@ def get_video_metadata(
     # Empty canister_ids should never be in the final response
     original_count = len(result_metadata)
     result_metadata = [
-        item for item in result_metadata
+        item
+        for item in result_metadata
         if item.get("canister_id") and item.get("canister_id") != ""
     ]
     filtered_count = original_count - len(result_metadata)
@@ -882,6 +1039,7 @@ def transform_recommendations_with_metadata(
     post_id_as_string=False,
     use_redis_mappings=True,
     fetch_nsfw_probabilities=True,
+    fetch_view_counts=False,
 ):
     """
     Transform mixer output while preserving the original format with recommendations and fallback_recommendations.
@@ -892,6 +1050,7 @@ def transform_recommendations_with_metadata(
         post_id_as_string: If True, return post_id as string instead of int (for v2 API)
         use_redis_mappings: If True, check Redis for post mappings first (default: True)
         fetch_nsfw_probabilities: If True, fetch NSFW probabilities from BigQuery (default: True)
+        fetch_view_counts: If True, fetch view counts from redis-impressions (default: False)
     Returns:
         Dictionary with combined recommendations as metadata objects
     """
@@ -920,6 +1079,7 @@ def transform_recommendations_with_metadata(
         post_id_as_string,
         use_redis_mappings,
         fetch_nsfw_probabilities,
+        fetch_view_counts,
     )
     logger.info(
         f">>> RETURNED FROM get_video_metadata with {len(video_metadata)} items"
