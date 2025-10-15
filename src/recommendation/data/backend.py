@@ -98,10 +98,9 @@ def _get_redis_impressions_client(gcp_utils=None) -> Optional[ValkeyService]:
             try:
                 logger.info(">>> ATTEMPTING TO INITIALIZE REDIS-IMPRESSIONS CLIENT")
 
-                # Hardcoded Redis connection details for impressions instance
-                # TODO: Replace with actual redis-impressions host
-                host = "impressions.yral.com"  # Redis-impressions host (hardcoded)
-                port = 6379  # Redis-impressions port (hardcoded)
+                # Hardcoded Redis connection details for impressions instance (DragonflyDB)
+                host = "95.217.210.24"  # DragonflyDB host (public IP)
+                port = 6379  # DragonflyDB port
                 authkey = os.environ.get("REDIS_IMPRESSIONS_AUTHKEY")
 
                 if not authkey:
