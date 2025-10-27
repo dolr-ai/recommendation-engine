@@ -1079,6 +1079,9 @@ def transform_recommendations_with_metadata(
 
     # Combine main and fallback recommendations into a single list
     all_video_ids = main_recs + fallback_recs
+    
+    # Log raw items before metadata fetch
+    logger.info(f"🔢 FOUND {len(all_video_ids)} RAW ITEMS before metadata fetch (main: {len(main_recs)}, fallback: {len(fallback_recs)})")
 
     # Fetch metadata for all video IDs
     logger.debug(
@@ -1095,6 +1098,10 @@ def transform_recommendations_with_metadata(
     logger.info(
         f">>> RETURNED FROM get_video_metadata with {len(video_metadata)} items"
     )
+    
+    # Calculate how many were filtered
+    filtered_count = len(all_video_ids) - len(video_metadata)
+    logger.warning(f"🔍 FILTERED {filtered_count} items from {len(all_video_ids)} RAW ITEMS due to metadata/mapping not present")
 
     # Create a mapping of video_id to metadata for quick lookup
     metadata_map = {item["video_id"]: item for item in video_metadata}
