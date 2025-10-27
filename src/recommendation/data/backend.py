@@ -561,8 +561,20 @@ def get_video_metadata(
             results_df = results_df[~na_mask]
             results_df = results_df.reset_index(drop=True)
 
-            # Fill NULL canister_ids with empty string (will be replaced with constant canister for v2 API)
+            # Fill NULL/empty canister_ids with a default so Redis lookup isn't skipped
+            # Prefer env RECSYS_DEFAULT_CANISTER_ID, else fallback to constant 'ivkka-7qaaa-aaaas-qbg3q-cai'
             results_df["canister_id"] = results_df["canister_id"].fillna("")
+            default_canister_id = os.environ.get(
+                "RECSYS_DEFAULT_CANISTER_ID", "ivkka-7qaaa-aaaas-qbg3q-cai"
+            )
+            missing_canister_mask = (
+                results_df["canister_id"].astype(str).str.strip() == ""
+            )
+            if missing_canister_mask.any():
+                logger.warning(
+                    f"Filling missing canister_id for {int(missing_canister_mask.sum())} records using default_canister_id"
+                )
+                results_df.loc[missing_canister_mask, "canister_id"] = default_canister_id
 
             logger.info(
                 f"📊 Retrieved {len(results_df)} metadata records from BigQuery"
