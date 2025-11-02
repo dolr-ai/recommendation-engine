@@ -337,45 +337,71 @@ class GlobalPopularL7DFallback(FallbackPopulator):
         # Determine the filter condition based on nsfw_label
         if self.nsfw_label:
             # NSFW content: nsfw_probability > 0.7
-            nsfw_filter = f"nsfw_probability > {NSFW_PROBABILITY_THRESHOLD_HIGH}"
+            nsfw_filter = f"> {NSFW_PROBABILITY_THRESHOLD_HIGH} AND vi.is_nsfw = True"
             content_type = "NSFW"
         else:
             # Clean content: nsfw_probability < 0.4
-            nsfw_filter = f"nsfw_probability < {NSFW_PROBABILITY_THRESHOLD_LOW}"
+            nsfw_filter = f"< {NSFW_PROBABILITY_THRESHOLD_LOW} AND vi.is_nsfw = False"
             content_type = "Clean"
 
+        # query = f"""
+        # WITH ranked_videos AS (
+        #     SELECT
+        #         video_id,
+        #         normalized_like_perc_p,
+        #         normalized_watch_perc_p,
+        #         global_popularity_score,
+        #         is_nsfw,
+        #         nsfw_ec,
+        #         nsfw_gore,
+        #         nsfw_probability,
+        #         PERCENT_RANK() OVER (ORDER BY global_popularity_score DESC) as percentile_rank
+        #     FROM
+        #         `{self.config["source_table"]}`
+        #     WHERE
+        #         {nsfw_filter}
+        #         AND video_id IS NOT NULL
+        #         AND global_popularity_score IS NOT NULL
+        # )
+        # SELECT
+        #     video_id,
+        #     normalized_like_perc_p,
+        #     normalized_watch_perc_p,
+        #     global_popularity_score,
+        #     is_nsfw,
+        #     nsfw_ec,
+        #     nsfw_gore,
+        #     nsfw_probability
+        # FROM ranked_videos
+        # WHERE percentile_rank <= {1 - self.percentile_threshold}
+        # ORDER BY
+        #     global_popularity_score DESC
+        # """
+
         query = f"""
-        WITH ranked_videos AS (
-            SELECT
-                video_id,
-                normalized_like_perc_p,
-                normalized_watch_perc_p,
-                global_popularity_score,
-                is_nsfw,
-                nsfw_ec,
-                nsfw_gore,
-                nsfw_probability,
-                PERCENT_RANK() OVER (ORDER BY global_popularity_score DESC) as percentile_rank
-            FROM
-                `{self.config["source_table"]}`
-            WHERE
-                {nsfw_filter}
-                AND video_id IS NOT NULL
-                AND global_popularity_score IS NOT NULL
-        )
-        SELECT
-            video_id,
-            normalized_like_perc_p,
-            normalized_watch_perc_p,
-            global_popularity_score,
-            is_nsfw,
-            nsfw_ec,
-            nsfw_gore,
-            nsfw_probability
-        FROM ranked_videos
-        WHERE percentile_rank <= {1 - self.percentile_threshold}
-        ORDER BY
-            global_popularity_score DESC
+        SELECT DISTINCT
+            REGEXP_EXTRACT(vi.uri, r'gs://yral-videos/([a-f0-9]{{32}})\.mp4') AS video_id,
+            vi.post_id,
+            COALESCE(vna.probability, 0.5) AS nsfw_probability,
+            COALESCE(vna.is_nsfw, vi.is_nsfw) AS is_nsfw,
+            COALESCE(vna.nsfw_ec, vi.nsfw_ec) AS nsfw_ec,
+            COALESCE(vna.nsfw_gore, vi.nsfw_gore) AS nsfw_gore,
+            0.0 AS normalized_like_perc_p,
+            0.0 AS normalized_watch_perc_p,
+            0.0 AS global_popularity_score
+        FROM
+            `yral_ds.video_index` vi
+        LEFT JOIN
+            `yral_ds.video_nsfw_agg` vna
+            ON REGEXP_EXTRACT(vi.uri, r'gs://yral-videos/([a-f0-9]{{32}})\.mp4') = vna.video_id
+        WHERE
+            vi.post_id IS NOT NULL
+            AND LENGTH(vi.post_id) > 5
+            AND SAFE_CAST(vi.post_id AS INT64) IS NULL
+            -- Ensure we successfully extracted a video_id from the URI
+            AND REGEXP_EXTRACT(vi.uri, r'gs://yral-videos/([a-f0-9]{{32}})\.mp4') IS NOT NULL
+            -- Apply NSFW filter
+            AND COALESCE(vna.probability, 0.5) {nsfw_filter}
         """
 
         df = self.gcp_utils.bigquery.execute_query(query, to_dataframe=True)
